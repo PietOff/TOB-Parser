@@ -357,7 +357,6 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                                 <th>Mkb</th>
                                 <th>BRL 7000</th>
                                 <th>Opmerking</th>
-                                <th>Complex</th>
                                 <th>Status Abel</th>
                                 <th>Opmerkingen Abel</th>
                                 <th>Acties</th>
@@ -365,12 +364,13 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                         </thead>
                         <tbody>
                             {locations.map(loc => {
-                                const isComplex = !!loc.complex;
                                 const isSelected = expandedCase === loc.locatiecode;
+                                const conclusie = (loc.conclusie || '').toLowerCase();
+                                const isVerdacht = conclusie.includes('verdacht') || conclusie.includes('verontreinigd');
                                 return (
                                     <tr
                                         key={loc.locatiecode}
-                                        className={`${isComplex ? 'row-complex' : ''} ${isSelected ? 'row-selected' : ''}`}
+                                        className={`${isVerdacht ? 'row-verdacht' : ''} ${isSelected ? 'row-selected' : ''}`}
                                         onClick={() => setExpandedCase(loc.locatiecode)}
                                         style={{ cursor: 'pointer', backgroundColor: isSelected ? 'var(--bg-secondary)' : undefined }}
                                     >
@@ -385,7 +385,7 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                                         <td>{loc.status}</td>
                                         <td>
                                             <select
-                                                value={loc.conclusie || (isComplex ? 'verdacht' : 'onverdacht')}
+                                                value={loc.conclusie || 'onverdacht'}
                                                 onChange={(e) => updateField(loc.locatiecode, 'conclusie', e.target.value)}
                                                 onClick={(e) => e.stopPropagation()}
                                                 className="inline-select"
@@ -415,7 +415,6 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                                         <td>{loc.mkb}</td>
                                         <td>{loc.brl7000}</td>
                                         <td title={loc.opmerking}>{loc.opmerking?.substring(0, 30)}{loc.opmerking?.length > 30 ? '...' : ''}</td>
-                                        <td>{loc.complex ? 'Ja' : 'Nee'}</td>
                                         <td>
                                             <select
                                                 value={loc.statusAbel || 'Nog te doen'}

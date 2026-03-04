@@ -322,13 +322,23 @@ body {
   background: var(--bg-card-hover);
 }
 
-.location-table tr.complex td,
-.location-table tr.row-complex td {
+.location-table tr.verdacht td,
+.location-table tr.row-verdacht td {
+  background: var(--warning-bg);
+}
+
+.location-table tr.verontreinigd td,
+.location-table tr.row-verontreinigd td {
   background: var(--danger-bg);
 }
 
-.location-table tr.complex:hover td,
-.location-table tr.row-complex:hover td {
+.location-table tr.verdacht:hover td,
+.location-table tr.row-verdacht:hover td {
+  background: rgba(245, 158, 11, 0.15);
+}
+
+.location-table tr.verontreinigd:hover td,
+.location-table tr.row-verontreinigd:hover td {
   background: rgba(239, 68, 68, 0.15);
 }
 

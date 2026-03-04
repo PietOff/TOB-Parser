@@ -12,31 +12,46 @@ L.Icon.Default.mergeOptions({
     shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-// Custom marker for contamination sites
-const contaminationIcon = new L.DivIcon({
+// Red icon for certainly contaminated
+const contaminatedIcon = new L.DivIcon({
     className: 'custom-marker',
     html: `<div style="
-        width: 24px; height: 24px;
+        width: 20px; height: 20px;
         background: linear-gradient(135deg, #ff4444, #cc0000);
-        border: 3px solid white;
+        border: 2px solid white;
         border-radius: 50%;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.4);
     "></div>`,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
 });
 
+// Orange icon for potentially contaminated (verdacht)
+const suspiciousIcon = new L.DivIcon({
+    className: 'custom-marker',
+    html: `<div style="
+        width: 20px; height: 20px;
+        background: linear-gradient(135deg, #ffa500, #ff8c00);
+        border: 2px solid white;
+        border-radius: 50%;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    "></div>`,
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+});
+
+// Green icon for clean sites
 const cleanIcon = new L.DivIcon({
     className: 'custom-marker',
     html: `<div style="
-        width: 24px; height: 24px;
+        width: 20px; height: 20px;
         background: linear-gradient(135deg, #44cc44, #228822);
-        border: 3px solid white;
+        border: 2px solid white;
         border-radius: 50%;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.4);
     "></div>`,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
 });
 
 // Component to auto-fit map bounds
@@ -98,7 +113,7 @@ export default function LocationMap({ locations = [], height = '400px', onLocati
             return {
                 ...loc,
                 lat, lon,
-                isComplex: loc.complex,
+                conclusie: loc.conclusie || 'onverdacht',
             };
         });
 
@@ -192,75 +207,91 @@ export default function LocationMap({ locations = [], height = '400px', onLocati
                         />
                     </LayersControl.Overlay>
 
-                    <LayersControl.Overlay name="📐 Kadastrale grenzen">
+                    <LayersControl.Overlay name="📐 Kadastrale Percelen (BRK)">
                         <WMSTileLayer
                             crossOrigin="anonymous"
                             url="https://service.pdok.nl/kadaster/kadastralekaart/wms/v5_0"
                             layers="Perceel"
                             format="image/png"
                             transparent={true}
-                            opacity={0.4}
+                            opacity={0.6}
                             attribution='&copy; Kadaster'
+                            params={{ crossOrigin: 'anonymous' }}
+                        />
+                    </LayersControl.Overlay>
+
+                    <LayersControl.Overlay name="🏠 Gebouwcontouren (BAG)">
+                        <WMSTileLayer
+                            crossOrigin="anonymous"
+                            url="https://service.pdok.nl/lvbag/bag/wms/v2_0"
+                            layers="pand"
+                            format="image/png"
+                            transparent={true}
+                            opacity={0.6}
+                            attribution='&copy; BAG'
                             params={{ crossOrigin: 'anonymous' }}
                         />
                     </LayersControl.Overlay>
                 </LayersControl>
 
-                {/* Location markers */}
-                {markers.map((marker, idx) => (
-                    <Marker
-                        key={marker.locatiecode || idx}
-                        position={[marker.lat, marker.lon]}
-                        icon={marker.isComplex ? contaminationIcon : cleanIcon}
-                        draggable={true}
-                        eventHandlers={{
-                            click: () => setActiveLocation(marker),
-                            dragend: (e) => {
-                                const latLng = e.target.getLatLng();
-                                if (onLocationDrag && marker.locatiecode) {
-                                    onLocationDrag(marker.locatiecode, latLng.lat, latLng.lng);
+                {markers.map((marker, idx) => {
+                    const conc = marker.conclusie.toLowerCase();
+                    const icon = conc.includes('zeker') || conc.includes('vbo') ? contaminatedIcon :
+                        conc.includes('verdacht') || conc.includes('onzeker') ? suspiciousIcon : cleanIcon;
+
+                    return (
+                        <Marker
+                            key={marker.locatiecode || idx}
+                            position={[marker.lat, marker.lon]}
+                            icon={icon}
+                            draggable={true}
+                            eventHandlers={{
+                                click: () => setActiveLocation(marker),
+                                dragend: (e) => {
+                                    const latLng = e.target.getLatLng();
+                                    if (onLocationDrag && marker.locatiecode) {
+                                        onLocationDrag(marker.locatiecode, latLng.lat, latLng.lng);
+                                    }
                                 }
-                            }
-                        }}
-                    >
-                        <Popup maxWidth={300}>
-                            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: '13px' }}>
-                                <div style={{
-                                    fontWeight: 700,
-                                    fontSize: '14px',
-                                    borderBottom: '1px solid #eee',
-                                    paddingBottom: '4px',
-                                    marginBottom: '6px',
-                                    color: marker.isComplex ? '#cc0000' : '#228822',
-                                }}>
-                                    {marker.isComplex ? '⚠️' : '✅'} {marker.locatiecode}
-                                </div>
-                                <div><b>Naam:</b> {marker.locatienaam || '—'}</div>
-                                <div><b>Adres:</b> {`${marker.straatnaam || ''} ${marker.huisnummer || ''}`.trim() || '—'}</div>
-                                {marker._enriched?.gemeente && (
-                                    <div><b>Gemeente:</b> {marker._enriched.gemeente}</div>
-                                )}
-                                {marker._enriched?.bodemkwaliteit?.[0] && (
-                                    <div><b>Bodemklasse:</b> {marker._enriched.bodemkwaliteit[0].klasse}</div>
-                                )}
-                                <div style={{ marginTop: '6px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                    {marker._enriched?.topotijdreisHuidig && (
-                                        <a href={marker._enriched.topotijdreisHuidig} target="_blank" rel="noopener noreferrer"
-                                            style={{ fontSize: '12px', color: '#1a73e8' }}>
-                                            🕰️ Topotijdreis
-                                        </a>
+                            }}
+                        >
+                            <Popup maxWidth={300}>
+                                <div style={{ fontFamily: 'Inter, sans-serif', fontSize: '13px' }}>
+                                    <div style={{
+                                        fontWeight: 700,
+                                        fontSize: '14px',
+                                        borderBottom: '1px solid #eee',
+                                        paddingBottom: '4px',
+                                        marginBottom: '6px'
+                                    }}>
+                                        {marker.conclusie}
+                                    </div>
+                                    <div><b>Naam:</b> {marker.locatienaam || '—'}</div>
+                                    <div><b>Adres:</b> {`${marker.straatnaam || ''} ${marker.huisnummer || ''}`.trim() || '—'}</div>
+                                    {marker._enriched?.gemeente && (
+                                        <div><b>Gemeente:</b> {marker._enriched.gemeente}</div>
                                     )}
-                                    {marker._enriched?.bodemloket && (
-                                        <a href={marker._enriched.bodemloket} target="_blank" rel="noopener noreferrer"
-                                            style={{ fontSize: '12px', color: '#1a73e8' }}>
-                                            🔍 Bodemloket
-                                        </a>
+                                    {marker._enriched?.bodemkwaliteit?.[0] && (
+                                        <div><b>Bodemklasse:</b> {marker._enriched.bodemkwaliteit[0].klasse}</div>
                                     )}
+                                    <div style={{ marginTop: '6px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                        {marker._enriched?.topotijdreisHuidig && (
+                                            <a href={marker._enriched.topotijdreisHuidig} target="_blank" rel="noopener noreferrer"
+                                                style={{ fontSize: '12px', color: '#1a73e8' }}>
+                                                🕰️ Topotijdreis
+                                            </a>
+                                        )}
+                                        {marker._enriched?.bodemloket && (
+                                            <a href={marker._enriched.bodemloket} target="_blank" rel="noopener noreferrer"
+                                                style={{ fontSize: '12px', color: '#1a73e8' }}>
+                                                🔍 Bodemloket
+                                            </a>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        </Popup>
-                    </Marker>
-                ))}
+                            </Popup>
+                        </Marker>
+                    ))}
             </MapContainer>
 
             {/* Map legend overlay */}
@@ -277,10 +308,11 @@ export default function LocationMap({ locations = [], height = '400px', onLocati
                 display: 'flex',
                 gap: '12px',
             }}>
-                <span>🔴 Complex</span>
-                <span>🟢 Onverdacht</span>
-                <span style={{ opacity: 0.7 }}>Kaartlaag = Bodemkwaliteitszone</span>
+                <span style={{ color: '#ff4444' }}>🔴 Verontreinigd</span>
+                <span style={{ color: '#ffa500' }}>🟠 Verdacht</span>
+                <span style={{ color: '#44cc44' }}>🟢 Onverdacht</span>
+                <span style={{ opacity: 0.7 }}>Tip: Zet 'Kadastrale Percelen' aan voor contouren</span>
             </div>
-        </div>
+        </div >
     );
 }

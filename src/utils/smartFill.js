@@ -227,7 +227,6 @@ export function assessLocation(location) {
     const melding = hasBasis ? (isVerdacht ? 'mba' : 'nee') : '';
     const mkb = hasBasis ? (isVerdacht ? 'ja laagscheiding' : 'nee') : '';
     const brl7000 = hasBasis ? (isVerdacht ? 'ja' : 'nee') : '';
-    const complex = isVerdacht;
     const statusAbel = hasBasis ? (isVerdacht ? 'Ter controle' : 'Gereed') : 'Niet beoordeeld';
     const opmerkingenAbel = reasons.length > 0 ? reasons.join('; ') : (hasBasis ? 'geen' : 'Geen data gevonden voor beoordeling');
 
@@ -242,7 +241,6 @@ export function assessLocation(location) {
         mkb,
         brl7000,
         opmerking: reasons[0] || (hasBasis ? 'geen' : ''),
-        complex,
         statusAbel,
         opmerkingenAbel,
         // NEW: All the missing columns
