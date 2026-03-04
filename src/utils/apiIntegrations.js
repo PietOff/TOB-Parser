@@ -312,13 +312,9 @@ export async function getBuildingDetails(rdX, rdY, buffer = 10) {
 
 /**
  * Enrich a single TOB location with data from all available APIs
- * Call this for each location to add address details, coordinates, 
- * historical map links, and soil quality data.
- * 
- * Implements "Deep Investigation": tries multiple searches and performs 
- * background checks on all relevant protocol sources.
+ * contextPostcode is an optional postcode shared from neighboring locations on the same street
  */
-export async function enrichLocation(location) {
+export async function enrichLocation(location, contextPostcode = null) {
     const enriched = { ...location, _enriched: {} };
 
     // Step 0: Detect and try Nazca location code lookup
@@ -340,9 +336,10 @@ export async function enrichLocation(location) {
 
     // Step 1: Geocode - Priority on Address/Name over location codes
     const queries = [];
+    const effectivePostcode = location.postcode || contextPostcode;
 
-    // 1. Street + House Number + Postcode + City
-    const fullAddr = [location.straatnaam, location.huisnummer, location.postcode, location.woonplaats].filter(Boolean).join(' ');
+    // 1. Street + House Number + (Effective) Postcode + City
+    const fullAddr = [location.straatnaam, location.huisnummer, effectivePostcode, location.woonplaats].filter(Boolean).join(' ');
     if (fullAddr) queries.push(fullAddr);
 
     // 2. Street + City (for wider matching if house number fails)
@@ -448,11 +445,36 @@ export async function enrichLocation(location) {
  * Enrich all locations (with rate limiting to avoid API abuse)
  */
 export async function enrichAllLocations(locations, onProgress) {
+    // Phase 1: Context building (Postcode Proximity)
+    // Map street names to the most likely postcode if found in the list
+    const streetContext = {};
+    for (const loc of locations) {
+        if (loc.straatnaam && loc.postcode) {
+            const street = loc.straatnaam.toLowerCase().trim();
+            if (!streetContext[street]) streetContext[street] = new Set();
+            streetContext[street].add(loc.postcode.replace(/\s+/g, '').toUpperCase());
+        }
+    }
+
     const enriched = [];
     for (let i = 0; i < locations.length; i++) {
         if (onProgress) onProgress(i + 1, locations.length);
-        const loc = await enrichLocation(locations[i]);
-        enriched.push(loc);
+
+        const loc = locations[i];
+        let contextPostcode = null;
+
+        if (loc.straatnaam && !loc.postcode) {
+            const street = loc.straatnaam.toLowerCase().trim();
+            if (streetContext[street]) {
+                // Use the first postcode found for this street as context
+                contextPostcode = Array.from(streetContext[street])[0];
+                console.log(`📍 [Context] Applying postcode ${contextPostcode} to street ${loc.straatnaam}`);
+            }
+        }
+
+        const enrichedLoc = await enrichLocation(loc, contextPostcode);
+        enriched.push(enrichedLoc);
+
         // Rate limit: 200ms between requests
         if (i < locations.length - 1) {
             await new Promise(r => setTimeout(r, 200));

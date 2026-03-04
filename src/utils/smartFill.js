@@ -204,15 +204,29 @@ export function assessLocation(location) {
     }
 
     // ── Result compilation ──
-    const status = location.status || (rapportJaar ? `Rapport ${rapportJaar}` : 'Onbekend');
-    const conclusie = isVerdacht ? 'Verdacht' : 'Onverdacht';
-    const veiligheidsklasse = isVerdacht ? 'Basishygiëne (Oranje/Rood)' : 'Basisklasse';
-    const melding = isVerdacht ? 'Ja (verontreiniging)' : 'Nee';
-    const mkb = isVerdacht ? 'Nee' : 'Ja';
-    const brl7000 = isVerdacht ? 'Ja' : 'Nee';
+    const status = location.status || (rapportJaar ? `rap ${Math.min(4, Math.max(1, 2024 - parseInt(rapportJaar)))}` : 'geen rapporten');
+
+    let conclusie = 'onverdacht';
+    if (isVerdacht) {
+        const exceedingStof = location.stoffen?.find(s => {
+            const key = s.stof?.toLowerCase().replace(/[^a-z_]/g, '').replace('minerale olie', 'minerale_olie');
+            const info = STOF_DATA[key];
+            return info && s.waarde > info.interventie_grond;
+        });
+        if (exceedingStof) {
+            conclusie = `VBO verdacht (boorpunt ${exceedingStof.stof} >I)`;
+        } else {
+            conclusie = 'verdacht';
+        }
+    }
+
+    const veiligheidsklasse = 'basishygiene'; // Default from protocol
+    const melding = isVerdacht ? 'mba' : 'nee'; // 'mba' if verdacht
+    const mkb = isVerdacht ? 'ja laagscheiding' : 'nee';
+    const brl7000 = isVerdacht ? 'ja' : 'nee';
     const complex = isVerdacht;
     const statusAbel = isVerdacht ? 'Ter controle' : 'Gereed';
-    const opmerkingenAbel = reasons.length > 0 ? reasons.join('; ') : 'Gereed: Geen kritieke markers gevonden.';
+    const opmerkingenAbel = reasons.length > 0 ? reasons.join('; ') : 'geen';
 
     return {
         ...location,
@@ -222,7 +236,7 @@ export function assessLocation(location) {
         melding,
         mkb,
         brl7000,
-        opmerking: reasons[0] || 'Voldoet aan achtergrondwaarden.',
+        opmerking: reasons[0] || 'geen',
         complex,
         statusAbel,
         opmerkingenAbel,
