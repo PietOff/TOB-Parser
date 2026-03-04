@@ -68,6 +68,22 @@ export default function DataPreview({ locations, onLocationsUpdate }) {
                 <div className="legend-item"><div className="legend-dot empty" /> In te vullen</div>
             </div>
 
+            {/* Master Map Overview */}
+            {locations.length > 0 && (
+                <div className="preview-section" style={{ marginBottom: '2rem' }}>
+                    <h2>🗺️ Overzichtskaart ({locations.length} locaties)</h2>
+                    <div style={{
+                        fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem',
+                        backgroundColor: 'var(--bg-secondary)', padding: '0.75rem', borderRadius: 'var(--radius-sm)'
+                    }}>
+                        <b>Tip:</b> Rode markers zijn Complexe zaken. Groene markers zijn Onverdacht. Gebruik de lagen-knop rechtsboven voor Bodemkwaliteit en Percelen.
+                    </div>
+                    <Suspense fallback={<div className="spinner-container"><div className="spinner"></div> Kaart laden...</div>}>
+                        <LocationMap locations={locations} height="400px" />
+                    </Suspense>
+                </div>
+            )}
+
             {/* Complex cases */}
             {complexLocations.length > 0 && (
                 <div className="preview-section">

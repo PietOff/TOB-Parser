@@ -1,96 +1,158 @@
 import { useState } from 'react';
-import { generateSmartContent, assessLocation, getTobColumns } from '../utils/smartFill';
+import { generateSmartContent, assessLocation } from '../utils/smartFill';
+import * as XLSX from 'xlsx';
+
+// Helper to format keys like 'planVanAanpak' into 'Plan Van Aanpak'
+function camelToLabel(str) {
+    return str
+        .replace(/([A-Z])/g, ' $1')
+        .replace(/^./, (s) => s.toUpperCase())
+        .replace(/_/g, ' ');
+}
 
 export default function ExportPanel({ locations }) {
-    const [sheetUrl, setSheetUrl] = useState('');
-    const [appsScriptUrl, setAppsScriptUrl] = useState('https://script.google.com/macros/s/AKfycbxkDL0r8JGlPiqsLvDW7daqek4yhNpMWIID0gZZ4FJ02X7Hrs3HOxk-tOR3CoNX_48S/exec');
     const [exporting, setExporting] = useState(false);
     const [result, setResult] = useState(null);
 
-    const handleExport = async () => {
-        if (!appsScriptUrl) {
-            setResult({ success: false, message: 'Voer de Apps Script URL in' });
-            return;
-        }
-
+    const handleExportExcel = async () => {
         setExporting(true);
         setResult(null);
 
         try {
-            // Prepare data for export
-            const exportData = {
-                sheetUrl,
-                overzicht: locations.map(loc => {
-                    const assessment = assessLocation(loc);
-                    return {
-                        locatiecode: loc.locatiecode,
-                        locatienaam: loc.locatienaam,
-                        straatnaam: loc.straatnaam,
-                        huisnummer: loc.huisnummer,
-                        postcode: loc.postcode,
-                        status: loc.status,
-                        conclusie: loc.conclusie,
-                        veiligheidsklasse: loc.veiligheidsklasse,
-                        melding: loc.melding,
-                        mkb: loc.mkb,
-                        brl7000: loc.brl7000,
-                        opmerking: loc.opmerking,
-                        complex: loc.complex ? 'Ja' : 'Nee',
-                        beoordeling: assessment.beoordeling,
-                        prioriteit: assessment.prioriteit,
-                        rapportJaar: loc.rapportJaar || '',
-                        afstandTrace: loc.afstandTrace || '',
-                        statusAbel: '',
-                        opmerkingenAbel: loc.opmerkingenAbel || '',
-                        gemeente: loc._enriched?.gemeente || '',
-                        provincie: loc._enriched?.provincie || '',
-                        rdX: loc._enriched?.rdX || '',
-                        rdY: loc._enriched?.rdY || '',
-                        bodemkwaliteitsklasse: loc._enriched?.bodemkwaliteit?.[0]?.klasse || '',
-                        topotijdreisLink: loc._enriched?.topotijdreisHuidig || '',
-                        bodemloketLink: loc._enriched?.bodemloket || '',
-                        toelichting: assessment.toelichting || '',
-                        actie: assessment.actie || '',
-                    };
-                }),
-                complexeCases: locations.filter(l => l.complex).map(loc => {
-                    const smart = loc.stoffen?.length > 0
-                        ? generateSmartContent({
-                            stof: loc.stoffen[0].stof,
-                            waarde: loc.stoffen[0].waarde,
-                            diepte: loc.dieptes?.[0] || '',
-                            boorpunt: '',
-                            naam: loc.locatienaam,
-                            straat: loc.straatnaam,
-                            code: loc.locatiecode,
-                        })
-                        : null;
+            const wb = XLSX.utils.book_new();
 
-                    return {
-                        code: loc.locatiecode,
+            // ==========================================
+            // 1. OVERZICHT LOCATIES TAB
+            // ==========================================
+            const overzichtHeaders = [
+                'Locatiecode', 'Locatienaam', 'Straatnaam', 'Huisnummer', 'Postcode',
+                'Status rapport', 'Conclusie', 'Veiligheidsklasse', 'Melding', 'MKB',
+                'BRL 7000', 'Opmerking', 'Complex', 'Beoordeling', 'Prioriteit',
+                'Rapportjaar', 'Afstand trace (m)', 'Status AbelTalent', 'Opmerkingen AbelTalent',
+                'Gemeente', 'Provincie', 'RD-X', 'RD-Y', 'Bodemkwaliteitsklasse',
+                'Topotijdreis Link', 'Bodemloket Link', 'Toelichting', 'Actie'
+            ];
+
+            const overzichtData = [overzichtHeaders];
+
+            for (const loc of locations) {
+                const assessment = assessLocation(loc);
+                overzichtData.push([
+                    loc.locatiecode || '', loc.locatienaam || '', loc.straatnaam || '', loc.huisnummer || '', loc.postcode || '',
+                    loc.status || '', loc.conclusie || '', loc.veiligheidsklasse || '', loc.melding || '', loc.mkb || '',
+                    loc.brl7000 || '', loc.opmerking || '', loc.complex ? 'Ja' : 'Nee', assessment.beoordeling || '', assessment.prioriteit || '',
+                    loc.rapportJaar || '', loc.afstandTrace || '', '', loc.opmerkingenAbel || '',
+                    loc._enriched?.gemeente || '', loc._enriched?.provincie || '', loc._enriched?.rdX || '', loc._enriched?.rdY || '',
+                    loc._enriched?.bodemkwaliteit?.[0]?.klasse || '', loc._enriched?.topotijdreisHuidig || '', loc._enriched?.bodemloket || '',
+                    assessment.toelichting || '', assessment.actie || ''
+                ]);
+            }
+
+            const wsOverzicht = XLSX.utils.aoa_to_sheet(overzichtData);
+
+            // Set basic column widths
+            wsOverzicht['!cols'] = [
+                { wch: 20 }, { wch: 30 }, { wch: 25 }, { wch: 10 }, { wch: 10 },
+                { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 15 },
+                { wch: 15 }, { wch: 30 }, { wch: 10 }, { wch: 20 }, { wch: 15 },
+            ];
+
+            XLSX.utils.book_append_sheet(wb, wsOverzicht, 'Overzicht Locaties');
+
+            // ==========================================
+            // 2. CHECKLIST TAB
+            // ==========================================
+            const checklistHeaders = ['Locatiecode', 'Stof', 'Document', 'Status', 'Toelichting'];
+            const checklistData = [checklistHeaders];
+            const docs = ['Nader afperkend onderzoek', 'Saneringsplan', 'BUS-melding', 'V&G-plan', 'MKB-plan', 'Evaluatierapport'];
+
+            const complexeCases = locations.filter(l => l.complex);
+
+            for (const loc of complexeCases) {
+                for (const doc of docs) {
+                    checklistData.push([loc.locatiecode, loc.stoffen?.[0]?.stof || '', doc, 'Nog te doen', '']);
+                }
+            }
+
+            const wsChecklist = XLSX.utils.aoa_to_sheet(checklistData);
+            wsChecklist['!cols'] = [{ wch: 20 }, { wch: 20 }, { wch: 25 }, { wch: 15 }, { wch: 40 }];
+            XLSX.utils.book_append_sheet(wb, wsChecklist, 'Checklist');
+
+            // ==========================================
+            // 3. COMPLEXE ZAKEN TABBLADEN
+            // ==========================================
+            for (const loc of complexeCases) {
+                const smart = loc.stoffen?.length > 0
+                    ? generateSmartContent({
+                        stof: loc.stoffen[0].stof,
+                        waarde: loc.stoffen[0].waarde,
+                        diepte: loc.dieptes?.[0] || '',
+                        boorpunt: '',
                         naam: loc.locatienaam,
-                        stof: loc.stoffen?.[0]?.stof || '',
-                        waarde: loc.stoffen?.[0]?.waarde || '',
-                        smart,
-                    };
-                }),
-            };
+                        straat: loc.straatnaam,
+                        code: loc.locatiecode,
+                    })
+                    : null;
 
-            const response = await fetch(appsScriptUrl, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(exportData),
-            });
+                const caseData = [];
+                caseData.push([`Complexe Zaak: ${loc.locatiecode}`]);
+                caseData.push([]); // empty line
+
+                if (smart) {
+                    const sections = [
+                        { title: 'LOCATIEGEGEVENS', fields: smart.locatie },
+                        { title: 'VERONTREINIGING', fields: smart.verontreiniging },
+                        { title: 'HISTORISCH VOORONDERZOEK', fields: smart.historisch },
+                        { title: 'RISICOBEOORDELING', fields: smart.risico },
+                        { title: 'CONCLUSIE & ADVIES', fields: smart.conclusie },
+                        { title: 'PLAN VAN AANPAK', fields: smart.planVanAanpak },
+                        { title: 'MELDING BEVOEGD GEZAG', fields: smart.melding },
+                        { title: 'MKB & VEILIGHEID', fields: smart.mkb },
+                    ];
+
+                    for (const section of sections) {
+                        caseData.push([section.title]);
+                        if (section.fields) {
+                            for (const [k, v] of Object.entries(section.fields)) {
+                                caseData.push([camelToLabel(k), v]);
+                            }
+                        }
+                        caseData.push([]); // explicit empty line separator
+                    }
+                }
+
+                const wsCase = XLSX.utils.aoa_to_sheet(caseData);
+                wsCase['!cols'] = [{ wch: 30 }, { wch: 80 }]; // Field Label, Field Text
+
+                // Construct safe Excel tab name (max 31 chars, no invalid symbols)
+                const rawName = `CZ - ${loc.locatiecode || 'Onbekend'} ${loc.stoffen?.[0]?.stof || ''}`;
+                let safeTabName = rawName.replace(/[\\/?*[\]:]/g, '').substring(0, 31).trim();
+
+                // Deduplicate sheet names if any clash
+                let count = 1;
+                while (wb.SheetNames.includes(safeTabName)) {
+                    safeTabName = `${safeTabName.substring(0, 27)}(${count})`;
+                    count++;
+                }
+
+                XLSX.utils.book_append_sheet(wb, wsCase, safeTabName);
+            }
+
+            // ==========================================
+            // WRITE EXCEL FILE
+            // ==========================================
+            const filename = `TOB-Rapportage-${new Date().toISOString().split('T')[0]}.xlsx`;
+            XLSX.writeFile(wb, filename);
 
             setResult({
                 success: true,
-                message: `✅ Data verzonden! ${locations.length} locaties, waarvan ${locations.filter(l => l.complex).length} complex. Controleer de Google Sheet.`
+                message: `✅ Succes! Excel Rapportage met ${locations.length} locaties is gedownload.`
             });
         } catch (err) {
+            console.error(err);
             setResult({
                 success: false,
-                message: `❌ Fout bij export: ${err.message}`
+                message: `❌ Fout bij Excel generatie: ${err.message}`
             });
         } finally {
             setExporting(false);
@@ -118,56 +180,40 @@ export default function ExportPanel({ locations }) {
 
     return (
         <div className="export-panel">
-            <h2>📊 Export naar Google Sheets</h2>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem', fontSize: '0.875rem' }}>
-                Voer de URL van je Google Apps Script Web App in om de data te exporteren.
-                Je kunt ook de data als JSON downloaden.
+            <h2>📥 Download Rapportage</h2>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
+                Genereer een complete Excel-rapportage van je onderzoek.
+                De Excel bevat één overzichtslijst, een actie-checklist en automatische verslaglegging per complexe zaak (elke in een eigen tabblad).
             </p>
-
-            <div className="export-input-group">
-                <input
-                    type="url"
-                    placeholder="Google Apps Script Web App URL..."
-                    value={appsScriptUrl}
-                    onChange={(e) => setAppsScriptUrl(e.target.value)}
-                />
-            </div>
-
-            <div className="export-input-group">
-                <input
-                    type="url"
-                    placeholder="Google Sheet URL (optioneel, voor referentie)..."
-                    value={sheetUrl}
-                    onChange={(e) => setSheetUrl(e.target.value)}
-                />
-            </div>
 
             <div className="btn-group" style={{ justifyContent: 'flex-start' }}>
                 <button
-                    className="btn btn-success"
-                    onClick={handleExport}
-                    disabled={exporting || !appsScriptUrl}
+                    className="btn btn-primary"
+                    onClick={handleExportExcel}
+                    disabled={exporting || locations.length === 0}
+                    style={{ padding: '0.75rem 1.5rem', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
                 >
                     {exporting ? (
-                        <><div className="spinner" /> Exporteren...</>
+                        <><div className="spinner" style={{ width: '16px', height: '16px' }} /> Genereren...</>
                     ) : (
-                        <>📤 Exporteer naar Google Sheets</>
+                        <>📊 Download Excel Rapportage (.xlsx)</>
                     )}
                 </button>
 
                 <button className="btn btn-secondary" onClick={handleDownloadJson}>
-                    💾 Download als JSON
+                    💾 Download Ruwe Data (.json)
                 </button>
             </div>
 
             {result && (
                 <div style={{
-                    marginTop: '1rem',
+                    marginTop: '1.5rem',
                     padding: '1rem',
                     borderRadius: 'var(--radius-sm)',
                     background: result.success ? 'var(--success-bg)' : 'var(--danger-bg)',
                     color: result.success ? 'var(--success)' : 'var(--danger)',
                     fontSize: '0.875rem',
+                    fontWeight: 500
                 }}>
                     {result.message}
                 </div>
