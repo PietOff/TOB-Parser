@@ -75,9 +75,12 @@ export async function lookupNazcaCode(nazcaCode) {
  * Search for an address using PDOK Locatieserver
  * Returns geocoded results with coordinates and address details
  */
-export async function pdokSearch(query) {
+export async function pdokSearch(query, cityContext = null) {
     try {
-        const url = `${PDOK_LOCATIE_BASE}/free?q=${encodeURIComponent(query)}&rows=5`;
+        let url = `${PDOK_LOCATIE_BASE}/free?q=${encodeURIComponent(query)}&rows=5`;
+        if (cityContext) {
+            url += `&fq=woonplaatsnaam:${encodeURIComponent(cityContext)}`;
+        }
         const res = await fetch(url);
         if (!res.ok) throw new Error(`PDOK: ${res.status}`);
         const data = await res.json();
@@ -315,9 +318,9 @@ export async function getBuildingDetails(rdX, rdY, buffer = 10) {
 /**
  * Enrich a single TOB location with data from all available APIs
  * contextPostcode is an optional postcode shared from neighboring locations on the same street
- * cityCounts is an object of all cities in the project and their frequencies
+ * primaryCity is the most frequent city in the dataset, used for strict geocoding fallback
  */
-export async function enrichLocation(location, contextPostcode = null, cityCounts = {}) {
+export async function enrichLocation(location, contextPostcode = null, primaryCity = null) {
     const enriched = { ...location, _enriched: {} };
 
     // Step 0: Detect and try Nazca location code lookup
@@ -380,7 +383,7 @@ export async function enrichLocation(location, contextPostcode = null, cityCount
 
     for (const q of queries) {
         if (!q.trim()) continue;
-        results = await pdokSearch(q);
+        results = await pdokSearch(q, primaryCity);
         // Strict PDOK filters often return good hits. We accept the first query that yields results.
         if (results.length > 0) {
             console.log(`✅ [Geocode] Success for "${q}": Found ${results.length} results.`);
@@ -390,10 +393,9 @@ export async function enrichLocation(location, contextPostcode = null, cityCount
 
     // If still no results, try a "fuzzy" search on the location name
     if (results.length === 0 && location.locatienaam) {
-        const topCity = Object.entries(cityCounts).sort((a, b) => b[1] - a[1]).map(e => e[0])[0] || '';
-        const fuzzyQuery = [location.locatienaam, location.woonplaats || topCity].filter(Boolean).join(' ');
+        const fuzzyQuery = [location.locatienaam, location.woonplaats || primaryCity].filter(Boolean).join(' ');
         console.log(`⚠️ [Geocode] Trying fuzzy name fallback: "${fuzzyQuery}"`);
-        results = await pdokSearch(fuzzyQuery);
+        results = await pdokSearch(fuzzyQuery, primaryCity);
     }
 
     if (results.length > 0) {
@@ -499,16 +501,17 @@ export async function enrichAllLocations(locations, onProgress) {
                 console.log(`📍 [Context] Applying postcode ${contextPostcode} to street ${loc.straatnaam}`);
             }
         }
-
-        const enrichedLoc = await enrichLocation(loc, contextPostcode, cityCounts);
-        enriched.push(enrichedLoc);
-
-        // Rate limit: 200ms between requests
-        if (i < locations.length - 1) {
-            await new Promise(r => setTimeout(r, 200));
-        }
     }
-    return enriched;
+
+    const enrichedLoc = await enrichLocation(loc, contextPostcode, topCities[0] || null);
+    enriched.push(enrichedLoc);
+
+    // Rate limit: 200ms between requests
+    if (i < locations.length - 1) {
+        await new Promise(r => setTimeout(r, 200));
+    }
+}
+return enriched;
 }
 
 // ══════════════════════════════════════
