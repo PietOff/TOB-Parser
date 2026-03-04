@@ -3,7 +3,7 @@ import { generateSmartContent, assessLocation, getTobColumns } from '../utils/sm
 
 export default function ExportPanel({ locations }) {
     const [sheetUrl, setSheetUrl] = useState('');
-    const [appsScriptUrl, setAppsScriptUrl] = useState('');
+    const [appsScriptUrl, setAppsScriptUrl] = useState('https://script.google.com/macros/s/AKfycbxkDL0r8JGlPiqsLvDW7daqek4yhNpMWIID0gZZ4FJ02X7Hrs3HOxk-tOR3CoNX_48S/exec');
     const [exporting, setExporting] = useState(false);
     const [result, setResult] = useState(null);
 
