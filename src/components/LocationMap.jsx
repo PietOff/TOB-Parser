@@ -55,7 +55,7 @@ function FitBounds({ positions }) {
  * LocationMap — Interactive map showing TOB locations
  * with PDOK background layers and Bodemkwaliteitskaart WMS overlay
  */
-export default function LocationMap({ locations = [], height = '400px' }) {
+export default function LocationMap({ locations = [], height = '400px', onLocationDrag }) {
     const [activeLocation, setActiveLocation] = useState(null);
 
     console.log(`🗺️ [Map] Received ${locations.length} locations.`);
@@ -197,8 +197,15 @@ export default function LocationMap({ locations = [], height = '400px' }) {
                         key={marker.locatiecode || idx}
                         position={[marker.lat, marker.lon]}
                         icon={marker.isComplex ? contaminationIcon : cleanIcon}
+                        draggable={true}
                         eventHandlers={{
                             click: () => setActiveLocation(marker),
+                            dragend: (e) => {
+                                const latLng = e.target.getLatLng();
+                                if (onLocationDrag && marker.locatiecode) {
+                                    onLocationDrag(marker.locatiecode, latLng.lat, latLng.lng);
+                                }
+                            }
                         }}
                     >
                         <Popup maxWidth={300}>

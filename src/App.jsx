@@ -112,6 +112,33 @@ export default function App() {
         }
     }, []);
 
+    // Handle manual marker drag from the map
+    const handleLocationDrag = (locatiecode, newLat, newLng) => {
+        setLocations(prevLocations =>
+            prevLocations.map(loc => {
+                if (loc.locatiecode === locatiecode || loc.id === locatiecode) {
+                    const { wgs84ToRd } = require('./utils/apiIntegrations');
+                    const newRd = wgs84ToRd(newLat, newLng);
+
+                    console.log(`🗺️ [Map] Manual correction for ${locatiecode}: Lat ${newLat.toFixed(5)}, Lng ${newLng.toFixed(5)} -> RD X: ${newRd.x}, Y: ${newRd.y}`);
+
+                    return {
+                        ...loc,
+                        _enriched: {
+                            ...loc._enriched,
+                            lat: newLat,
+                            lon: newLng,
+                            rd: newRd
+                        },
+                        rdX: newRd.x,
+                        rdY: newRd.y
+                    };
+                }
+                return loc;
+            })
+        );
+    };
+
     return (
         <div className="app">
             <header className="app-header">
@@ -157,6 +184,7 @@ export default function App() {
                     <DataPreview
                         locations={locations}
                         onLocationsUpdate={setLocations}
+                        onLocationDrag={handleLocationDrag}
                     />
                     <div className="btn-group">
                         <button className="btn btn-secondary" onClick={() => setStep(1)}>

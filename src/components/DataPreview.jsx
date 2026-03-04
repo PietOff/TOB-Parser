@@ -194,7 +194,11 @@ export default function DataPreview({ locations, onLocationsUpdate }) {
                                                             <b>Tip:</b> Gebruik het lagen-icoon rechtsboven in de kaart om de <i>Bodemkwaliteitskaart</i> of <i>Kadastrale grenzen</i> aan/uit te zetten.
                                                         </div>
                                                         <Suspense fallback={<div className="spinner-container"><div className="spinner"></div> Kaart laden...</div>}>
-                                                            <LocationMap locations={[loc]} height="350px" />
+                                                            <LocationMap
+                                                                locations={[loc]}
+                                                                height="350px"
+                                                                onLocationDrag={onLocationDrag}
+                                                            />
                                                         </Suspense>
                                                     </div>
                                                 )}
