@@ -204,29 +204,34 @@ export function assessLocation(location) {
     }
 
     // ── Result compilation ──
-    const status = location.status || (rapportJaar ? `rap ${Math.min(4, Math.max(1, 2024 - parseInt(rapportJaar)))}` : 'geen rapporten');
+    const hasBasis = !!(enriched.pdok || (location.stoffen && location.stoffen.length > 0) || rapportJaar || (location.status && location.status.includes('rap')));
 
-    let conclusie = 'onverdacht';
-    if (isVerdacht) {
-        const exceedingStof = location.stoffen?.find(s => {
-            const key = s.stof?.toLowerCase().replace(/[^a-z_]/g, '').replace('minerale olie', 'minerale_olie');
-            const info = STOF_DATA[key];
-            return info && s.waarde > info.interventie_grond;
-        });
-        if (exceedingStof) {
-            conclusie = `VBO verdacht (boorpunt ${exceedingStof.stof} >I)`;
-        } else {
-            conclusie = 'verdacht';
+    let conclusie = '';
+    if (hasBasis) {
+        conclusie = 'onverdacht';
+        if (isVerdacht) {
+            const exceedingStof = location.stoffen?.find(s => {
+                const key = s.stof?.toLowerCase().replace(/[^a-z_]/g, '').replace('minerale olie', 'minerale_olie');
+                const info = STOF_DATA[key];
+                return info && s.waarde > info.interventie_grond;
+            });
+            if (exceedingStof) {
+                conclusie = `VBO verdacht (boorpunt ${exceedingStof.stof} >I)`;
+            } else {
+                conclusie = 'verdacht';
+            }
         }
     }
 
-    const veiligheidsklasse = 'basishygiene'; // Default from protocol
-    const melding = isVerdacht ? 'mba' : 'nee'; // 'mba' if verdacht
-    const mkb = isVerdacht ? 'ja laagscheiding' : 'nee';
-    const brl7000 = isVerdacht ? 'ja' : 'nee';
+    const veiligheidsklasse = hasBasis ? 'basishygiene' : '';
+    const melding = hasBasis ? (isVerdacht ? 'mba' : 'nee') : '';
+    const mkb = hasBasis ? (isVerdacht ? 'ja laagscheiding' : 'nee') : '';
+    const brl7000 = hasBasis ? (isVerdacht ? 'ja' : 'nee') : '';
     const complex = isVerdacht;
-    const statusAbel = isVerdacht ? 'Ter controle' : 'Gereed';
-    const opmerkingenAbel = reasons.length > 0 ? reasons.join('; ') : 'geen';
+    const statusAbel = hasBasis ? (isVerdacht ? 'Ter controle' : 'Gereed') : 'Niet beoordeeld';
+    const opmerkingenAbel = reasons.length > 0 ? reasons.join('; ') : (hasBasis ? 'geen' : 'Geen data gevonden voor beoordeling');
+
+    const status = location.status || (rapportJaar ? `rap ${Math.min(4, Math.max(1, 2024 - parseInt(rapportJaar)))}` : (hasBasis ? 'geen rapporten' : ''));
 
     return {
         ...location,
@@ -236,15 +241,15 @@ export function assessLocation(location) {
         melding,
         mkb,
         brl7000,
-        opmerking: reasons[0] || 'geen',
+        opmerking: reasons[0] || (hasBasis ? 'geen' : ''),
         complex,
         statusAbel,
         opmerkingenAbel,
         // NEW: All the missing columns
-        beoordeling,
-        prioriteit,
-        toelichting,
-        actie,
+        beoordeling: hasBasis ? beoordeling : '',
+        prioriteit: hasBasis ? prioriteit : '',
+        toelichting: hasBasis ? toelichting : '',
+        actie: hasBasis ? actie : '',
         gemeente,
         provincie,
         rdX,
