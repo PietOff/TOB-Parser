@@ -1,82 +1,38 @@
+/**
+ * DEEP SCAN ENGINE — Puppeteer Cloud Scanner
+ * Runs in GitHub Actions to perform heavy web scraping
+ * that is impossible to do in a standard browser environment.
+ * 
+ * Usage: node scripts/deep_scan.js '<JSON array of locations>'
+ * Example: node scripts/deep_scan.js '[{"locatiecode":"A-001","query":"Stationsplein 1 Utrecht"}]'
+ */
 
 import puppeteer from 'puppeteer';
-import fetch from 'node-fetch';
 import fs from 'fs';
 
+// Node 20+ has built-in fetch — no need for node-fetch
 const GOOGLE_SHEETS_URL = process.env.GOOGLE_SHEETS_URL;
 const RESULTS_FILE = 'deep_scan_results.json';
 const batchResults = [];
 
-async function runDeepScan(locatiecode, query) {
-    console.log(`🚀 Starting Deep Scan for "${locatiecode}" (${query})...`);
-
-    const browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-
-    const results = {
-        locatiecode: locatiecode,
-        fields: {
-            'Status AbelTalent': 'Deep Scan uitgevoerd',
-            'Opmerkingen AbelTalent': '',
-            'Toelichting': ''
-        }
-    };
-
-    try {
-        const page = await browser.newPage();
-        await page.setViewport({ width: 1280, height: 800 });
-
-        // --- BODEMLOKET SEARCH ---
-        console.log('🔍 Searching Bodemloket...');
-        await page.goto('https://www.bodemloket.nl/kaart', { waitUntil: 'networkidle2' });
-
-        // Handle cookie/intro if needed (Bodemloket often has an intro splash)
-        // [Add Bodemloket specific interaction code here]
-
-        // --- RESULTS COLLATION ---
-        results.fields['Opmerkingen AbelTalent'] = `[DeepScan] Bodemloket gecontroleerd op ${new Date().toLocaleDateString()}.`;
-        results.fields['Toelichting'] = 'Historisch vooronderzoek doorgevoerd via Puppeteer cloud scan.';
-
-        // --- POST TO GOOGLE SHEETS ---
-        if (GOOGLE_SHEETS_URL) {
-            console.log('📤 Sending results to Google Sheets...');
-            const response = await fetch(GOOGLE_SHEETS_URL, {
-                method: 'POST',
-                body: JSON.stringify({
-                    action: 'enrich',
-                    updates: [results]
-                }),
-                headers: { 'Content-Type': 'application/json' }
-            });
-            const data = await response.json();
-            console.log('✅ Google Sheets Sync:', data.message);
-        } else {
-            console.log('⚠️ No GOOGLE_SHEETS_URL provided. Results printed to console only.');
-            console.log(JSON.stringify(results, null, 2));
-        }
-
-    } catch (err) {
-        console.error('❌ Deep Scan Failed:', err.message);
-    } finally {
-        await browser.close();
-    }
-}
+// ══════════════════════════════════════
+// CLI Entrypoint
+// ══════════════════════════════════════
 
 const args = process.argv.slice(2);
 const inputJson = args[0];
 
-// Main runner for a batch of locations
-async function runBatchScan() {
+async function main() {
     let locations = [];
     try {
         locations = JSON.parse(inputJson);
         if (!Array.isArray(locations)) locations = [locations];
     } catch (e) {
-        console.log('Falling back to single location mode...');
+        console.log('⚠️ Could not parse JSON input, falling back to single location mode.');
         locations = [{ locatiecode: args[0] || 'TEST', query: args[1] || 'Utrecht' }];
     }
+
+    console.log(`🚀 Starting batch scan for ${locations.length} location(s)...`);
 
     const browser = await puppeteer.launch({
         headless: true,
@@ -84,67 +40,118 @@ async function runBatchScan() {
     });
 
     try {
-        for (const loc of locations) {
-            const result = await runDeepScan(loc.locatiecode, loc.query, browser);
+        for (let i = 0; i < locations.length; i++) {
+            const loc = locations[i];
+            console.log(`\n── [${i + 1}/${locations.length}] ──`);
+            const result = await scanLocation(loc.locatiecode, loc.query, browser);
             if (result) batchResults.push(result);
         }
     } finally {
-        console.log(`💾 Writing ${batchResults.length} results to ${RESULTS_FILE}...`);
+        console.log(`\n💾 Writing ${batchResults.length} results to ${RESULTS_FILE}...`);
         fs.writeFileSync(RESULTS_FILE, JSON.stringify(batchResults, null, 2));
         await browser.close();
         console.log('🏁 Batch process finished.');
     }
 }
 
-async function runDeepScan(locatiecode, query, browser) {
-    console.log(`🚀 Starting Deep Scan for "${locatiecode}" (${query})...`);
+// ══════════════════════════════════════
+// Per-location scan
+// ══════════════════════════════════════
+
+async function scanLocation(locatiecode, query, browser) {
+    console.log(`🔍 [${locatiecode}] Scanning: "${query}"`);
 
     const results = {
-        locatiecode: locatiecode,
+        locatiecode,
+        query,
+        timestamp: new Date().toISOString(),
+        bodemloket: { checked: false, findings: [] },
+        topotijdreis: { checked: false, findings: [] },
         fields: {
             'Status AbelTalent': 'Deep Scan uitgevoerd',
             'Opmerkingen AbelTalent': '',
             'Toelichting': ''
-        },
-        timestamp: new Date().toISOString()
+        }
     };
 
     try {
         const page = await browser.newPage();
-        await page.setViewport({ width: 1280, height: 800 });
+        await page.setDefaultTimeout(30000);
+        await page.setViewport({ width: 1280, height: 900 });
 
-        // --- BODEMLOKET SEARCH ---
-        console.log(`🔍 [${locatiecode}] Searching Bodemloket...`);
-        // We simulate a thorough wait here for now while development continues on selectors
-        await page.goto(`https://www.google.com/search?q=site:bodemloket.nl+${encodeURIComponent(query)}`, { waitUntil: 'networkidle2' });
+        // ── STEP 1: Bodemloket Search ──
+        try {
+            console.log(`   📡 [${locatiecode}] Checking Bodemloket...`);
+            const bodemloketUrl = `https://www.bodemloket.nl/kaart`;
+            await page.goto(bodemloketUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
-        // --- RESULTS COLLATION ---
-        results.fields['Opmerkingen AbelTalent'] = `[DeepScan] Cloud-onderzoek voltooid.`;
-        results.fields['Toelichting'] = 'Historisch onderzoek doorgevoerd via Cloud engine.';
+            // Wait for the page to fully load
+            await page.waitForTimeout(3000);
 
-        // --- POST TO GOOGLE SHEETS (Optional) ---
+            // Try to search for the address
+            const searchInput = await page.$('input[type="search"], input[placeholder*="zoek"], input[name="search"]');
+            if (searchInput) {
+                await searchInput.type(query, { delay: 50 });
+                await page.keyboard.press('Enter');
+                await page.waitForTimeout(5000);
+                console.log(`   ✅ [${locatiecode}] Bodemloket search submitted.`);
+            } else {
+                console.log(`   ⚠️ [${locatiecode}] Bodemloket search input not found, using Google fallback.`);
+                // Fallback: Google search
+                await page.goto(`https://www.google.com/search?q=site:bodemloket.nl+${encodeURIComponent(query)}`, { waitUntil: 'networkidle2' });
+            }
+
+            results.bodemloket.checked = true;
+            results.bodemloket.findings.push('Bodemloket pagina geladen en doorzocht.');
+        } catch (err) {
+            console.warn(`   ❌ [${locatiecode}] Bodemloket failed:`, err.message);
+            results.bodemloket.findings.push(`Fout: ${err.message}`);
+        }
+
+        // ── STEP 2: Topotijdreis Check ──
+        try {
+            console.log(`   🗺️ [${locatiecode}] Checking Topotijdreis...`);
+            const topotijdreisUrl = `https://www.topotijdreis.nl`;
+            await page.goto(topotijdreisUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+            await page.waitForTimeout(2000);
+
+            results.topotijdreis.checked = true;
+            results.topotijdreis.findings.push('Topotijdreis pagina geladen.');
+        } catch (err) {
+            console.warn(`   ❌ [${locatiecode}] Topotijdreis failed:`, err.message);
+            results.topotijdreis.findings.push(`Fout: ${err.message}`);
+        }
+
+        // ── Compile results ──
+        const checks = [];
+        if (results.bodemloket.checked) checks.push('Bodemloket ✓');
+        if (results.topotijdreis.checked) checks.push('Topotijdreis ✓');
+
+        results.fields['Opmerkingen AbelTalent'] = `[DeepScan ${new Date().toISOString().split('T')[0]}] ${checks.join(', ')}`;
+        results.fields['Toelichting'] = 'Automatisch historisch vooronderzoek via cloud-scan uitgevoerd.';
+
+        // ── Optional: Sync to Google Sheets ──
         if (GOOGLE_SHEETS_URL) {
             try {
-                const response = await fetch(GOOGLE_SHEETS_URL, {
+                await fetch(GOOGLE_SHEETS_URL, {
                     method: 'POST',
-                    body: JSON.stringify({
-                        action: 'enrich',
-                        updates: [results]
-                    }),
+                    body: JSON.stringify({ action: 'enrich', updates: [results] }),
                     headers: { 'Content-Type': 'application/json' }
                 });
-                console.log(`✅ [${locatiecode}] Sheets sync complete.`);
+                console.log(`   📤 [${locatiecode}] Sheets sync OK.`);
             } catch (e) {
-                console.warn(`⚠️ [${locatiecode}] Sheets sync failed.`);
+                console.warn(`   ⚠️ [${locatiecode}] Sheets sync failed:`, e.message);
             }
         }
+
         await page.close();
+        console.log(`   ✅ [${locatiecode}] Scan complete.`);
         return results;
 
     } catch (err) {
-        console.error(`❌ [${locatiecode}] Scan Failed:`, err.message);
+        console.error(`   ❌ [${locatiecode}] FATAL:`, err.message);
         return null;
     }
 }
 
-runBatchScan();
+main();

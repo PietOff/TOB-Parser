@@ -182,7 +182,7 @@ export default function DataPreview({ locations, onLocationsUpdate }) {
                                                 )}
 
                                                 {/* Visual Map Investigation */}
-                                                {(loc._enriched?.rdX || loc._enriched?.lat) && (
+                                                {(loc._enriched?.rd?.x || loc._enriched?.lat) && (
                                                     <div style={{ marginTop: '1.5rem', marginBottom: '1rem' }}>
                                                         <div className="section-header" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                                             🗺️ Visueel Onderzoek (PDOK & Kadaster)
