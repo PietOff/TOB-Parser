@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { generateSmartContent, assessLocation } from '../utils/smartFill';
+import { generateSmartContent, assessLocation, getTobColumns } from '../utils/smartFill';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import html2canvas from 'html2canvas';
@@ -34,81 +34,63 @@ export default function ExportPanel({ locations }) {
             try {
                 const mapElement = document.getElementById('master-location-map');
                 if (mapElement) {
-                    // Temporarily hide map controls during screenshot for a cleaner look if desired
-                    // but standard html2canvas handles it okay.
+                    await new Promise(resolve => setTimeout(resolve, 2000));
                     const canvas = await html2canvas(mapElement, {
                         useCORS: true,
                         allowTaint: false,
-                        backgroundColor: null // Transparent or white
+                        backgroundColor: null,
+                        scale: 2
                     });
-
                     const base64Image = canvas.toDataURL('image/png');
                     const imageId = wb.addImage({
                         base64: base64Image,
                         extension: 'png',
                     });
-
-                    // Add image to worksheet from B2 downwards
                     wsMap.addImage(imageId, {
                         tl: { col: 1, row: 1 },
-                        ext: { width: canvas.width * 0.75, height: canvas.height * 0.75 }
+                        ext: { width: canvas.width * 0.5, height: canvas.height * 0.5 }
                     });
                 } else {
                     wsMap.getCell('A1').value = 'Kaart kon niet gevonden worden op het scherm.';
                 }
             } catch (err) {
                 console.warn('Map screenshot failed:', err);
-                wsMap.getCell('A1').value = 'Screenshot maken van de kaart is mislukt: ' + err.message;
+                wsMap.getCell('A1').value = 'Screenshot mislukt: ' + err.message;
             }
 
             // ==========================================
-            // 1. OVERZICHT LOCATIES TAB
+            // 1. OVERZICHT LOCATIES TAB — ALL 28 COLUMNS
             // ==========================================
             const wsOverzicht = wb.addWorksheet('Overzicht Locaties', { properties: { tabColor: { argb: 'FF2196F3' } } });
 
-            const overzichtHeaders = [
-                'locatiecode', 'locatienaam', 'straatnaam', 'huisnummer', 'postcode',
-                'status', 'conclusie', 'veiligheidsklasse', 'melding', 'mkb',
-                'BRL 7000', 'opmerking', 'Complex', 'Status AbelTalent', 'Opmerkingen AbelTalent'
-            ];
+            const columns = getTobColumns();
+            const overzichtHeaders = columns.map(c => c.label);
 
             const headerRow = wsOverzicht.addRow(overzichtHeaders);
             headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
             headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4285F4' } };
 
             for (const loc of locations) {
-                const rowData = [
-                    loc.locatiecode || '',
-                    loc.locatienaam || '',
-                    loc.straatnaam || '',
-                    loc.huisnummer || '',
-                    loc.postcode || '',
-                    loc.status || '',
-                    loc.conclusie || '',
-                    loc.veiligheidsklasse || '',
-                    loc.melding || '',
-                    loc.mkb || '',
-                    loc.brl7000 || '',
-                    loc.opmerking || '',
-                    loc.complex ? 'Ja' : 'Nee',
-                    loc.statusAbel || '',
-                    loc.opmerkingenAbel || ''
-                ];
+                const rowData = columns.map(col => {
+                    const val = loc[col.key];
+                    if (col.key === 'complex') return val ? 'Ja' : 'Nee';
+                    return val ?? '';
+                });
 
                 const row = wsOverzicht.addRow(rowData);
-                // Highlight complex rows
                 if (loc.complex) {
                     row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4EC' } };
                 }
             }
 
-            wsOverzicht.columns = overzichtHeaders.map(h => ({ width: 18 }));
-            wsOverzicht.getColumn(2).width = 30; // Locatienaam
-            wsOverzicht.getColumn(3).width = 25; // Straatnaam
-            wsOverzicht.getColumn(27).width = 40; // Toelichting
-            wsOverzicht.getColumn(28).width = 25; // Actie
-
+            // Auto-width columns
+            wsOverzicht.columns = columns.map((c, i) => {
+                if (['toelichting', 'opmerkingenAbel', 'topotijdreisLink', 'bodemloketLink'].includes(c.key)) return { width: 40 };
+                if (['locatienaam', 'straatnaam', 'actie'].includes(c.key)) return { width: 28 };
+                return { width: 18 };
+            });
             wsOverzicht.views = [{ state: 'frozen', ySplit: 1 }];
+
 
             // ==========================================
             // 2. CHECKLIST TAB

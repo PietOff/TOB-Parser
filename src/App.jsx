@@ -5,7 +5,8 @@ import ExportPanel from './components/ExportPanel';
 import { extractPdfText, parseTobReport, mergeToLocations } from './utils/pdfParser';
 import { parseXlsx } from './utils/xlsxParser';
 import { parseDocx, docxToLocations } from './utils/docxParser';
-import { enrichAllLocations } from './utils/apiIntegrations';
+import { enrichAllLocations, triggerDeepScanBatch } from './utils/apiIntegrations';
+import { assessLocation } from './utils/smartFill';
 import './index.css';
 
 const STEPS = [
@@ -28,7 +29,6 @@ export default function App() {
         try {
             for (const file of files) {
                 const ext = file.name.toLowerCase().split('.').pop();
-
                 if (ext === 'pdf') {
                     setParseStatus(`PDF verwerken: ${file.name}...`);
                     const { fullText } = await extractPdfText(file, (page, total) => {
@@ -38,15 +38,11 @@ export default function App() {
                     const locs = mergeToLocations(parsed);
                     locs.forEach(l => { l._source = `PDF: ${file.name}`; });
                     allLocations.push(...locs);
-                }
-
-                if (['xlsx', 'xls'].includes(ext)) {
+                } else if (['xlsx', 'xls'].includes(ext)) {
                     setParseStatus(`Excel verwerken: ${file.name}...`);
                     const locs = await parseXlsx(file);
                     allLocations.push(...locs);
-                }
-
-                if (['docx', 'doc'].includes(ext)) {
+                } else if (['docx', 'doc'].includes(ext)) {
                     setParseStatus(`Word document verwerken: ${file.name}...`);
                     const docxData = await parseDocx(file, (status) => {
                         setParseStatus(`DOCX ${file.name}: ${status}`);
@@ -56,13 +52,12 @@ export default function App() {
                 }
             }
 
-            // Deduplicate by locatiecode (merge data from multiple sources)
+            // Deduplicate and Merge
             const merged = new Map();
             for (const loc of allLocations) {
                 const key = loc.locatiecode;
                 if (merged.has(key)) {
                     const existing = merged.get(key);
-                    // Merge: prefer non-empty values, combine stoffen
                     for (const [k, v] of Object.entries(loc)) {
                         if (k === 'stoffen') {
                             existing.stoffen = [...(existing.stoffen || []), ...(v || [])];
@@ -70,85 +65,40 @@ export default function App() {
                             existing[k] = v;
                         }
                     }
-                    // If any source says complex, mark complex
-                    if (loc.complex) existing.complex = true;
+                    if (loc.complex || (loc.conclusie && ['verdacht', 'verontreinigd'].includes(loc.conclusie.toLowerCase()))) {
+                        existing.complex = true;
+                    }
                 } else {
                     merged.set(key, { ...loc });
                 }
             }
 
-            // Enrich with external APIs (PDOK, Topotijdreis, etc.)
             const mergedArr = [...merged.values()];
-            setParseStatus(`Data verrijken met PDOK/Topotijdreis (${mergedArr.length} locaties)...`);
+            console.log(`📦 [App] Merged into ${mergedArr.length} unique locations.`);
+
+            setParseStatus(`Diepgaand onderzoek start voor ${mergedArr.length} locaties...`);
             const enriched = await enrichAllLocations(mergedArr, (i, total) => {
-                setParseStatus(`Locatie verrijken: ${i}/${total}...`);
+                setParseStatus(`Locatie ${i}/${total} onderzoeken (BAG, HBB, PDOK)...`);
             });
 
-            // Mark complex based on API results & ABEL Protocol rules
-            enriched.forEach(loc => {
-                const bkKlasse = loc._enriched?.bodemkwaliteit?.[0]?.klasse?.toLowerCase() || '';
-                const buildings = loc._enriched?.buildings || [];
-
-                // 1. PDOK Bodemkwaliteit triggers
-                if (
-                    bkKlasse.includes('wonen') ||
-                    bkKlasse.includes('industrie') ||
-                    bkKlasse.includes('klasse a') ||
-                    bkKlasse.includes('klasse b') ||
-                    bkKlasse.includes('niet toepasbaar') ||
-                    bkKlasse.includes('maximale')
-                ) {
-                    loc.complex = true;
-                    const apiOpmerking = `Let op: API Bodemkwaliteit geeft klasse '${loc._enriched.bodemkwaliteit[0].klasse}'.`;
-                    if (!loc.opmerkingenAbel) loc.opmerkingenAbel = apiOpmerking;
-                    else if (!loc.opmerkingenAbel.includes('API Bodemkwaliteit')) {
-                        loc.opmerkingenAbel = `${loc.opmerkingenAbel} | ${apiOpmerking}`;
-                    }
-                }
-
-                // 2. ABEL Protocol: Asbestverdachte periode (1945-1995)
-                // If any building within 25m tracé was built/modified between 1945 and 1995
-                const suspectBuildings = buildings.filter(b => b.bouwjaar >= 1945 && b.bouwjaar <= 1995);
-                if (suspectBuildings.length > 0) {
-                    loc.complex = true;
-                    const bStr = suspectBuildings.map(b => b.bouwjaar).join(', ');
-                    const asbestOpmerking = `ASBEST VERDACHT: Bouwjaar pand(en) nabij tracé in asbest-periode 1945-1995 (${bStr}).`;
-                    if (!loc.opmerkingenAbel) loc.opmerkingenAbel = asbestOpmerking;
-                    else if (!loc.opmerkingenAbel.includes('ASBEST VERDACHT')) {
-                        loc.opmerkingenAbel = `${loc.opmerkingenAbel} | ${asbestOpmerking}`;
-                    }
-                }
-
-                // 3. Verdachte activiteiten (trefwoorden uit rapportage)
-                const textToCheck = `${loc.locatienaam} ${loc.opmerking || ''} ${loc.conclusie || ''}`.toLowerCase();
-                const keywords = ['glastuinbouw', 'garage', 'benzinestation', 'boomgaard', 'ophooglaag', 'demping'];
-                const foundKeyword = keywords.find(k => textToCheck.includes(k));
-                if (foundKeyword) {
-                    loc.complex = true;
-                    const actOpmerking = `VERDACHTE ACTIVITEIT gevonden: ${foundKeyword}.`;
-                    if (!loc.opmerkingenAbel) loc.opmerkingenAbel = actOpmerking;
-                    else if (!loc.opmerkingenAbel.includes('VERDACHTE ACTIVITEIT')) {
-                        loc.opmerkingenAbel = `${loc.opmerkingenAbel} | ${actOpmerking}`;
-                    }
-                }
-
-                // 4. HBB (Historisch Bodem Bestand) data check
-                const hbb = loc._enriched?.hbb || [];
-                if (hbb.length > 0) {
-                    loc.complex = true;
-                    const hbbStr = hbb.map(h => `${h.type}: ${h.naam}`).join(', ');
-                    const hbbOpmerking = `HBB MELDING: ${hbbStr}.`;
-                    if (!loc.opmerkingenAbel) loc.opmerkingenAbel = hbbOpmerking;
-                    else if (!loc.opmerkingenAbel.includes('HBB MELDING')) {
-                        loc.opmerkingenAbel = `${loc.opmerkingenAbel} | ${hbbOpmerking}`;
-                    }
-                }
-            });
-
-            setLocations(enriched);
+            const finalLocations = enriched.map(loc => assessLocation(loc));
+            setLocations(finalLocations);
             setStep(2);
+
+            // --- Automatic Deep Scan Trigger ---
+            const token = localStorage.getItem('github_token');
+            if (token) {
+                setParseStatus('Cloud-onderzoek (Bodemloket/Topotijdreis) starten...');
+                try {
+                    await triggerDeepScanBatch(finalLocations, token, 'pieteroffereins', 'TOB-Parser');
+                    console.log('✅ Batch Deep Scan gestart');
+                } catch (dispatchErr) {
+                    console.warn('⚠️ Batch Deep Scan kon niet automatisch starten:', dispatchErr.message);
+                }
+            }
+
         } catch (err) {
-            console.error('Parse error:', err);
+            console.error('❌ [App] Parse error:', err);
             setParseStatus(`Fout: ${err.message}`);
         } finally {
             setParsing(false);
@@ -194,9 +144,9 @@ export default function App() {
                 </div>
             )}
 
-            {/* Step 2: Preview */}
-            {step === 2 && (
-                <div>
+            {/* Step 2 & 3: Preview & Map (Map must stay in DOM for export) */}
+            {(step === 2 || step === 3) && (
+                <div style={{ display: step === 3 ? 'none' : 'block' }}>
                     <DataPreview
                         locations={locations}
                         onLocationsUpdate={setLocations}
@@ -212,9 +162,14 @@ export default function App() {
                 </div>
             )}
 
-            {/* Step 3: Export */}
+            {/* Step 3: Export Wrapper */}
             {step === 3 && (
                 <div>
+                    {/* Render Map invisibly if needed, but here we just keep the ID reachable */}
+                    <div style={{ height: 0, overflow: 'hidden', opacity: 0, position: 'absolute', pointerEvents: 'none' }}>
+                        <DataPreview locations={locations} />
+                    </div>
+
                     <ExportPanel locations={locations} />
                     <div className="btn-group">
                         <button className="btn btn-secondary" onClick={() => setStep(2)}>

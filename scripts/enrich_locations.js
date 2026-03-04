@@ -7,6 +7,11 @@
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxkDL0r8JGlPiqsLvDW7daqek4yhNpMWIID0gZZ4FJ02X7Hrs3HOxk-tOR3CoNX_48S/exec';
 
 const PDOK_BASE = 'https://api.pdok.nl/bzk/locatieserver/search/v3_1';
+import fetch from 'node-fetch'; // If needed for older node, but node 20 has it
+import proj4 from 'proj4';
+
+const RD = '+proj=sterea +lat_0=52.15616055555555 +lon_0=5.38763888888889 +k=0.9999079 +x_0=155000 +y_0=463000 +ellps=bessel +units=m +no_defs';
+const WGS84 = 'EPSG:4326';
 
 // ═══════════════════════════════════════
 // PDOK Locatieserver
@@ -87,33 +92,45 @@ function getBodemloketUrl(rdX, rdY) {
 // ═══════════════════════════════════════
 
 function assessLocation(loc) {
-    const currentYear = new Date().getFullYear();
-    const rapportJaar = parseInt(loc['Rapportjaar']) || null;
-    const rapportLeeftijd = rapportJaar ? currentYear - rapportJaar : null;
-    const afstandTrace = parseFloat(loc['Afstand trace (m)']) || null;
     const conclusie = (loc['Conclusie'] || '').toLowerCase().trim();
-    const verdacht = parseInt(loc['Verdachte activiteiten']) || 0;
+    const opmerking = (loc['Opmerking'] || '').toLowerCase().trim();
+    const searchString = `${loc['Locatienaam']} ${opmerking} ${conclusie}`.toLowerCase();
 
-    let prioriteit = 'laag';
-    if (verdacht > 5 || conclusie === 'wel') prioriteit = 'hoog';
-    if (rapportJaar && rapportJaar >= 2021) prioriteit = prioriteit === 'hoog' ? 'hoog' : 'midden';
+    const histKeywords = [
+        'gasfabriek', 'tankstation', 'benzinestation', 'boomgaard', 'stoomgemaal',
+        'kassen', 'spoorlijn', 'rwzi', 'loswal', 'ijzergieterij', 'sloperij',
+        'ophoging', 'demping', 'sloodemping', 'gracht', 'haven', 'kanaal',
+        'teer', 'asbest', 'olie', 'chemisch'
+    ];
 
-    if (conclusie === 'onverdacht') {
-        return { beoordeling: 'Onverdacht', prioriteit: 'Geen', toelichting: 'Locatie beoordeeld als onverdacht.', actie: 'Geen verdere actie nodig.' };
+    let isVerdacht = false;
+    let reason = '';
+
+    if (histKeywords.some(k => searchString.includes(k))) {
+        isVerdacht = true;
+        reason = `Protocol marker: ${histKeywords.find(k => searchString.includes(k))}`;
     }
-    if (conclusie === 'verontreinigd' && rapportLeeftijd !== null && rapportLeeftijd < 5 && afstandTrace !== null && afstandTrace <= 5) {
-        return { beoordeling: 'Verontreinigd (zeker)', prioriteit: 'Hoog', toelichting: `Verontreiniging binnen ${afstandTrace}m van trace, rapport ${rapportJaar} (${rapportLeeftijd}j oud).`, actie: 'Sanering/MKB vereist.' };
+
+    if (['verdacht', 'verontreinigd', 'wel', 'complex'].includes(conclusie)) {
+        isVerdacht = true;
+        reason = reason || `Rapportage: ${conclusie}`;
     }
-    if (conclusie === 'verontreinigd' && rapportLeeftijd !== null && rapportLeeftijd >= 5 && afstandTrace !== null && afstandTrace <= 25) {
-        return { beoordeling: 'Verontreinigd (onzeker)', prioriteit: 'Midden', toelichting: `Verontreiniging binnen ${afstandTrace}m, maar rapport van ${rapportJaar} (${rapportLeeftijd}j oud). Nader onderzoek.`, actie: 'Nader onderzoek / actualisatie.' };
+
+    if (isVerdacht) {
+        return {
+            beoordeling: 'Verdacht',
+            prioriteit: 'Hoog',
+            toelichting: reason,
+            actie: 'Nader onderzoek / BRL 7000.'
+        };
     }
-    if (conclusie === 'verdacht' || verdacht > 0) {
-        return { beoordeling: 'Verdacht', prioriteit: 'Hoog', toelichting: `Verdachte locatie${verdacht ? ` (${verdacht} activiteiten)` : ''}.`, actie: 'Nader bodemonderzoek.' };
-    }
-    if (!conclusie || conclusie === 'onbekend') {
-        return { beoordeling: 'Onvoldoende info', prioriteit: prioriteit, toelichting: 'Onvoldoende informatie beschikbaar.', actie: 'Aanvullend onderzoek.' };
-    }
-    return { beoordeling: 'Onbekend', prioriteit: prioriteit, toelichting: 'Handmatige review vereist.', actie: 'Handmatig beoordelen.' };
+
+    return {
+        beoordeling: 'Onverdacht',
+        prioriteit: 'Geen',
+        toelichting: 'Geen verdachte kenmerken gevonden.',
+        actie: 'Geen actie nodig.'
+    };
 }
 
 // ═══════════════════════════════════════
@@ -121,8 +138,10 @@ function assessLocation(loc) {
 // ═══════════════════════════════════════
 
 (async () => {
-    console.log('🚀 TOB Parser — Location Enrichment Script');
+    console.log('🚀 TOB Parser — Enrichment Script [v1.1 - Precise Coords & Protocol]');
     console.log(`   Web App URL: ${WEB_APP_URL}`);
+
+    // ... rest of logic remains same but uses these updated helpers ...
 
     // Step 1: Read current data from Google Sheet
     console.log('\n📖 Reading locations from Google Sheet...');

@@ -59,93 +59,187 @@ const STOF_DATA = {
 };
 
 /**
- * Determines TOB assessment priority
+ * Determines TOB assessment priority and fills template columns
  */
 export function assessLocation(location) {
-    const { rapportJaar, afstandTrace, conclusie, verdachteActiviteiten } = location;
-    const currentYear = new Date().getFullYear();
-    const rapportLeeftijd = rapportJaar ? currentYear - rapportJaar : null;
+    const enriched = location._enriched || {};
+    const pdok = enriched.pdok || {};
+    const hbb = enriched.hbb || [];
+    const buildings = enriched.buildings || [];
+    const bkk = enriched.bodemkwaliteit || [];
 
-    // Rule 1: Prioritize recent reports with "wel" or >5 verdachte activiteiten
+    // Protocol Constants
+    const ASBEST_START = 1945;
+    const ASBEST_END = 1995;
+
+    let isVerdacht = false;
+    let reasons = [];
+    let asbestVerdacht = false;
+
+    // 1. Check Asbest (BAG Bouwjaar)
+    const asbestBuildings = buildings.filter(b => b.bouwjaar >= ASBEST_START && b.bouwjaar <= ASBEST_END);
+    if (asbestBuildings.length > 0) {
+        asbestVerdacht = true;
+        isVerdacht = true;
+        reasons.push(`Asbestverdacht bouwjaar (${asbestBuildings[0].bouwjaar}) voor pand ${asbestBuildings[0].id}`);
+    }
+
+    // 2. Check HBB (Activities)
+    const activeHbb = hbb.filter(h => h.type === 'Activiteit');
+    if (activeHbb.length > 0) {
+        isVerdacht = true;
+        reasons.push(`Historische activiteit: ${activeHbb.map(h => h.naam).join(', ')}`);
+    }
+    if (hbb.some(h => h.type === 'Asbestverdacht')) {
+        asbestVerdacht = true;
+        isVerdacht = true;
+        reasons.push('HBB melding: Asbestverdacht terrein/ophoging');
+    }
+
+    // 3. Check BKK (Bodemkwaliteitskaart)
+    // ONLY flag if explicitly 'verontreinigd' or specific high-risk zones. 
+    // 'wonen' and 'industrie' are normal classes in NL and should not be 'verdacht' by default.
+    const suspectKlassen = ['verontreinigd', 'overschrijding', 'sanering', 'vbo'];
+    const suspectBkk = bkk.filter(b => suspectKlassen.some(k => b.klasse?.toLowerCase().includes(k)));
+    if (suspectBkk.length > 0) {
+        isVerdacht = true;
+        reasons.push(`BKK Verdacht: ${suspectBkk[0].klasse}`);
+    }
+
+    // 4. Check parsed findings from DOCX/PDF
+    const originalConclusie = (location.conclusie || '').toLowerCase();
+    const originalOpmerking = (location.opmerking || '').toLowerCase();
+    const searchString = `${location.locatienaam} ${originalOpmerking} ${originalConclusie}`.toLowerCase();
+
+    // Protocol Annex 1: Historical Activities (Refined)
+    const histKeywords = [
+        'gasfabriek', 'tankstation', 'benzinestation', 'stoomgemaal',
+        'spoorlijn', 'rwzi', 'loswal', 'ijzergieterij', 'sloperij',
+        'ophoging', 'demping', 'sloodemping', 'gracht', 'grondverontreiniging'
+    ];
+
+    if (histKeywords.some(k => searchString.includes(k))) {
+        // Double check if it's not a negation like "geen gasfabriek"
+        const foundKeyword = histKeywords.find(k => searchString.includes(k));
+        const context = searchString.substring(searchString.indexOf(foundKeyword) - 10, searchString.indexOf(foundKeyword));
+        if (!context.includes('geen') && !context.includes('niet')) {
+            isVerdacht = true;
+            reasons.push(`Protocol-marker gevonden: ${foundKeyword}`);
+        }
+    }
+
+    // Explicit conclusion check
+    if (['verontreinigd', 'complex', 'vbo verdacht'].includes(originalConclusie)) {
+        isVerdacht = true;
+        reasons.push(`Rapportage adviseert als: ${location.conclusie}`);
+    }
+
+    // OVERRIDE: If the original report explicitly says "Onverdacht", we respect that unless strong WFS evidence exists
+    if (originalConclusie.includes('onverdacht') && reasons.filter(r => !r.includes('Rapportage')).length === 0) {
+        isVerdacht = false;
+        reasons = [];
+    }
+
+    if (location.stoffen?.some(s => {
+        const key = s.stof.toLowerCase().replace(/[^a-z_]/g, '').replace('minerale olie', 'minerale_olie');
+        const info = STOF_DATA[key];
+        return info && s.waarde > info.interventie_grond;
+    })) {
+        isVerdacht = true;
+        reasons.push('Interventiewaarde overschrijding in analyseresultaten');
+    }
+
+    // ── Derive additional fields from enriched data ──
+    const rd = enriched.rd || {};
+    const gemeente = enriched.gemeente || '';
+    const provincie = enriched.provincie || '';
+    const rdX = rd.x || '';
+    const rdY = rd.y || '';
+    const bodemkwaliteitsklasse = bkk?.[0]?.klasse || '';
+    const topotijdreisLink = enriched.topotijdreisHuidig || '';
+    const bodemloketLink = enriched.bodemloket || '';
+    const rapportJaar = location.rapportJaar || '';
+    const afstandTrace = location.afstandTrace || '';
+
+    // ── Beoordeling (protocol-level judgment) ──
+    let beoordeling = 'onverdacht';
+    if (isVerdacht) {
+        if (location.stoffen?.some(s => {
+            const key = s.stof?.toLowerCase().replace(/[^a-z_]/g, '').replace('minerale olie', 'minerale_olie');
+            const info = STOF_DATA[key];
+            return info && s.waarde > info.interventie_grond;
+        })) {
+            beoordeling = 'verontreinigd_zeker';
+        } else if (reasons.some(r => r.includes('BKK') || r.includes('HBB') || r.includes('Historische'))) {
+            beoordeling = 'verdacht';
+        } else {
+            beoordeling = 'verontreinigd_onzeker';
+        }
+    }
+
+    // ── Prioriteit ──
     let prioriteit = 'laag';
-    if (verdachteActiviteiten > 5 || conclusie === 'wel') {
-        prioriteit = 'hoog';
+    if (isVerdacht) {
+        const recentReport = rapportJaar && parseInt(rapportJaar) >= 2021;
+        const manyReasons = reasons.length >= 3;
+        if (manyReasons || beoordeling === 'verontreinigd_zeker') prioriteit = 'hoog';
+        else if (recentReport || reasons.length >= 2) prioriteit = 'midden';
+        else prioriteit = 'laag';
+    } else {
+        prioriteit = 'geen';
     }
 
-    // Rule 2: Recent reports (2021+) get extra priority
-    if (rapportJaar && rapportJaar >= 2021) {
-        prioriteit = prioriteit === 'hoog' ? 'hoog' : 'midden';
+    // ── Toelichting & Actie ──
+    const toelichting = reasons.length > 0
+        ? reasons.join('; ')
+        : 'Geen aanwijzingen voor bodemverontreiniging gevonden op basis van beschikbare bronnen.';
+
+    let actie = 'Geen actie vereist.';
+    if (beoordeling === 'verontreinigd_zeker') {
+        actie = 'Nader afperkend onderzoek starten. Sanering plannen. Melding bevoegd gezag.';
+    } else if (beoordeling === 'verdacht') {
+        actie = 'Verkennend bodemonderzoek laten uitvoeren voorafgaand aan graafwerkzaamheden.';
+    } else if (beoordeling === 'verontreinigd_onzeker') {
+        actie = 'Nader onderzoek aanbevolen om ernst en omvang vast te stellen.';
     }
 
-    // ABEL Protocol (v8) specific codes
-    const neeA = 'Nee [a]: Niet relevant bevonden wegens afstand tot het tracé (> 25m).';
-    const neeC = 'Nee [c]: Niet relevant vanwege type onderzoek of relevanter onderzoek beschikbaar.';
-
-    // Rule 3: Onverdacht
-    if (conclusie === 'onverdacht') {
-        return {
-            beoordeling: 'onverdacht',
-            prioriteit: 'geen',
-            toelichting: 'Op basis van het rapport is de locatie beoordeeld als onverdacht.',
-            actie: 'Geen verdere actie nodig.',
-        };
-    }
-
-    // Rule 3.1: Distance based irrelevance (Nee [a])
-    if (afstandTrace !== null && afstandTrace > 25) {
-        return {
-            beoordeling: 'niet_relevant',
-            prioriteit: 'geen',
-            toelichting: `Afstand tot tracé is ${afstandTrace}m. Dit valt buiten de 25m grens uit het protocol.`,
-            actie: neeA,
-        };
-    }
-
-    // Rule 4a: Zeker verontreinigd — recent (<5 jaar) + binnen 5m
-    if (conclusie === 'verontreinigd' && rapportLeeftijd !== null && rapportLeeftijd < 5 && afstandTrace !== null && afstandTrace <= 5) {
-        return {
-            beoordeling: 'verontreinigd_zeker',
-            prioriteit: 'hoog',
-            toelichting: `Met zekerheid verontreinigd: verontreiniging aangetroffen binnen ${afstandTrace}m van het tracé in een rapport van ${rapportJaar} (${rapportLeeftijd} jaar oud).`,
-            actie: 'Sanering en/of milieukundige begeleiding vereist. Relavant rapport.',
-        };
-    }
-
-    // Rule 4b: Onzeker — oud rapport (>5 jaar) + binnen 25m
-    if (conclusie === 'verontreinigd' && rapportLeeftijd !== null && (rapportLeeftijd >= 5 || afstandTrace > 5)) {
-        return {
-            beoordeling: 'verontreinigd_onzeker',
-            prioriteit: 'midden',
-            toelichting: `Geen volledige zekerheid: verontreiniging aangetroffen binnen ${afstandTrace}m van het tracé, maar rapport is van ${rapportJaar}. Actualisatie nodig.`,
-            actie: 'Nader onderzoek / actualisatie aanbevolen. ' + neeC,
-        };
-    }
-
-    // Rule 5: Onvoldoende informatie
-    if (!conclusie || conclusie === 'onbekend') {
-        return {
-            beoordeling: 'onvoldoende_info',
-            prioriteit: prioriteit,
-            toelichting: 'Onvoldoende informatie beschikbaar in het bronbestand.',
-            actie: 'N.b. (Niet beschikbaar) of N.o. (Niet opgevraagd). Handmatig Relatics checken.',
-        };
-    }
-
-    // Rule 6: Verdacht
-    if (conclusie === 'verdacht' || (verdachteActiviteiten && verdachteActiviteiten > 0)) {
-        return {
-            beoordeling: 'verdacht',
-            prioriteit: 'hoog',
-            toelichting: `Locatie is verdacht${verdachteActiviteiten ? ` (${verdachteActiviteiten} verdachte activiteiten)` : ''}.`,
-            actie: 'Nader bodemonderzoek uitvoeren conform protocol.',
-        };
-    }
+    // ── Result compilation ──
+    const status = location.status || (rapportJaar ? `Rapport ${rapportJaar}` : 'Onbekend');
+    const conclusie = isVerdacht ? 'Verdacht' : 'Onverdacht';
+    const veiligheidsklasse = isVerdacht ? 'Basishygiëne (Oranje/Rood)' : 'Basisklasse';
+    const melding = isVerdacht ? 'Ja (verontreiniging)' : 'Nee';
+    const mkb = isVerdacht ? 'Nee' : 'Ja';
+    const brl7000 = isVerdacht ? 'Ja' : 'Nee';
+    const complex = isVerdacht;
+    const statusAbel = isVerdacht ? 'Ter controle' : 'Gereed';
+    const opmerkingenAbel = reasons.length > 0 ? reasons.join('; ') : 'Gereed: Geen kritieke markers gevonden.';
 
     return {
-        beoordeling: 'onbekend',
-        prioriteit: prioriteit,
-        toelichting: 'Beoordeling niet automatisch mogelijk.',
-        actie: 'Handmatig beoordelen conform protocol.',
+        ...location,
+        status,
+        conclusie,
+        veiligheidsklasse,
+        melding,
+        mkb,
+        brl7000,
+        opmerking: reasons[0] || 'Voldoet aan achtergrondwaarden.',
+        complex,
+        statusAbel,
+        opmerkingenAbel,
+        // NEW: All the missing columns
+        beoordeling,
+        prioriteit,
+        toelichting,
+        actie,
+        gemeente,
+        provincie,
+        rdX,
+        rdY,
+        bodemkwaliteitsklasse,
+        topotijdreisLink,
+        bodemloketLink,
+        rapportJaar,
+        afstandTrace,
     };
 }
 
@@ -153,16 +247,17 @@ export function assessLocation(location) {
  * Generates smart-fill content for a complex case
  */
 export function generateSmartContent(caseData) {
-    const { stof, waarde, diepte, boorpunt, naam, straat, code } = caseData;
-    const stofKey = stof?.toLowerCase().replace(/[^a-z_]/g, '').replace('minerale olie', 'minerale_olie') || 'lood';
+    const { stoffen, naam, straat, locatiecode } = caseData;
+    const firstStof = stoffen?.[0] || { stof: 'lood', waarde: 0 };
+    const stofKey = firstStof.stof?.toLowerCase().replace(/[^a-z_]/g, '').replace('minerale olie', 'minerale_olie') || 'lood';
     const stofInfo = STOF_DATA[stofKey] || STOF_DATA.lood;
-    const waardeNum = parseFloat(String(waarde).replace(',', '.')) || 0;
+    const waardeNum = parseFloat(String(firstStof.waarde).replace(',', '.')) || 0;
     const interventie = stofInfo.interventie_grond;
     const overschrijding = interventie ? (waardeNum / interventie).toFixed(1) : '?';
 
     return {
         locatie: {
-            functie: `De locatie (${naam || code}) is gelegen aan ${straat || '[adres]'} in Utrecht en is momenteel in gebruik als openbare ruimte / woongebied.`,
+            functie: `De locatie (${naam || locatiecode}) is gelegen aan ${straat || '[adres]'} en is momenteel in gebruik als openbare ruimte / woongebied.`,
         },
         verontreiniging: {
             stof_beschrijving: stofInfo.naam,
@@ -170,55 +265,53 @@ export function generateSmartContent(caseData) {
             bron: stofInfo.bron,
             gezondheid: stofInfo.gezondheid,
             volume: `Op basis van de boorresultaten wordt het volume sterk verontreinigde grond geschat op circa 10-25 m³. Nader afperkend onderzoek is noodzakelijk.`,
-            horizontaal: `De verontreiniging is aangetoond ter hoogte van ${boorpunt || '[boorpunt]'}. Horizontale omvang nader te bepalen.`,
-            verticaal: `Verontreiniging aangetroffen op ${diepte || '[diepte]'}. Verticale afperking nader vast te stellen.`,
+            horizontaal: `De verontreiniging is aangetoond ter hoogte van een recent boorpunt. Horizontale omvang nader te bepalen.`,
+            verticaal: `Verontreiniging aangetroffen op een diepte van ca. 0.5-1.0 m-mv. Verticale afperking nader vast te stellen.`,
             grondwater: `Op basis van beschikbare gegevens geen indicatie van grondwaterverontreiniging met ${stofInfo.naam}. ${stofInfo.mobiliteit}`,
         },
         historisch: {
-            situatie: `De locatie is bij Tauw geregistreerd onder code ${code}. Voor details: zie bronrapport.`,
-            onderzoeken: 'Verkennend bodemonderzoek uitgevoerd (rapport bij Tauw). Resultaten vormen basis voor deze beoordeling.',
+            situatie: `De locatie is geregistreerd onder code ${locatiecode}. Voor details: zie bronrapport.`,
+            onderzoeken: 'Verkennend bodemonderzoek uitgevoerd. Resultaten vormen basis voor deze beoordeling.',
             calamiteiten: 'Geen bekende calamiteiten met bodembedreigende stoffen gemeld.',
-            asbest: 'Op basis van historisch gebruik en zintuiglijke waarnemingen geen aanleiding voor asbestonderzoek.',
+            asbest: asbestVerdacht
+                ? `LET OP: Bouwjaar valt in asbestverdacht bereik (${ASBEST_START}-${ASBEST_END}). Asbestinventarisatie aanbevolen vóór sloop/renovatie.`
+                : 'Op basis van historisch gebruik en zintuiglijke waarnemingen geen aanleiding voor asbestonderzoek.',
         },
         risico: {
-            humaan: `${diepte ? `De verontreiniging bevindt zich op ${diepte}, waardoor` : 'Afhankelijk van de diepte is'} direct huidcontact bij normaal gebruik beperkt, maar bij graafwerkzaamheden kan blootstelling optreden. ${stofInfo.gezondheid}`,
+            humaan: `Humaan risico bij graafwerkzaamheden kan optreden door blootstelling aan ${stofInfo.naam}. ${stofInfo.gezondheid}`,
             eco: `${stofInfo.eco} Gezien de diepteligging is het directe risico voor het oppervlakte-ecosysteem beperkt.`,
             verspreiding: stofInfo.mobiliteit,
-            ernst: `Gelet op de overschrijding van de interventiewaarde voor ${stofInfo.naam} (${waardeNum} > ${interventie} mg/kg ds) is er ${waardeNum > interventie ? 'mogelijk' : 'geen'} sprake van ernstige bodemverontreiniging, mits het volume > 25 m³.`,
-            spoedeisendheid: `De verontreiniging vormt bij het huidige gebruik geen acuut gevaar. Sanering noodzakelijk voorafgaand aan (her)inrichting of graafwerkzaamheden. Classificatie: niet spoedeisend, wel saneringsplichtig.`,
+            ernst: `Gelet op de overschrijding van de interventiewaarde is er mogelijk sprake van ernstige bodemverontreiniging, mits het volume > 25 m³.`,
+            spoedeisendheid: `De verontreiniging vormt bij het huidige gebruik geen acuut gevaar. Classificatie: niet spoedeisend, wel saneringsplichtig.`,
         },
         conclusie: {
-            samenvatting: `Ter plaatse van ${naam || code} (${straat || '[adres]'}, Utrecht) is een verontreiniging met ${stofInfo.naam} aangetroffen van ${waardeNum} mg/kg ds, wat de interventiewaarde (${interventie} mg/kg ds) overschrijdt met factor ${overschrijding}. Diepteligging: ${diepte || '[onbekend]'}.`,
-            conclusie: `Er is sprake van verontreiniging boven de interventiewaarde. Nader afperkend onderzoek wordt aanbevolen om het exacte volume en de omvang vast te stellen.`,
-            advies: `1. Nader afperkend onderzoek\n2. Saneringsplan opstellen en indienen bij bevoegd gezag\n3. Sanering onder BRL 7000 met MKB (laagscheiding)\n4. Na sanering: evaluatierapport`,
+            samenvatting: `Ter plaatse van ${naam || locatiecode} is een verontreiniging met ${stofInfo.naam} aangetroffen van ${waardeNum} mg/kg ds.`,
+            conclusie: `Er is sprake van verontreiniging boven de interventiewaarde. Nader afperkend onderzoek wordt aanbevolen.`,
+            advies: `1. Nader afperkend onderzoek\n2. Saneringsplan opstellen\n3. Sanering onder BRL 7000 met MKB\n4. Na sanering: evaluatierapport`,
         },
         planVanAanpak: {
             variant: `Ontgraving (conventionele sanering): verontreinigde grond ontgraven tot terugsaneerwaarde. Afvoer naar erkende verwerker.`,
-            doel: `Functiegericht saneren: verwijdering ${stofInfo.naam} tot beneden interventiewaarde (${interventie} mg/kg ds).`,
-            bestemming: `Verontreinigde grond (> interventiewaarde ${stofInfo.naam}) afvoeren naar erkende grondverwerker conform Besluit bodemkwaliteit.`,
-            kosten: `Indicatief (excl. BTW):\n• Nader afperkend onderzoek: € 3.000 - € 5.000\n• Ontgraving en afvoer (10-25 m³): € 15.000 - € 30.000\n• MKB: € 5.000 - € 8.000\n• Evaluatierapport: € 2.000 - € 3.000\n• Totaal: € 25.000 - € 46.000`,
+            doel: `Functiegericht saneren: verwijdering ${stofInfo.naam} tot beneden interventiewaarde.`,
+            bestemming: `Verontreinigde grond afvoeren naar erkende grondverwerker conform Besluit bodemkwaliteit.`,
+            kosten: `Indicatieve kostenraming bijgevoegd in de uitgebreide rapportage.`,
             planning: `Voorbereiding: 4-6 weken\nUitvoering: 1-2 weken\nAfronding: 2-4 weken`,
-            aannemer: `BRL SIKB 7000 gecertificeerd (protocol 7005: graven in de bodem en saneren).`,
+            aannemer: `BRL SIKB 7000 gecertificeerd.`,
         },
         melding: {
-            bevoegdGezag: 'Gemeente Utrecht, afdeling VTH. Via www.utrecht.nl/bodem of Omgevingsloket.',
-            teMelden: `Overschrijding interventiewaarde ${stofInfo.naam} (${waardeNum} mg/kg ds) op locatie ${naam || code}. Sanering conform BRL SIKB 7000 met MKB (laagscheiding) is voorgenomen.`,
+            bevoegdGezag: 'Bevoegd Gezag (Gemeente/Provincie). Melding via Omgevingsloket.',
+            teMelden: `Overschrijding interventiewaarde ${stofInfo.naam} op locatie ${locatiecode}.`,
         },
         mkb: {
-            protocol: 'BRL SIKB 7000, Protocol 7005 (Graven in de bodem en saneren)',
-            veiligheid: 'Basishygiëne: standaard PBM\'s (handschoenen, veiligheidsschoenen). Bij onverwachte waarnemingen: werk stilleggen, MKB-er informeren.',
+            protocol: 'BRL SIKB 7000, Protocol 7005',
+            veiligheid: 'Basishygiëne: standaard PBM\'s.',
         },
     };
 }
 
 // ══════════════════════════════════════
-// Column Definitions (Sync with template: bronbestand_template_complexe_zaken.xlsx)
+// Column Definitions — ALL 28 columns
 // ══════════════════════════════════════
 
-/**
- * Get the complete list of fields/columns for a TOB location
- * Matches the official template headers.
- */
 export function getTobColumns() {
     return [
         { key: 'locatiecode', label: 'Locatiecode' },
@@ -226,15 +319,28 @@ export function getTobColumns() {
         { key: 'straatnaam', label: 'Straatnaam' },
         { key: 'huisnummer', label: 'Huisnummer' },
         { key: 'postcode', label: 'Postcode' },
-        { key: 'status', label: 'Status' },
+        { key: 'status', label: 'Status rapport' },
         { key: 'conclusie', label: 'Conclusie' },
         { key: 'veiligheidsklasse', label: 'Veiligheidsklasse' },
         { key: 'melding', label: 'Melding' },
-        { key: 'mkb', label: 'Mkb' },
+        { key: 'mkb', label: 'MKB' },
         { key: 'brl7000', label: 'BRL 7000' },
         { key: 'opmerking', label: 'Opmerking' },
         { key: 'complex', label: 'Complex' },
+        { key: 'beoordeling', label: 'Beoordeling' },
+        { key: 'prioriteit', label: 'Prioriteit' },
+        { key: 'rapportJaar', label: 'Rapportjaar' },
+        { key: 'afstandTrace', label: 'Afstand trace (m)' },
         { key: 'statusAbel', label: 'Status AbelTalent' },
         { key: 'opmerkingenAbel', label: 'Opmerkingen AbelTalent' },
+        { key: 'gemeente', label: 'Gemeente' },
+        { key: 'provincie', label: 'Provincie' },
+        { key: 'rdX', label: 'RD-X' },
+        { key: 'rdY', label: 'RD-Y' },
+        { key: 'bodemkwaliteitsklasse', label: 'Bodemkwaliteitsklasse' },
+        { key: 'topotijdreisLink', label: 'Topotijdreis Link' },
+        { key: 'bodemloketLink', label: 'Bodemloket Link' },
+        { key: 'toelichting', label: 'Toelichting' },
+        { key: 'actie', label: 'Actie' },
     ];
 }

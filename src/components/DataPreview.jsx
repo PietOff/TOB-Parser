@@ -1,5 +1,6 @@
 import { useState, lazy, Suspense } from 'react';
 import { assessLocation, generateSmartContent } from '../utils/smartFill';
+import { triggerDeepScan } from '../utils/apiIntegrations';
 
 // Lazy load map to prevent SSR issues and reduce initial bundle size
 const LocationMap = lazy(() => import('./LocationMap'));
@@ -249,13 +250,72 @@ export default function DataPreview({ locations, onLocationsUpdate }) {
                                             </div>
                                         </div>
                                         <div className="field-row">
-                                            <div className="field-label">Opmerkingen</div>
+                                            <div className="field-label">Status Abel</div>
+                                            <div className="field-value">
+                                                <select
+                                                    value={loc.statusAbel || 'Nog te doen'}
+                                                    onChange={(e) => updateField(loc.locatiecode, 'statusAbel', e.target.value)}
+                                                    className="status-select"
+                                                >
+                                                    <option>Nog te doen</option>
+                                                    <option>In uitvoering</option>
+                                                    <option>Afgerond</option>
+                                                    <option>N.v.t.</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div className="field-row">
+                                            <div className="field-label">Opmerkingen Abel</div>
                                             <div className="field-value">
                                                 <textarea
                                                     placeholder="Eigen opmerkingen..."
                                                     defaultValue={loc.opmerkingenAbel || ''}
                                                     onChange={(e) => updateField(loc.locatiecode, 'opmerkingenAbel', e.target.value)}
                                                 />
+                                            </div>
+                                        </div>
+                                        <div className="field-row">
+                                            <div className="field-label">Deep Scan</div>
+                                            <div className="field-value">
+                                                <button
+                                                    className="btn btn-sm btn-secondary"
+                                                    title="Start Deep Scan via GitHub (Bodemloket/Topotijdreis)"
+                                                    onClick={async (e) => {
+                                                        const btn = e.currentTarget;
+                                                        const originalText = btn.innerHTML;
+                                                        try {
+                                                            btn.disabled = true;
+                                                            btn.innerHTML = '<div class="spinner-xs"></div> Scan...';
+
+                                                            // We use local storage or prompt for token if not set
+                                                            let token = localStorage.getItem('github_token');
+                                                            if (!token) {
+                                                                token = prompt('Geef je GitHub Personal Access Token (PAT) op:');
+                                                                if (token) localStorage.setItem('github_token', token);
+                                                            }
+
+                                                            if (!token) throw new Error('Geen token opgegeven');
+
+                                                            const res = await triggerDeepScan(
+                                                                loc.locatiecode,
+                                                                `${loc.straatnaam} ${loc.huisnummer} ${loc.postcode}`,
+                                                                token,
+                                                                'pieteroffereins', // Default owner
+                                                                'TOB-Parser'      // Default repo
+                                                            );
+                                                            alert(res.message);
+                                                            btn.innerHTML = '✅ Klaar';
+                                                            updateField(loc.locatiecode, 'statusAbel', 'In uitvoering');
+                                                        } catch (err) {
+                                                            console.error(err);
+                                                            alert(`Deep Scan mislukt: ${err.message}`);
+                                                            btn.innerHTML = originalText;
+                                                            btn.disabled = false;
+                                                        }
+                                                    }}
+                                                >
+                                                    🔎 Deep Scan
+                                                </button>
                                             </div>
                                         </div>
                                     </div>
@@ -281,6 +341,7 @@ export default function DataPreview({ locations, onLocationsUpdate }) {
                                 <th>Straatnaam</th>
                                 <th>Huisnr</th>
                                 <th>Postcode</th>
+                                <th>Pos</th>
                                 <th>Status</th>
                                 <th>Conclusie</th>
                                 <th>Veiligheidsklasse</th>
@@ -291,6 +352,7 @@ export default function DataPreview({ locations, onLocationsUpdate }) {
                                 <th>Complex</th>
                                 <th>Status Abel</th>
                                 <th>Opmerkingen Abel</th>
+                                <th>Acties</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -303,6 +365,9 @@ export default function DataPreview({ locations, onLocationsUpdate }) {
                                         <td>{loc.straatnaam}</td>
                                         <td>{loc.huisnummer}</td>
                                         <td>{loc.postcode}</td>
+                                        <td title={loc._enriched?.rd ? `X: ${loc._enriched.rd.x}, Y: ${loc._enriched.rd.y}` : 'Geen coördinaten'}>
+                                            {loc._enriched?.rd ? '📍' : '❌'}
+                                        </td>
                                         <td>{loc.status}</td>
                                         <td>
                                             <span className={`assessment ${isComplex ? 'assessment-verdacht' : 'assessment-onverdacht'}`}>
@@ -314,11 +379,35 @@ export default function DataPreview({ locations, onLocationsUpdate }) {
                                         <td>{loc.mkb}</td>
                                         <td>{loc.brl7000}</td>
                                         <td title={loc.opmerking}>{loc.opmerking?.substring(0, 30)}{loc.opmerking?.length > 30 ? '...' : ''}</td>
-                                        <td style={{ fontWeight: 'bold', color: isComplex ? 'var(--danger)' : 'var(--success)' }}>
-                                            {isComplex ? 'Ja' : 'Nee'}
+                                        <td>{loc.complex ? 'Ja' : 'Nee'}</td>
+                                        <td>{loc.statusAbel || 'Nog te doen'}</td>
+                                        <td title={loc.opmerkingenAbel}>{loc.opmerkingenAbel?.substring(0, 20)}</td>
+                                        <td>
+                                            <button
+                                                className="btn btn-sm btn-secondary"
+                                                title="Deep Scan"
+                                                onClick={async (e) => {
+                                                    const btn = e.currentTarget;
+                                                    const originalText = btn.innerHTML;
+                                                    try {
+                                                        btn.disabled = true;
+                                                        btn.innerHTML = '...';
+                                                        let token = localStorage.getItem('github_token');
+                                                        if (!token) token = prompt('GitHub Token:');
+                                                        if (!token) throw new Error('No token');
+                                                        localStorage.setItem('github_token', token);
+                                                        await triggerDeepScan(loc.locatiecode, `${loc.straatnaam} ${loc.huisnummer}`, token, 'pieteroffereins', 'TOB-Parser');
+                                                        btn.innerHTML = '✅';
+                                                        updateField(loc.locatiecode, 'statusAbel', 'In uitvoering');
+                                                    } catch (err) {
+                                                        btn.innerHTML = '❌';
+                                                        setTimeout(() => { btn.innerHTML = originalText; btn.disabled = false; }, 2000);
+                                                    }
+                                                }}
+                                            >
+                                                🔎
+                                            </button>
                                         </td>
-                                        <td>{loc.statusAbel}</td>
-                                        <td title={loc.opmerkingenAbel}>{loc.opmerkingenAbel?.substring(0, 30)}{loc.opmerkingenAbel?.length > 30 ? '...' : ''}</td>
                                     </tr>
                                 );
                             })}

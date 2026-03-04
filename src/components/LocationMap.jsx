@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { MapContainer, TileLayer, WMSTileLayer, Marker, Popup, LayersControl, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { rdToWgs84 } from '../utils/apiIntegrations';
 
 // Fix default marker icons (Leaflet + bundler issue)
 delete L.Icon.Default.prototype._getIconUrl;
@@ -10,31 +11,6 @@ L.Icon.Default.mergeOptions({
     iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
     shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
-
-// Simple RD (EPSG:28992) to WGS84 (EPSG:4326) conversion
-// Using the standard approximation formula
-function rdToWgs84(x, y) {
-    const dX = (x - 155000) * 1e-5;
-    const dY = (y - 463000) * 1e-5;
-
-    const lat = 52.15517440 +
-        (dY * 3235.65389) +
-        (dX * -0.24750) +
-        (dY * dY * -0.06550) +
-        (dX * dY * -0.01847) +
-        (dX * dX * -0.00349);
-
-    const lon = 5.38720621 +
-        (dX * 5260.52916) +
-        (dY * 105.94684) +
-        (dX * dY * 2.45656) +
-        (dX * dX * -0.81885) +
-        (dY * dY * 0.05594) +
-        (dX * dX * dY * -0.05607) +
-        (dX * dY * dY * 0.01199);
-
-    return [lat / 3600, lon / 3600];
-}
 
 // Custom marker for contamination sites
 const contaminationIcon = new L.DivIcon({
@@ -82,11 +58,16 @@ function FitBounds({ positions }) {
 export default function LocationMap({ locations = [], height = '400px' }) {
     const [activeLocation, setActiveLocation] = useState(null);
 
+    console.log(`🗺️ [Map] Received ${locations.length} locations.`);
+    if (locations.length > 0) {
+        console.debug('First location detailed:', locations[0]);
+    }
+
     // Convert locations to map markers
     const markers = locations
         .filter(loc => {
             // Need either enriched coords or RD coords
-            return (loc._enriched?.rdX && loc._enriched?.rdY) ||
+            return (loc._enriched?.rd?.x && loc._enriched?.rd?.y) ||
                 (loc._enriched?.lat && loc._enriched?.lon);
         })
         .map(loc => {
@@ -95,7 +76,10 @@ export default function LocationMap({ locations = [], height = '400px' }) {
                 lat = loc._enriched.lat;
                 lon = loc._enriched.lon;
             } else {
-                [lat, lon] = rdToWgs84(loc._enriched.rdX, loc._enriched.rdY);
+                // Use the corrected rdToWgs84 function with the right object path
+                const coords = rdToWgs84(loc._enriched.rd.x, loc._enriched.rd.y);
+                lat = coords.lat;
+                lon = coords.lng;
             }
             return {
                 ...loc,
@@ -103,6 +87,8 @@ export default function LocationMap({ locations = [], height = '400px' }) {
                 isComplex: loc.complex,
             };
         });
+
+    console.log(`📍 [Map] Generated ${markers.length} markers.`);
 
     // Default center (Utrecht, Netherlands)
     const defaultCenter = [52.0907, 5.1214];
@@ -187,6 +173,7 @@ export default function LocationMap({ locations = [], height = '400px' }) {
                             transparent={true}
                             opacity={0.5}
                             attribution='&copy; PDOK Bodemkwaliteit'
+                            params={{ crossOrigin: 'anonymous' }}
                         />
                     </LayersControl.Overlay>
 
@@ -199,6 +186,7 @@ export default function LocationMap({ locations = [], height = '400px' }) {
                             transparent={true}
                             opacity={0.4}
                             attribution='&copy; Kadaster'
+                            params={{ crossOrigin: 'anonymous' }}
                         />
                     </LayersControl.Overlay>
                 </LayersControl>

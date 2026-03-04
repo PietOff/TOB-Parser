@@ -1,0 +1,40 @@
+name: Deep Research Scan (Puppeteer)
+
+on:
+  workflow_dispatch:
+    inputs:
+      locations_json:
+        description: "JSON array of locations [{locatiecode, query}]"
+        required: true
+
+jobs:
+  deep-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Install Puppeteer Browsers
+        run: npx puppeteer browsers install chrome
+
+      - name: Run Deep Scan Script
+        env:
+          GOOGLE_SHEETS_URL: ${{ secrets.GOOGLE_SHEETS_URL }}
+        run: node scripts/deep_scan.js '${{ github.event.inputs.locations_json }}'
+
+      - name: Upload Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: deep-scan-results
+          path: deep_scan_results.json
+          retention-days: 1
