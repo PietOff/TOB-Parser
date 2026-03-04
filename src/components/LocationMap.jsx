@@ -51,11 +51,25 @@ function FitBounds({ positions }) {
     return null;
 }
 
+// Component to auto-pan to a specific marker when selected in the table
+function AutoPan({ highlightedCode, markers }) {
+    const map = useMap();
+    useEffect(() => {
+        if (highlightedCode) {
+            const m = markers.find(mark => mark.locatiecode === highlightedCode);
+            if (m && m.lat && m.lon) {
+                map.flyTo([m.lat, m.lon], 17, { animate: true, duration: 1.5 });
+            }
+        }
+    }, [highlightedCode, markers, map]);
+    return null;
+}
+
 /**
  * LocationMap — Interactive map showing TOB locations
  * with PDOK background layers and Bodemkwaliteitskaart WMS overlay
  */
-export default function LocationMap({ locations = [], height = '400px', onLocationDrag }) {
+export default function LocationMap({ locations = [], height = '400px', onLocationDrag, highlightedLocationCode }) {
     const [activeLocation, setActiveLocation] = useState(null);
 
     console.log(`🗺️ [Map] Received ${locations.length} locations.`);
@@ -134,6 +148,7 @@ export default function LocationMap({ locations = [], height = '400px', onLocati
                 zoomControl={true}
             >
                 <FitBounds positions={positions} />
+                <AutoPan highlightedCode={highlightedLocationCode} markers={markers} />
 
                 <LayersControl position="topright">
                     {/* Base layers */}

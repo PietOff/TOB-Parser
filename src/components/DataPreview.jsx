@@ -80,7 +80,12 @@ export default function DataPreview({ locations, onLocationsUpdate }) {
                         <b>Tip:</b> Rode markers zijn Complexe zaken. Groene markers zijn Onverdacht. Gebruik de lagen-knop rechtsboven voor Bodemkwaliteit en Percelen.
                     </div>
                     <Suspense fallback={<div className="spinner-container"><div className="spinner"></div> Kaart laden...</div>}>
-                        <LocationMap locations={locations} height="400px" />
+                        <LocationMap
+                            locations={locations}
+                            height="400px"
+                            onLocationDrag={onLocationDrag}
+                            highlightedLocationCode={expandedCase}
+                        />
                     </Suspense>
                 </div>
             )}
@@ -361,8 +366,14 @@ export default function DataPreview({ locations, onLocationsUpdate }) {
                         <tbody>
                             {locations.map(loc => {
                                 const isComplex = !!loc.complex;
+                                const isSelected = expandedCase === loc.locatiecode;
                                 return (
-                                    <tr key={loc.locatiecode} className={isComplex ? 'row-complex' : ''}>
+                                    <tr
+                                        key={loc.locatiecode}
+                                        className={`${isComplex ? 'row-complex' : ''} ${isSelected ? 'row-selected' : ''}`}
+                                        onClick={() => setExpandedCase(loc.locatiecode)}
+                                        style={{ cursor: 'pointer', backgroundColor: isSelected ? 'var(--bg-secondary)' : undefined }}
+                                    >
                                         <td>{loc.locatiecode}</td>
                                         <td>{loc.locatienaam}</td>
                                         <td>{loc.straatnaam}</td>
@@ -373,19 +384,61 @@ export default function DataPreview({ locations, onLocationsUpdate }) {
                                         </td>
                                         <td>{loc.status}</td>
                                         <td>
-                                            <span className={`assessment ${isComplex ? 'assessment-verdacht' : 'assessment-onverdacht'}`}>
-                                                {loc.conclusie || (isComplex ? 'verdacht' : 'onverdacht')}
-                                            </span>
+                                            <select
+                                                value={loc.conclusie || (isComplex ? 'verdacht' : 'onverdacht')}
+                                                onChange={(e) => updateField(loc.locatiecode, 'conclusie', e.target.value)}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="inline-select"
+                                            >
+                                                <option value="onverdacht">onverdacht</option>
+                                                <option value="verdacht">verdacht</option>
+                                                <option value="verontreinigd_onzeker">verontreinigd onzeker</option>
+                                                <option value="verontreinigd_zeker">verontreinigd zeker</option>
+                                                <option value="nader_onderzoek">nader onderzoek</option>
+                                            </select>
                                         </td>
-                                        <td>{loc.veiligheidsklasse}</td>
+                                        <td>
+                                            <select
+                                                value={loc.veiligheidsklasse || ''}
+                                                onChange={(e) => updateField(loc.locatiecode, 'veiligheidsklasse', e.target.value)}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="inline-select"
+                                            >
+                                                <option value="">(Geen)</option>
+                                                <option value="Basisklasse">Basisklasse</option>
+                                                <option value="Oranje">Oranje</option>
+                                                <option value="Rood">Rood</option>
+                                                <option value="Zwart">Zwart</option>
+                                            </select>
+                                        </td>
                                         <td>{loc.melding}</td>
                                         <td>{loc.mkb}</td>
                                         <td>{loc.brl7000}</td>
                                         <td title={loc.opmerking}>{loc.opmerking?.substring(0, 30)}{loc.opmerking?.length > 30 ? '...' : ''}</td>
                                         <td>{loc.complex ? 'Ja' : 'Nee'}</td>
-                                        <td>{loc.statusAbel || 'Nog te doen'}</td>
-                                        <td title={loc.opmerkingenAbel}>{loc.opmerkingenAbel?.substring(0, 20)}</td>
                                         <td>
+                                            <select
+                                                value={loc.statusAbel || 'Nog te doen'}
+                                                onChange={(e) => updateField(loc.locatiecode, 'statusAbel', e.target.value)}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="inline-select"
+                                            >
+                                                <option value="Nog te doen">Nog te doen</option>
+                                                <option value="In uitvoering">In uitvoering</option>
+                                                <option value="Klaar">Klaar</option>
+                                            </select>
+                                        </td>
+                                        <td>
+                                            <input
+                                                type="text"
+                                                defaultValue={loc.opmerkingenAbel || ''}
+                                                onBlur={(e) => updateField(loc.locatiecode, 'opmerkingenAbel', e.target.value)}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="inline-input"
+                                                placeholder="Opmerking..."
+                                            />
+                                        </td>
+                                        <td onClick={(e) => e.stopPropagation()}>
                                             <button
                                                 className="btn btn-sm btn-secondary"
                                                 title="Deep Scan"

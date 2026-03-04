@@ -254,7 +254,8 @@ export function getHistorischeKaartLinks(rdX, rdY) {
  * Bodemloket doesn't have a direct API but supports URL parameters
  */
 export function getBodemloketUrl(rdX, rdY) {
-    return `https://www.bodemloket.nl/kaart?zoom=15&x=${Math.round(rdX)}&y=${Math.round(rdY)}`;
+    // Bodemloket viewer built on ArcGIS accepts ?center=<X>,<Y>,28992
+    return `https://www.bodemloket.nl/kaart?center=${Math.round(rdX)},${Math.round(rdY)},28992`;
 }
 
 import proj4 from 'proj4';
