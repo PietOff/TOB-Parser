@@ -5,7 +5,7 @@ import { triggerDeepScan, getGithubToken } from '../utils/apiIntegrations';
 // Lazy load map to prevent SSR issues and reduce initial bundle size
 const LocationMap = lazy(() => import('./LocationMap'));
 
-export default function DataPreview({ locations, onLocationsUpdate }) {
+export default function DataPreview({ locations, onLocationsUpdate, onLocationDrag }) {
     const [expandedCase, setExpandedCase] = useState(null);
 
     const complexLocations = locations.filter(l => l.complex);
