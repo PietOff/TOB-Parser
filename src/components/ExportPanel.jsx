@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { generateSmartContent, assessLocation } from '../utils/smartFill';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
+import html2canvas from 'html2canvas';
 
 // Helper to format keys like 'planVanAanpak' into 'Plan Van Aanpak'
 function camelToLabel(str) {
@@ -19,11 +21,51 @@ export default function ExportPanel({ locations }) {
         setResult(null);
 
         try {
-            const wb = XLSX.utils.book_new();
+            const wb = new ExcelJS.Workbook();
+            wb.creator = 'TOB Parser';
+            wb.lastModifiedBy = 'TOB Parser';
+            wb.created = new Date();
+            wb.modified = new Date();
+
+            // ==========================================
+            // 0. OVERZICHTSKAART TAB
+            // ==========================================
+            const wsMap = wb.addWorksheet('Kaart', { properties: { tabColor: { argb: 'FF4CAF50' } } });
+            try {
+                const mapElement = document.getElementById('master-location-map');
+                if (mapElement) {
+                    // Temporarily hide map controls during screenshot for a cleaner look if desired
+                    // but standard html2canvas handles it okay.
+                    const canvas = await html2canvas(mapElement, {
+                        useCORS: true,
+                        allowTaint: false,
+                        backgroundColor: null // Transparent or white
+                    });
+
+                    const base64Image = canvas.toDataURL('image/png');
+                    const imageId = wb.addImage({
+                        base64: base64Image,
+                        extension: 'png',
+                    });
+
+                    // Add image to worksheet from B2 downwards
+                    wsMap.addImage(imageId, {
+                        tl: { col: 1, row: 1 },
+                        ext: { width: canvas.width * 0.75, height: canvas.height * 0.75 }
+                    });
+                } else {
+                    wsMap.getCell('A1').value = 'Kaart kon niet gevonden worden op het scherm.';
+                }
+            } catch (err) {
+                console.warn('Map screenshot failed:', err);
+                wsMap.getCell('A1').value = 'Screenshot maken van de kaart is mislukt: ' + err.message;
+            }
 
             // ==========================================
             // 1. OVERZICHT LOCATIES TAB
             // ==========================================
+            const wsOverzicht = wb.addWorksheet('Overzicht Locaties', { properties: { tabColor: { argb: 'FF2196F3' } } });
+
             const overzichtHeaders = [
                 'Locatiecode', 'Locatienaam', 'Straatnaam', 'Huisnummer', 'Postcode',
                 'Status rapport', 'Conclusie', 'Veiligheidsklasse', 'Melding', 'MKB',
@@ -33,50 +75,62 @@ export default function ExportPanel({ locations }) {
                 'Topotijdreis Link', 'Bodemloket Link', 'Toelichting', 'Actie'
             ];
 
-            const overzichtData = [overzichtHeaders];
+            const headerRow = wsOverzicht.addRow(overzichtHeaders);
+            headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+            headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4285F4' } };
 
             for (const loc of locations) {
                 const assessment = assessLocation(loc);
-                overzichtData.push([
+                const rowData = [
                     loc.locatiecode || '', loc.locatienaam || '', loc.straatnaam || '', loc.huisnummer || '', loc.postcode || '',
                     loc.status || '', loc.conclusie || '', loc.veiligheidsklasse || '', loc.melding || '', loc.mkb || '',
                     loc.brl7000 || '', loc.opmerking || '', loc.complex ? 'Ja' : 'Nee', assessment.beoordeling || '', assessment.prioriteit || '',
                     loc.rapportJaar || '', loc.afstandTrace || '', '', loc.opmerkingenAbel || '',
                     loc._enriched?.gemeente || '', loc._enriched?.provincie || '', loc._enriched?.rdX || '', loc._enriched?.rdY || '',
-                    loc._enriched?.bodemkwaliteit?.[0]?.klasse || '', loc._enriched?.topotijdreisHuidig || '', loc._enriched?.bodemloket || '',
+                    loc._enriched?.bodemkwaliteit?.[0]?.klasse || '',
+                    loc._enriched?.topotijdreisHuidig ? { text: 'Klik hier', hyperlink: loc._enriched.topotijdreisHuidig } : '',
+                    loc._enriched?.bodemloket ? { text: 'Klik hier', hyperlink: loc._enriched.bodemloket } : '',
                     assessment.toelichting || '', assessment.actie || ''
-                ]);
+                ];
+
+                const row = wsOverzicht.addRow(rowData);
+                // Highlight complex rows
+                if (loc.complex) {
+                    row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4EC' } };
+                }
             }
 
-            const wsOverzicht = XLSX.utils.aoa_to_sheet(overzichtData);
+            wsOverzicht.columns = overzichtHeaders.map(h => ({ width: 18 }));
+            wsOverzicht.getColumn(2).width = 30; // Locatienaam
+            wsOverzicht.getColumn(3).width = 25; // Straatnaam
+            wsOverzicht.getColumn(27).width = 40; // Toelichting
+            wsOverzicht.getColumn(28).width = 25; // Actie
 
-            // Set basic column widths
-            wsOverzicht['!cols'] = [
-                { wch: 20 }, { wch: 30 }, { wch: 25 }, { wch: 10 }, { wch: 10 },
-                { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 15 },
-                { wch: 15 }, { wch: 30 }, { wch: 10 }, { wch: 20 }, { wch: 15 },
-            ];
-
-            XLSX.utils.book_append_sheet(wb, wsOverzicht, 'Overzicht Locaties');
+            wsOverzicht.views = [{ state: 'frozen', ySplit: 1 }];
 
             // ==========================================
             // 2. CHECKLIST TAB
             // ==========================================
-            const checklistHeaders = ['Locatiecode', 'Stof', 'Document', 'Status', 'Toelichting'];
-            const checklistData = [checklistHeaders];
-            const docs = ['Nader afperkend onderzoek', 'Saneringsplan', 'BUS-melding', 'V&G-plan', 'MKB-plan', 'Evaluatierapport'];
+            const wsChecklist = wb.addWorksheet('Checklist', { properties: { tabColor: { argb: 'FFF44336' } } });
 
+            const checklistHeaders = ['Locatiecode', 'Stof', 'Document', 'Status', 'Toelichting'];
+            const chRow = wsChecklist.addRow(checklistHeaders);
+            chRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+            chRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEA4335' } };
+
+            const docs = ['Nader afperkend onderzoek', 'Saneringsplan', 'BUS-melding', 'V&G-plan', 'MKB-plan', 'Evaluatierapport'];
             const complexeCases = locations.filter(l => l.complex);
 
             for (const loc of complexeCases) {
                 for (const doc of docs) {
-                    checklistData.push([loc.locatiecode, loc.stoffen?.[0]?.stof || '', doc, 'Nog te doen', '']);
+                    wsChecklist.addRow([loc.locatiecode, loc.stoffen?.[0]?.stof || '', doc, 'Nog te doen', '']);
                 }
             }
 
-            const wsChecklist = XLSX.utils.aoa_to_sheet(checklistData);
-            wsChecklist['!cols'] = [{ wch: 20 }, { wch: 20 }, { wch: 25 }, { wch: 15 }, { wch: 40 }];
-            XLSX.utils.book_append_sheet(wb, wsChecklist, 'Checklist');
+            wsChecklist.columns = [
+                { width: 20 }, { width: 20 }, { width: 30 }, { width: 15 }, { width: 40 }
+            ];
+            wsChecklist.views = [{ state: 'frozen', ySplit: 1 }];
 
             // ==========================================
             // 3. COMPLEXE ZAKEN TABBLADEN
@@ -94,9 +148,19 @@ export default function ExportPanel({ locations }) {
                     })
                     : null;
 
-                const caseData = [];
-                caseData.push([`Complexe Zaak: ${loc.locatiecode}`]);
-                caseData.push([]); // empty line
+                const rawName = `CZ - ${loc.locatiecode || 'Onbekend'} ${loc.stoffen?.[0]?.stof || ''}`;
+                let safeTabName = rawName.replace(/[\\/?*[\]:]/g, '').substring(0, 31).trim();
+                let count = 1;
+                while (wb.worksheets.map(s => s.name).includes(safeTabName)) {
+                    safeTabName = `${safeTabName.substring(0, 27)}(${count})`;
+                    count++;
+                }
+
+                const wsCase = wb.addWorksheet(safeTabName, { properties: { tabColor: { argb: 'FFFF9800' } } });
+
+                const titleRow = wsCase.addRow([`Complexe Zaak: ${loc.locatiecode}`]);
+                titleRow.font = { bold: true, size: 14 };
+                wsCase.addRow([]);
 
                 if (smart) {
                     const sections = [
@@ -111,42 +175,35 @@ export default function ExportPanel({ locations }) {
                     ];
 
                     for (const section of sections) {
-                        caseData.push([section.title]);
+                        const secRow = wsCase.addRow([section.title]);
+                        secRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                        secRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A73E8' } };
+                        wsCase.mergeCells(`A${secRow.number}:B${secRow.number}`);
+
                         if (section.fields) {
                             for (const [k, v] of Object.entries(section.fields)) {
-                                caseData.push([camelToLabel(k), v]);
+                                const dataRow = wsCase.addRow([camelToLabel(k), v]);
+                                dataRow.getCell(1).font = { bold: true };
+                                dataRow.getCell(2).alignment = { wrapText: true };
                             }
                         }
-                        caseData.push([]); // explicit empty line separator
+                        wsCase.addRow([]);
                     }
                 }
 
-                const wsCase = XLSX.utils.aoa_to_sheet(caseData);
-                wsCase['!cols'] = [{ wch: 30 }, { wch: 80 }]; // Field Label, Field Text
-
-                // Construct safe Excel tab name (max 31 chars, no invalid symbols)
-                const rawName = `CZ - ${loc.locatiecode || 'Onbekend'} ${loc.stoffen?.[0]?.stof || ''}`;
-                let safeTabName = rawName.replace(/[\\/?*[\]:]/g, '').substring(0, 31).trim();
-
-                // Deduplicate sheet names if any clash
-                let count = 1;
-                while (wb.SheetNames.includes(safeTabName)) {
-                    safeTabName = `${safeTabName.substring(0, 27)}(${count})`;
-                    count++;
-                }
-
-                XLSX.utils.book_append_sheet(wb, wsCase, safeTabName);
+                wsCase.columns = [{ width: 25 }, { width: 90 }];
             }
 
             // ==========================================
             // WRITE EXCEL FILE
             // ==========================================
-            const filename = `TOB-Rapportage-${new Date().toISOString().split('T')[0]}.xlsx`;
-            XLSX.writeFile(wb, filename);
+            const buffer = await wb.xlsx.writeBuffer();
+            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            saveAs(blob, `TOB-Rapportage-${new Date().toISOString().split('T')[0]}.xlsx`);
 
             setResult({
                 success: true,
-                message: `✅ Succes! Excel Rapportage met ${locations.length} locaties is gedownload.`
+                message: `✅ Succes! Excel Rapportage met ${locations.length} locaties (inclusief kaart) is gedownload.`
             });
         } catch (err) {
             console.error(err);
@@ -183,7 +240,7 @@ export default function ExportPanel({ locations }) {
             <h2>📥 Download Rapportage</h2>
             <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
                 Genereer een complete Excel-rapportage van je onderzoek.
-                De Excel bevat één overzichtslijst, een actie-checklist en automatische verslaglegging per complexe zaak (elke in een eigen tabblad).
+                De Excel bevat een screenshot van de kaart, een overzichtslijst, een actie-checklist en automatische verslaglegging per complexe zaak.
             </p>
 
             <div className="btn-group" style={{ justifyContent: 'flex-start' }}>

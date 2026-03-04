@@ -84,6 +84,29 @@ export default function App() {
                 setParseStatus(`Locatie verrijken: ${i}/${total}...`);
             });
 
+            // Mark complex based on API Bodemkwaliteit
+            enriched.forEach(loc => {
+                const bkKlasse = loc._enriched?.bodemkwaliteit?.[0]?.klasse?.toLowerCase() || '';
+                // Classes that warrant complexity: Wonen, Industrie, Klasse A/B, Niet toepasbaar
+                // Usually "Achtergrondwaarde", "Landbouw/Natuur", "Onbebouwd" are clean.
+                if (
+                    bkKlasse.includes('wonen') ||
+                    bkKlasse.includes('industrie') ||
+                    bkKlasse.includes('klasse a') ||
+                    bkKlasse.includes('klasse b') ||
+                    bkKlasse.includes('niet toepasbaar') ||
+                    bkKlasse.includes('maximale')
+                ) {
+                    loc.complex = true;
+                    const apiOpmerking = `Let op: API Bodemkwaliteit geeft klasse '${loc._enriched.bodemkwaliteit[0].klasse}'.`;
+                    if (!loc.opmerkingenAbel) {
+                        loc.opmerkingenAbel = apiOpmerking;
+                    } else if (!loc.opmerkingenAbel.includes('API Bodemkwaliteit')) {
+                        loc.opmerkingenAbel = `${loc.opmerkingenAbel} | ${apiOpmerking}`;
+                    }
+                }
+            });
+
             setLocations(enriched);
             setStep(2);
         } catch (err) {

@@ -134,7 +134,7 @@ export default function LocationMap({ locations = [], height = '400px' }) {
     }
 
     return (
-        <div style={{
+        <div id="master-location-map" style={{
             height,
             borderRadius: 'var(--radius-md)',
             overflow: 'hidden',
@@ -153,6 +153,7 @@ export default function LocationMap({ locations = [], height = '400px' }) {
                     {/* Base layers */}
                     <LayersControl.BaseLayer checked name="OpenStreetMap">
                         <TileLayer
+                            crossOrigin="anonymous"
                             attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>'
                             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                         />
@@ -160,6 +161,7 @@ export default function LocationMap({ locations = [], height = '400px' }) {
 
                     <LayersControl.BaseLayer name="PDOK Luchtfoto">
                         <TileLayer
+                            crossOrigin="anonymous"
                             attribution='&copy; PDOK'
                             url="https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/Actueel_orthoHR/EPSG:3857/{z}/{x}/{y}.jpeg"
                             maxZoom={19}
@@ -168,6 +170,7 @@ export default function LocationMap({ locations = [], height = '400px' }) {
 
                     <LayersControl.BaseLayer name="PDOK BRT Achtergrond">
                         <TileLayer
+                            crossOrigin="anonymous"
                             attribution='&copy; Kadaster / PDOK'
                             url="https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/standaard/EPSG:3857/{z}/{x}/{y}.png"
                             maxZoom={19}
@@ -177,6 +180,7 @@ export default function LocationMap({ locations = [], height = '400px' }) {
                     {/* Overlay layers */}
                     <LayersControl.Overlay checked name="🔴 Bodemkwaliteitskaart">
                         <WMSTileLayer
+                            crossOrigin="anonymous"
                             url="https://service.pdok.nl/provincies/bodemkwaliteit/wms/v1_0"
                             layers="bodemkwaliteitskaart"
                             format="image/png"
@@ -188,6 +192,7 @@ export default function LocationMap({ locations = [], height = '400px' }) {
 
                     <LayersControl.Overlay name="📐 Kadastrale grenzen">
                         <WMSTileLayer
+                            crossOrigin="anonymous"
                             url="https://service.pdok.nl/kadaster/kadastralekaart/wms/v5_0"
                             layers="Perceel"
                             format="image/png"
