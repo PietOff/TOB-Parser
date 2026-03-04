@@ -98,13 +98,11 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                         const assessment = assessLocation(loc);
                         const smart = loc.stoffen?.length > 0
                             ? generateSmartContent({
-                                stof: loc.stoffen[0].stof,
-                                waarde: loc.stoffen[0].waarde,
-                                diepte: loc.dieptes?.[0] || '',
-                                boorpunt: '',
+                                stoffen: loc.stoffen,
                                 naam: loc.locatienaam,
                                 straat: loc.straatnaam,
-                                code: loc.locatiecode,
+                                locatiecode: loc.locatiecode,
+                                asbestVerdacht: loc._enriched?.buildings?.some(b => b.bouwjaar >= 1945 && b.bouwjaar <= 1995) || false,
                             })
                             : null;
                         const isOpen = expandedCase === loc.locatiecode;

@@ -379,15 +379,8 @@ export async function enrichLocation(location, contextPostcode = null, primaryCi
     }
 
     // 2. Regional Context Matching (if no postal code and no city provided)
-    if (baseAddr && !effectivePostcode && !location.woonplaats) {
-        const topCities = Object.entries(cityCounts)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 5)
-            .map(e => e[0]);
-
-        for (const city of topCities) {
-            queries.push([baseAddr, city].filter(Boolean).join(' '));
-        }
+    if (baseAddr && !effectivePostcode && !location.woonplaats && primaryCity) {
+        queries.push([baseAddr, primaryCity].filter(Boolean).join(' '));
     }
 
     // 3. Absolute Fallback

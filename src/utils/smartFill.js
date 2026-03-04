@@ -264,7 +264,9 @@ export function assessLocation(location) {
  * Generates smart-fill content for a complex case
  */
 export function generateSmartContent(caseData) {
-    const { stoffen, naam, straat, locatiecode } = caseData;
+    const { stoffen, naam, straat, locatiecode, asbestVerdacht = false } = caseData;
+    const ASBEST_START = 1945;
+    const ASBEST_END = 1995;
     const firstStof = stoffen?.[0] || { stof: 'lood', waarde: 0 };
     const stofKey = firstStof.stof?.toLowerCase().replace(/[^a-z_]/g, '').replace('minerale olie', 'minerale_olie') || 'lood';
     const stofInfo = STOF_DATA[stofKey] || STOF_DATA.lood;

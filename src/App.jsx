@@ -5,7 +5,7 @@ import ExportPanel from './components/ExportPanel';
 import { extractPdfText, parseTobReport, mergeToLocations } from './utils/pdfParser';
 import { parseXlsx } from './utils/xlsxParser';
 import { parseDocx, docxToLocations } from './utils/docxParser';
-import { enrichAllLocations, triggerDeepScanBatch, detectCityFromText } from './utils/apiIntegrations';
+import { enrichAllLocations, triggerDeepScanBatch, detectCityFromText, wgs84ToRd } from './utils/apiIntegrations';
 import { assessLocation } from './utils/smartFill';
 
 // GitHub token: reads from Vercel env var first, then localStorage
@@ -141,7 +141,6 @@ const handleLocationDrag = (locatiecode, newLat, newLng) => {
     setLocations(prevLocations =>
         prevLocations.map(loc => {
             if (loc.locatiecode === locatiecode || loc.id === locatiecode) {
-                const { wgs84ToRd } = require('./utils/apiIntegrations');
                 const newRd = wgs84ToRd(newLat, newLng);
 
                 console.log(`🗺️ [Map] Manual correction for ${locatiecode}: Lat ${newLat.toFixed(5)}, Lng ${newLng.toFixed(5)} -> RD X: ${newRd.x}, Y: ${newRd.y}`);
