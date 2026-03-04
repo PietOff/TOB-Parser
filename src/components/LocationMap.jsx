@@ -291,7 +291,8 @@ export default function LocationMap({ locations = [], height = '400px', onLocati
                                 </div>
                             </Popup>
                         </Marker>
-                    ))}
+                    );
+                })}
             </MapContainer>
 
             {/* Map legend overlay */}
