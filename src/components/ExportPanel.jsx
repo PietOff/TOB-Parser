@@ -42,6 +42,15 @@ export default function ExportPanel({ locations }) {
                         afstandTrace: loc.afstandTrace || '',
                         statusAbel: '',
                         opmerkingenAbel: loc.opmerkingenAbel || '',
+                        gemeente: loc._enriched?.gemeente || '',
+                        provincie: loc._enriched?.provincie || '',
+                        rdX: loc._enriched?.rdX || '',
+                        rdY: loc._enriched?.rdY || '',
+                        bodemkwaliteitsklasse: loc._enriched?.bodemkwaliteit?.[0]?.klasse || '',
+                        topotijdreisLink: loc._enriched?.topotijdreisHuidig || '',
+                        bodemloketLink: loc._enriched?.bodemloket || '',
+                        toelichting: assessment.toelichting || '',
+                        actie: assessment.actie || '',
                     };
                 }),
                 complexeCases: locations.filter(l => l.complex).map(loc => {
