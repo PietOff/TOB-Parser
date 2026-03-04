@@ -7,6 +7,11 @@ import { parseXlsx } from './utils/xlsxParser';
 import { parseDocx, docxToLocations } from './utils/docxParser';
 import { enrichAllLocations, triggerDeepScanBatch } from './utils/apiIntegrations';
 import { assessLocation } from './utils/smartFill';
+
+// GitHub token: reads from Vercel env var first, then localStorage
+function getGithubToken() {
+    return import.meta.env.VITE_GITHUB_TOKEN || localStorage.getItem('github_token') || null;
+}
 import './index.css';
 
 const STEPS = [
@@ -86,15 +91,17 @@ export default function App() {
             setStep(2);
 
             // --- Automatic Deep Scan Trigger ---
-            const token = localStorage.getItem('github_token');
+            const token = getGithubToken();
             if (token) {
-                setParseStatus('Cloud-onderzoek (Bodemloket/Topotijdreis) starten...');
+                setParseStatus('☁️ Cloud-onderzoek (Bodemloket/Topotijdreis) wordt gestart...');
                 try {
                     await triggerDeepScanBatch(finalLocations, token, 'pieteroffereins', 'TOB-Parser');
-                    console.log('✅ Batch Deep Scan gestart');
+                    console.log('✅ Batch Deep Scan gestart voor', finalLocations.length, 'locaties');
                 } catch (dispatchErr) {
                     console.warn('⚠️ Batch Deep Scan kon niet automatisch starten:', dispatchErr.message);
                 }
+            } else {
+                console.log('ℹ️ Geen GitHub token gevonden — Deep Scan overgeslagen. Stel VITE_GITHUB_TOKEN in op Vercel.');
             }
 
         } catch (err) {

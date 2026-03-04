@@ -1,6 +1,6 @@
 import { useState, lazy, Suspense } from 'react';
 import { assessLocation, generateSmartContent } from '../utils/smartFill';
-import { triggerDeepScan } from '../utils/apiIntegrations';
+import { triggerDeepScan, getGithubToken } from '../utils/apiIntegrations';
 
 // Lazy load map to prevent SSR issues and reduce initial bundle size
 const LocationMap = lazy(() => import('./LocationMap'));
@@ -287,10 +287,9 @@ export default function DataPreview({ locations, onLocationsUpdate }) {
                                                             btn.disabled = true;
                                                             btn.innerHTML = '<div class="spinner-xs"></div> Scan...';
 
-                                                            // We use local storage or prompt for token if not set
-                                                            let token = localStorage.getItem('github_token');
+                                                            let token = getGithubToken();
                                                             if (!token) {
-                                                                token = prompt('Geef je GitHub Personal Access Token (PAT) op:');
+                                                                token = prompt('GitHub Token (eenmalig):');
                                                                 if (token) localStorage.setItem('github_token', token);
                                                             }
 
@@ -392,7 +391,7 @@ export default function DataPreview({ locations, onLocationsUpdate }) {
                                                     try {
                                                         btn.disabled = true;
                                                         btn.innerHTML = '...';
-                                                        let token = localStorage.getItem('github_token');
+                                                        let token = getGithubToken();
                                                         if (!token) token = prompt('GitHub Token:');
                                                         if (!token) throw new Error('No token');
                                                         localStorage.setItem('github_token', token);

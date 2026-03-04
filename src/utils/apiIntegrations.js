@@ -6,11 +6,66 @@
  * - BAG API: building/address details (bouwjaar, oppervlakte, gebruiksdoel)
  * - Topotijdreis: historical map links for visual reference
  * - Bodemloket: soil data links
+ * - Nazca: location code lookup via Bodemloket search
  */
 
 const PDOK_LOCATIE_BASE = 'https://api.pdok.nl/bzk/locatieserver/search/v3_1';
 const BAG_API_BASE = 'https://api.bag.kadaster.nl/lvbag/individuelebevragingen/v2';
 const TOPOTIJDREIS_BASE = 'https://www.topotijdreis.nl';
+
+// GitHub token: reads from Vercel env var first, then localStorage
+export function getGithubToken() {
+    return import.meta.env.VITE_GITHUB_TOKEN || localStorage.getItem('github_token') || null;
+}
+
+// ══════════════════════════════════════
+// Nazca Location Code Lookup
+// ══════════════════════════════════════
+
+/**
+ * Look up a Nazca location code via the Bodemloket/PDOK system.
+ * Nazca codes are used in Dutch environmental management (Tauw, Rijkswaterstaat).
+ * Returns any matching soil investigation records.
+ */
+export async function lookupNazcaCode(nazcaCode) {
+    try {
+        console.log(`🔍 [Nazca] Looking up code: ${nazcaCode}`);
+
+        // Try PDOK Locatieserver first (some Nazca codes map to known addresses)
+        const pdokResults = await pdokSearch(nazcaCode);
+        if (pdokResults.length > 0) {
+            console.log(`✅ [Nazca] Found via PDOK: ${pdokResults[0].weergavenaam}`);
+            return {
+                found: true,
+                source: 'PDOK',
+                address: pdokResults[0].weergavenaam,
+                data: pdokResults[0]
+            };
+        }
+
+        // Fallback: try searching by code pattern (e.g., "T-2345" or "LOC-001")
+        // Some codes encode municipality info
+        const codeMatch = nazcaCode.match(/^([A-Z]+)-?(\d+)/);
+        if (codeMatch) {
+            const prefix = codeMatch[1];
+            const results = await pdokSearch(`${prefix} ${nazcaCode}`);
+            if (results.length > 0) {
+                return {
+                    found: true,
+                    source: 'PDOK (prefix match)',
+                    address: results[0].weergavenaam,
+                    data: results[0]
+                };
+            }
+        }
+
+        console.log(`⚠️ [Nazca] Code "${nazcaCode}" not found in PDOK/Bodemloket.`);
+        return { found: false, source: null, data: null };
+    } catch (err) {
+        console.warn(`❌ [Nazca] Lookup failed for "${nazcaCode}":`, err);
+        return { found: false, source: null, data: null };
+    }
+}
 
 // ══════════════════════════════════════════════
 // PDOK Locatieserver — geocoding & address data
@@ -265,6 +320,23 @@ export async function getBuildingDetails(rdX, rdY, buffer = 10) {
  */
 export async function enrichLocation(location) {
     const enriched = { ...location, _enriched: {} };
+
+    // Step 0: Detect and try Nazca location code lookup
+    const nazcaPattern = /^[A-Z]{1,5}[-_]?\d{2,}/i;
+    if (location.locatiecode && nazcaPattern.test(location.locatiecode) && !location.straatnaam) {
+        console.log(`🔎 [Nazca] Detected potential Nazca code: ${location.locatiecode}`);
+        const nazcaResult = await lookupNazcaCode(location.locatiecode);
+        if (nazcaResult.found) {
+            enriched._enriched._nazca = nazcaResult;
+            // Fill address fields from Nazca result
+            if (nazcaResult.data) {
+                if (!enriched.straatnaam && nazcaResult.data.straatnaam) enriched.straatnaam = nazcaResult.data.straatnaam;
+                if (!enriched.huisnummer && nazcaResult.data.huisnummer) enriched.huisnummer = nazcaResult.data.huisnummer;
+                if (!enriched.postcode && nazcaResult.data.postcode) enriched.postcode = nazcaResult.data.postcode;
+                if (!enriched.woonplaats && nazcaResult.data.woonplaats) enriched.woonplaats = nazcaResult.data.woonplaats;
+            }
+        }
+    }
 
     // Step 1: Geocode - Priority on Address/Name over location codes
     const queries = [];
