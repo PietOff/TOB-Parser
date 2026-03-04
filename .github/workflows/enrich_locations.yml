@@ -1,0 +1,26 @@
+name: Enrich TOB Locations
+
+on:
+    schedule:
+        - cron: "0 8 * * 1-5" # Werkdagen 08:00 UTC (09:00 NL)
+    workflow_dispatch: # Handmatige trigger
+
+jobs:
+    enrich:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+
+            - name: Run Enrichment Script
+              run: node scripts/enrich_locations.js
+              timeout-minutes: 5
+              env:
+                  CI: true
