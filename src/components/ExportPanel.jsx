@@ -68,11 +68,11 @@ export default function ExportPanel({ locations }) {
 
             const overzichtHeaders = [
                 'Locatiecode', 'Locatienaam', 'Straatnaam', 'Huisnummer', 'Postcode',
-                'Status rapport', 'Conclusie', 'Veiligheidsklasse', 'Melding', 'MKB',
-                'BRL 7000', 'Opmerking', 'Complex', 'Beoordeling', 'Prioriteit',
+                'Status rapport', 'Conclusie', 'Veiligheidsklasse', 'CROW 400 Grond', 'CROW 400 Grondwater',
+                'Melding', 'MKB', 'BRL 7000', 'Opmerking', 'Complex', 'Beoordeling', 'Prioriteit',
                 'Rapportjaar', 'Afstand trace (m)', 'Status AbelTalent', 'Opmerkingen AbelTalent',
                 'Gemeente', 'Provincie', 'RD-X', 'RD-Y', 'Bodemkwaliteitsklasse',
-                'Topotijdreis Link', 'Bodemloket Link', 'Toelichting', 'Actie'
+                'Topotijdreis Link', 'Bodemloket Link', 'Toelichting', 'Actie (Protocol Code)'
             ];
 
             const headerRow = wsOverzicht.addRow(overzichtHeaders);
@@ -83,10 +83,10 @@ export default function ExportPanel({ locations }) {
                 const assessment = assessLocation(loc);
                 const rowData = [
                     loc.locatiecode || '', loc.locatienaam || '', loc.straatnaam || '', loc.huisnummer || '', loc.postcode || '',
-                    loc.status || '', loc.conclusie || '', loc.veiligheidsklasse || '', loc.melding || '', loc.mkb || '',
-                    loc.brl7000 || '', loc.opmerking || '', loc.complex ? 'Ja' : 'Nee', assessment.beoordeling || '', assessment.prioriteit || '',
+                    loc.status || '', loc.conclusie || '', loc.veiligheidsklasse || '', loc.crow_grond || '', loc.crow_water || '',
+                    loc.melding || '', loc.mkb || '', loc.brl7000 || '', loc.opmerking || '', loc.complex ? 'Ja' : 'Nee', assessment.beoordeling || '', assessment.prioriteit || '',
                     loc.rapportJaar || '', loc.afstandTrace || '', '', loc.opmerkingenAbel || '',
-                    loc._enriched?.gemeente || '', loc._enriched?.provincie || '', loc._enriched?.rdX || '', loc._enriched?.rdY || '',
+                    loc._enriched?.gemeente || '', loc._enriched?.provincie || '', loc._enriched?.rd?.x || '', loc._enriched?.rd?.y || '',
                     loc._enriched?.bodemkwaliteit?.[0]?.klasse || '',
                     loc._enriched?.topotijdreisHuidig ? { text: 'Klik hier', hyperlink: loc._enriched.topotijdreisHuidig } : '',
                     loc._enriched?.bodemloket ? { text: 'Klik hier', hyperlink: loc._enriched.bodemloket } : '',

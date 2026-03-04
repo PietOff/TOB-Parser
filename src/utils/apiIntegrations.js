@@ -42,6 +42,7 @@ export async function pdokSearch(query) {
             centroide_ll: doc.centroide_ll,
             nummeraanduidingId: doc.nummeraanduiding_id,
             adresseerbaarobjectId: doc.adresseerbaarobject_id,
+            bouwjaar: doc.bouwjaar, // Available in some PDOK results
         }));
     } catch (err) {
         console.warn('PDOK search failed:', err);
@@ -124,6 +125,32 @@ export async function getBodemkwaliteit(rdX, rdY, buffer = 50) {
         return null;
     } catch (err) {
         console.warn('Bodemkwaliteit query failed:', err);
+        return null;
+    }
+}
+
+/**
+ * Get HBB (Historisch Bodem Bestand) data: activities and asbestos suspicion
+ */
+export async function getHbbData(rdX, rdY, buffer = 25) {
+    try {
+        const bbox = `${rdX - buffer},${rdY - buffer},${rdX + buffer},${rdY + buffer}`;
+        const url = `https://service.pdok.nl/provincies/bodemkwaliteit/wfs/v1_0?` +
+            `service=WFS&version=2.0.0&request=GetFeature&` +
+            `typeName=bodemkwaliteit:hbb_activiteit,bodemkwaliteit:hbb_asbestverdacht&` +
+            `bbox=${bbox},EPSG:28992&outputFormat=application/json&count=10`;
+
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const data = await res.json();
+
+        return (data.features || []).map(f => ({
+            naam: f.properties.naam || f.properties.activiteit,
+            type: f.id.includes('asbest') ? 'Asbestverdacht' : 'Activiteit',
+            bron: 'HBB (Historisch Bodem Bestand)',
+        }));
+    } catch (err) {
+        console.warn('HBB query failed:', err);
         return null;
     }
 }
@@ -236,59 +263,107 @@ export function rdToWgs84(x, y) {
 // ══════════════════════════════════════
 
 /**
+ * Get building details (oorspronkelijk bouwjaar) from BAG WFS
+ * This is crucial for asbestos suspicion (1945-1995)
+ */
+export async function getBuildingDetails(rdX, rdY, buffer = 10) {
+    try {
+        const bbox = `${rdX - buffer},${rdY - buffer},${rdX + buffer},${rdY + buffer}`;
+        const url = `https://service.pdok.nl/lvbag/bag/wfs/v2_0?` +
+            `service=WFS&version=2.0.0&request=GetFeature&` +
+            `typeName=bag:pand&bbox=${bbox},EPSG:28992&outputFormat=application/json&count=10`;
+
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const data = await res.json();
+
+        return (data.features || []).map(f => ({
+            id: f.properties.identificatie,
+            bouwjaar: f.properties.oorspronkelijkbouwjaar,
+            status: f.properties.status,
+            oppervlakte: f.properties.oppervlakte,
+        }));
+    } catch (err) {
+        console.warn('BAG WFS query failed:', err);
+        return null;
+    }
+}
+
+/**
  * Enrich a single TOB location with data from all available APIs
  * Call this for each location to add address details, coordinates, 
- * historical map links, and soil quality data
+ * historical map links, and soil quality data.
+ * 
+ * Implements "Automated Discovery": tries multiple searches if initial fails.
  */
 export async function enrichLocation(location) {
     const enriched = { ...location, _enriched: {} };
 
-    // Step 1: Geocode the address via PDOK
-    const searchQuery = [
-        location.straatnaam,
-        location.huisnummer,
-        location.postcode,
-        location.woonplaats || 'Utrecht',
-    ].filter(Boolean).join(' ');
+    // Possible search queries in order of specificity
+    const queries = [];
 
-    if (searchQuery.trim()) {
-        const results = await pdokSearch(searchQuery);
-        if (results.length > 0) {
-            const best = results[0];
-            enriched._enriched.pdok = best;
+    // 1. Full address
+    const fullAddr = [location.straatnaam, location.huisnummer, location.postcode, location.woonplaats].filter(Boolean).join(' ');
+    if (fullAddr) queries.push(fullAddr);
 
-            // Fill in missing address data
-            if (!enriched.straatnaam && best.straatnaam) enriched.straatnaam = best.straatnaam;
-            if (!enriched.huisnummer && best.huisnummer) enriched.huisnummer = best.huisnummer;
-            if (!enriched.postcode && best.postcode) enriched.postcode = best.postcode;
-            enriched._enriched.gemeente = best.gemeente;
-            enriched._enriched.provincie = best.provincie;
-            enriched._enriched.woonplaats = best.woonplaats;
+    // 2. Street + City
+    const streetCity = [location.straatnaam, location.woonplaats].filter(Boolean).join(' ');
+    if (streetCity) queries.push(streetCity);
 
-            // Parse RD coordinates from centroid
-            if (best.centroide_rd) {
-                const rdMatch = best.centroide_rd.match(/POINT\((\d+\.?\d*)\s+(\d+\.?\d*)\)/);
-                if (rdMatch) {
-                    const rdX = parseFloat(rdMatch[1]);
-                    const rdY = parseFloat(rdMatch[2]);
-                    enriched._enriched.rd = { x: rdX, y: rdY };
+    // 3. Location name (often a description or project name)
+    if (location.locatienaam) {
+        queries.push(`${location.locatienaam} ${location.woonplaats || ''}`.trim());
+    }
 
-                    // Step 2: Generate Topotijdreis links
-                    enriched._enriched.topotijdreis = getHistorischeKaartLinks(rdX, rdY);
-                    enriched._enriched.topotijdreisHuidig = getTopotijdreisUrl(rdX, rdY);
+    let results = [];
+    for (const q of queries) {
+        results = await pdokSearch(q);
+        if (results.length > 0) break;
+    }
 
-                    // Step 3: Generate Bodemloket link
-                    enriched._enriched.bodemloket = getBodemloketUrl(rdX, rdY);
+    if (results.length > 0) {
+        const best = results[0];
+        enriched._enriched.pdok = best;
 
-                    // Step 4: Get bodemkwaliteitskaart data
-                    const bodemkwaliteit = await getBodemkwaliteit(rdX, rdY);
-                    if (bodemkwaliteit) {
-                        enriched._enriched.bodemkwaliteit = bodemkwaliteit;
-                        // Auto-fill veiligheidsklasse if available
-                        if (!enriched.veiligheidsklasse && bodemkwaliteit[0]?.klasse) {
-                            enriched.veiligheidsklasse = bodemkwaliteit[0].klasse;
-                        }
-                    }
+        // Fill in missing address data
+        if (!enriched.straatnaam && best.straatnaam) enriched.straatnaam = best.straatnaam;
+        if (!enriched.huisnummer && best.huisnummer) enriched.huisnummer = best.huisnummer;
+        if (!enriched.postcode && best.postcode) enriched.postcode = best.postcode;
+        enriched._enriched.gemeente = best.gemeente;
+        enriched._enriched.provincie = best.provincie;
+        enriched._enriched.woonplaats = best.woonplaats;
+
+        // Parse RD coordinates from centroid
+        if (best.centroide_rd) {
+            const rdMatch = best.centroide_rd.match(/POINT\((\d+\.?\d*)\s+(\d+\.?\d*)\)/);
+            if (rdMatch) {
+                const rdX = parseFloat(rdMatch[1]);
+                const rdY = parseFloat(rdMatch[2]);
+                enriched._enriched.rd = { x: rdX, y: rdY };
+
+                // Generate Topotijdreis links
+                enriched._enriched.topotijdreis = getHistorischeKaartLinks(rdX, rdY);
+                enriched._enriched.topotijdreisHuidig = getTopotijdreisUrl(rdX, rdY);
+
+                // Generate Bodemloket link
+                enriched._enriched.bodemloket = getBodemloketUrl(rdX, rdY);
+
+                // Get bodemkwaliteitskaart data
+                const bodemkwaliteit = await getBodemkwaliteit(rdX, rdY);
+                if (bodemkwaliteit) {
+                    enriched._enriched.bodemkwaliteit = bodemkwaliteit;
+                }
+
+                // NEW: Get nearby buildings and their years (BAG)
+                const buildings = await getBuildingDetails(rdX, rdY, 25); // 25m radius
+                if (buildings) {
+                    enriched._enriched.buildings = buildings;
+                }
+
+                // NEW: Get HBB data (activities & asbestos suspect locations)
+                const hbb = await getHbbData(rdX, rdY, 25);
+                if (hbb) {
+                    enriched._enriched.hbb = hbb;
                 }
             }
         }

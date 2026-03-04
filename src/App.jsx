@@ -84,11 +84,12 @@ export default function App() {
                 setParseStatus(`Locatie verrijken: ${i}/${total}...`);
             });
 
-            // Mark complex based on API Bodemkwaliteit
+            // Mark complex based on API results & ABEL Protocol rules
             enriched.forEach(loc => {
                 const bkKlasse = loc._enriched?.bodemkwaliteit?.[0]?.klasse?.toLowerCase() || '';
-                // Classes that warrant complexity: Wonen, Industrie, Klasse A/B, Niet toepasbaar
-                // Usually "Achtergrondwaarde", "Landbouw/Natuur", "Onbebouwd" are clean.
+                const buildings = loc._enriched?.buildings || [];
+
+                // 1. PDOK Bodemkwaliteit triggers
                 if (
                     bkKlasse.includes('wonen') ||
                     bkKlasse.includes('industrie') ||
@@ -99,10 +100,47 @@ export default function App() {
                 ) {
                     loc.complex = true;
                     const apiOpmerking = `Let op: API Bodemkwaliteit geeft klasse '${loc._enriched.bodemkwaliteit[0].klasse}'.`;
-                    if (!loc.opmerkingenAbel) {
-                        loc.opmerkingenAbel = apiOpmerking;
-                    } else if (!loc.opmerkingenAbel.includes('API Bodemkwaliteit')) {
+                    if (!loc.opmerkingenAbel) loc.opmerkingenAbel = apiOpmerking;
+                    else if (!loc.opmerkingenAbel.includes('API Bodemkwaliteit')) {
                         loc.opmerkingenAbel = `${loc.opmerkingenAbel} | ${apiOpmerking}`;
+                    }
+                }
+
+                // 2. ABEL Protocol: Asbestverdachte periode (1945-1995)
+                // If any building within 25m tracé was built/modified between 1945 and 1995
+                const suspectBuildings = buildings.filter(b => b.bouwjaar >= 1945 && b.bouwjaar <= 1995);
+                if (suspectBuildings.length > 0) {
+                    loc.complex = true;
+                    const bStr = suspectBuildings.map(b => b.bouwjaar).join(', ');
+                    const asbestOpmerking = `ASBEST VERDACHT: Bouwjaar pand(en) nabij tracé in asbest-periode 1945-1995 (${bStr}).`;
+                    if (!loc.opmerkingenAbel) loc.opmerkingenAbel = asbestOpmerking;
+                    else if (!loc.opmerkingenAbel.includes('ASBEST VERDACHT')) {
+                        loc.opmerkingenAbel = `${loc.opmerkingenAbel} | ${asbestOpmerking}`;
+                    }
+                }
+
+                // 3. Verdachte activiteiten (trefwoorden uit rapportage)
+                const textToCheck = `${loc.locatienaam} ${loc.opmerking || ''} ${loc.conclusie || ''}`.toLowerCase();
+                const keywords = ['glastuinbouw', 'garage', 'benzinestation', 'boomgaard', 'ophooglaag', 'demping'];
+                const foundKeyword = keywords.find(k => textToCheck.includes(k));
+                if (foundKeyword) {
+                    loc.complex = true;
+                    const actOpmerking = `VERDACHTE ACTIVITEIT gevonden: ${foundKeyword}.`;
+                    if (!loc.opmerkingenAbel) loc.opmerkingenAbel = actOpmerking;
+                    else if (!loc.opmerkingenAbel.includes('VERDACHTE ACTIVITEIT')) {
+                        loc.opmerkingenAbel = `${loc.opmerkingenAbel} | ${actOpmerking}`;
+                    }
+                }
+
+                // 4. HBB (Historisch Bodem Bestand) data check
+                const hbb = loc._enriched?.hbb || [];
+                if (hbb.length > 0) {
+                    loc.complex = true;
+                    const hbbStr = hbb.map(h => `${h.type}: ${h.naam}`).join(', ');
+                    const hbbOpmerking = `HBB MELDING: ${hbbStr}.`;
+                    if (!loc.opmerkingenAbel) loc.opmerkingenAbel = hbbOpmerking;
+                    else if (!loc.opmerkingenAbel.includes('HBB MELDING')) {
+                        loc.opmerkingenAbel = `${loc.opmerkingenAbel} | ${hbbOpmerking}`;
                     }
                 }
             });
@@ -121,7 +159,7 @@ export default function App() {
         <div className="app">
             <header className="app-header">
                 <h1>TOB Parser</h1>
-                <p>Upload TOB bodemrapporten → automatische analyse → export naar Google Sheets</p>
+                <p>Upload TOB rapporten → Automatische Geocodering & Protocol Check → Excel Export</p>
             </header>
 
             {/* Steps */}

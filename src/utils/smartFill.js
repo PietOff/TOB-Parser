@@ -77,6 +77,10 @@ export function assessLocation(location) {
         prioriteit = prioriteit === 'hoog' ? 'hoog' : 'midden';
     }
 
+    // ABEL Protocol (v8) specific codes
+    const neeA = 'Nee [a]: Niet relevant bevonden wegens afstand tot het tracé (> 25m).';
+    const neeC = 'Nee [c]: Niet relevant vanwege type onderzoek of relevanter onderzoek beschikbaar.';
+
     // Rule 3: Onverdacht
     if (conclusie === 'onverdacht') {
         return {
@@ -87,23 +91,33 @@ export function assessLocation(location) {
         };
     }
 
+    // Rule 3.1: Distance based irrelevance (Nee [a])
+    if (afstandTrace !== null && afstandTrace > 25) {
+        return {
+            beoordeling: 'niet_relevant',
+            prioriteit: 'geen',
+            toelichting: `Afstand tot tracé is ${afstandTrace}m. Dit valt buiten de 25m grens uit het protocol.`,
+            actie: neeA,
+        };
+    }
+
     // Rule 4a: Zeker verontreinigd — recent (<5 jaar) + binnen 5m
     if (conclusie === 'verontreinigd' && rapportLeeftijd !== null && rapportLeeftijd < 5 && afstandTrace !== null && afstandTrace <= 5) {
         return {
             beoordeling: 'verontreinigd_zeker',
             prioriteit: 'hoog',
             toelichting: `Met zekerheid verontreinigd: verontreiniging aangetroffen binnen ${afstandTrace}m van het tracé in een rapport van ${rapportJaar} (${rapportLeeftijd} jaar oud).`,
-            actie: 'Sanering en/of milieukundige begeleiding vereist.',
+            actie: 'Sanering en/of milieukundige begeleiding vereist. Relavant rapport.',
         };
     }
 
     // Rule 4b: Onzeker — oud rapport (>5 jaar) + binnen 25m
-    if (conclusie === 'verontreinigd' && rapportLeeftijd !== null && rapportLeeftijd >= 5 && afstandTrace !== null && afstandTrace <= 25) {
+    if (conclusie === 'verontreinigd' && rapportLeeftijd !== null && (rapportLeeftijd >= 5 || afstandTrace > 5)) {
         return {
             beoordeling: 'verontreinigd_onzeker',
             prioriteit: 'midden',
-            toelichting: `Geen zekerheid: verontreiniging aangetroffen binnen ${afstandTrace}m van het tracé, maar rapport is van ${rapportJaar} (${rapportLeeftijd} jaar oud). Nader onderzoek aanbevolen.`,
-            actie: 'Nader onderzoek / actualisatie aanbevolen.',
+            toelichting: `Geen volledige zekerheid: verontreiniging aangetroffen binnen ${afstandTrace}m van het tracé, maar rapport is van ${rapportJaar}. Actualisatie nodig.`,
+            actie: 'Nader onderzoek / actualisatie aanbevolen. ' + neeC,
         };
     }
 
@@ -112,8 +126,8 @@ export function assessLocation(location) {
         return {
             beoordeling: 'onvoldoende_info',
             prioriteit: prioriteit,
-            toelichting: 'Onvoldoende informatie beschikbaar. Aanvullende locatiecodes en rapporten moeten worden beoordeeld.',
-            actie: 'Aanvullend onderzoek naar andere locatiecodes.',
+            toelichting: 'Onvoldoende informatie beschikbaar in het bronbestand.',
+            actie: 'N.b. (Niet beschikbaar) of N.o. (Niet opgevraagd). Handmatig Relatics checken.',
         };
     }
 
@@ -122,16 +136,16 @@ export function assessLocation(location) {
         return {
             beoordeling: 'verdacht',
             prioriteit: 'hoog',
-            toelichting: `Locatie is verdacht${verdachteActiviteiten ? ` (${verdachteActiviteiten} verdachte activiteiten)` : ''}. Dit is reden voor nader onderzoek.`,
-            actie: 'Nader bodemonderzoek uitvoeren.',
+            toelichting: `Locatie is verdacht${verdachteActiviteiten ? ` (${verdachteActiviteiten} verdachte activiteiten)` : ''}.`,
+            actie: 'Nader bodemonderzoek uitvoeren conform protocol.',
         };
     }
 
     return {
         beoordeling: 'onbekend',
         prioriteit: prioriteit,
-        toelichting: 'Beoordeling niet automatisch mogelijk. Handmatige review vereist.',
-        actie: 'Handmatig beoordelen.',
+        toelichting: 'Beoordeling niet automatisch mogelijk.',
+        actie: 'Handmatig beoordelen conform protocol.',
     };
 }
 
@@ -223,6 +237,10 @@ export function getTobColumns() {
         { key: 'rapportJaar', label: 'Rapportjaar', section: 'assessment', type: 'source' },
         { key: 'afstandTrace', label: 'Afstand tracé (m)', section: 'assessment', type: 'empty' },
         { key: 'verdachteActiviteiten', label: 'Verdachte activiteiten', section: 'assessment', type: 'source' },
+
+        // ABEL Specifieke kolommen
+        { key: 'crow_grond', label: 'CROW 400 Grond', section: 'tracking', type: 'draft' },
+        { key: 'crow_water', label: 'CROW 400 Grondwater', section: 'tracking', type: 'draft' },
 
         // Status AbelTalent
         { key: 'statusAbel', label: 'Status AbelTalent', section: 'tracking', type: 'empty' },
