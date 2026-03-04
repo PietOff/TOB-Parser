@@ -1,5 +1,8 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { assessLocation, generateSmartContent } from '../utils/smartFill';
+
+// Lazy load map to prevent SSR issues and reduce initial bundle size
+const LocationMap = lazy(() => import('./LocationMap'));
 
 export default function DataPreview({ locations, onLocationsUpdate }) {
     const [expandedCase, setExpandedCase] = useState(null);
@@ -158,6 +161,24 @@ export default function DataPreview({ locations, onLocationsUpdate }) {
                                                                 🔍 Open Bodemloket →
                                                             </a>
                                                         </div>
+                                                    </div>
+                                                )}
+
+                                                {/* Visual Map Investigation */}
+                                                {(loc._enriched?.rdX || loc._enriched?.lat) && (
+                                                    <div style={{ marginTop: '1.5rem', marginBottom: '1rem' }}>
+                                                        <div className="section-header" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                            🗺️ Visueel Onderzoek (PDOK & Kadaster)
+                                                        </div>
+                                                        <div style={{
+                                                            fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem',
+                                                            backgroundColor: 'var(--bg-secondary)', padding: '0.75rem', borderRadius: 'var(--radius-sm)'
+                                                        }}>
+                                                            <b>Tip:</b> Gebruik het lagen-icoon rechtsboven in de kaart om de <i>Bodemkwaliteitskaart</i> of <i>Kadastrale grenzen</i> aan/uit te zetten.
+                                                        </div>
+                                                        <Suspense fallback={<div className="spinner-container"><div className="spinner"></div> Kaart laden...</div>}>
+                                                            <LocationMap locations={[loc]} height="350px" />
+                                                        </Suspense>
                                                     </div>
                                                 )}
                                             </>
