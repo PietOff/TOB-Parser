@@ -5,7 +5,7 @@ import ExportPanel from './components/ExportPanel';
 import { extractPdfText, parseTobReport, mergeToLocations } from './utils/pdfParser';
 import { parseXlsx } from './utils/xlsxParser';
 import { parseDocx, docxToLocations } from './utils/docxParser';
-import { enrichAllLocations, triggerDeepScanBatch } from './utils/apiIntegrations';
+import { enrichAllLocations, triggerDeepScanBatch, detectCityFromText } from './utils/apiIntegrations';
 import { assessLocation } from './utils/smartFill';
 
 // GitHub token: reads from Vercel env var first, then localStorage
@@ -57,6 +57,16 @@ export default function App() {
                 }
             }
 
+            // --- Phase 26: City Context Extraction ---
+            let detectedCity = null;
+            for (const file of files) {
+                detectedCity = detectCityFromText(file.name);
+                if (detectedCity) {
+                    console.log(`🏙️ [Context] Detected city from filename: ${detectedCity}`);
+                    break;
+                }
+            }
+
             // Deduplicate and Merge
             const merged = new Map();
             for (const loc of allLocations) {
@@ -81,10 +91,21 @@ export default function App() {
             const mergedArr = [...merged.values()];
             console.log(`📦 [App] Merged into ${mergedArr.length} unique locations.`);
 
+            // Search for city in project titles if not found in filename
+            if (!detectedCity) {
+                for (const loc of mergedArr) {
+                    detectedCity = detectCityFromText(loc.locatienaam);
+                    if (detectedCity) {
+                        console.log(`🏙️ [Context] Detected city from project title: ${detectedCity}`);
+                        break;
+                    }
+                }
+            }
+
             setParseStatus(`Diepgaand onderzoek start voor ${mergedArr.length} locaties...`);
             const enriched = await enrichAllLocations(mergedArr, (i, total) => {
                 setParseStatus(`Locatie ${i}/${total} onderzoeken (BAG, HBB, PDOK)...`);
-            });
+            }, detectedCity);
 
             const finalLocations = enriched.map(loc => assessLocation(loc));
             setLocations(finalLocations);

@@ -13,6 +13,32 @@ const PDOK_LOCATIE_BASE = 'https://api.pdok.nl/bzk/locatieserver/search/v3_1';
 const BAG_API_BASE = 'https://api.bag.kadaster.nl/lvbag/individuelebevragingen/v2';
 const TOPOTIJDREIS_BASE = 'https://www.topotijdreis.nl';
 
+// Common Dutch cities for context extraction
+const DUTCH_CITIES = [
+    'Amsterdam', 'Rotterdam', 'Den Haag', 'Utrecht', 'Eindhoven', 'Groningen', 'Tilburg', 'Almere', 'Breda', 'Nijmegen',
+    'Apeldoorn', 'Haarlem', 'Enschede', 'Arnhem', 'Amersfoort', 'Zaanstad', 'Den Bosch', 'Haarlemmermeer', 'Zwolle', 'Zoetermeer',
+    'Leiden', 'Maastricht', 'Dordrecht', 'Ede', 'Alphen aan den Rijn', 'Leeuwarden', 'Alkmaar', 'Emmen', 'Delft', 'Venlo',
+    'Deventer', 'Sittard-Geleen', 'Oss', 'Helmond', 'Heerlen', 'Hilversum', 'Amstelveen', 'Nissewaard', 'Hengelo', 'Súdwest-Fryslân',
+    'Purmerend', 'Schiedam', 'Lelystad', 'Vlaardingen', 'Almelo', 'Hoorn', 'Velsen', 'Gouda', 'Assen', 'Capelle aan den IJssel',
+    'Katwijk', 'Veenendaal', 'Doetinchem', 'Nieuwegein', 'Roermond', 'Den Helder', 'Hoogeveen', 'Terneuzen', 'Harderwijk', 'Barneveld'
+];
+
+/**
+ * Detect a Dutch city name in a string
+ */
+export function detectCityFromText(text) {
+    if (!text) return null;
+    const normalized = text.toLowerCase();
+    for (const city of DUTCH_CITIES) {
+        // Use word boundary to avoid partial matches (e.g., "Ede" in "Nederland")
+        const regex = new RegExp(`\\b${city.toLowerCase()}\\b`, 'i');
+        if (regex.test(normalized)) {
+            return city;
+        }
+    }
+    return null;
+}
+
 // GitHub token: reads from Vercel env var first, then localStorage
 export function getGithubToken() {
     return import.meta.env.VITE_GITHUB_TOKEN || localStorage.getItem('github_token') || null;
@@ -462,8 +488,9 @@ export async function enrichLocation(location, contextPostcode = null, primaryCi
 
 /**
  * Enrich all locations (with rate limiting to avoid API abuse)
+ * overrideCity is a city detected from the project title/filename to force context
  */
-export async function enrichAllLocations(locations, onProgress) {
+export async function enrichAllLocations(locations, onProgress, overrideCity = null) {
     // Phase 1: Context building (Postcode & Regional City Proximity)
     const streetContext = {};
     const cityCounts = {};
@@ -501,17 +528,19 @@ export async function enrichAllLocations(locations, onProgress) {
                 console.log(`📍 [Context] Applying postcode ${contextPostcode} to street ${loc.straatnaam}`);
             }
         }
-    }
 
-    const enrichedLoc = await enrichLocation(loc, contextPostcode, topCities[0] || null);
-    enriched.push(enrichedLoc);
+        // Use overrideCity (from title/filename) or fall back to statistical majority (topCities[0])
+        const primaryCity = overrideCity || topCities[0] || null;
 
-    // Rate limit: 200ms between requests
-    if (i < locations.length - 1) {
-        await new Promise(r => setTimeout(r, 200));
+        const enrichedLoc = await enrichLocation(loc, contextPostcode, primaryCity);
+        enriched.push(enrichedLoc);
+
+        // Rate limit: 200ms between requests
+        if (i < locations.length - 1) {
+            await new Promise(r => setTimeout(r, 200));
+        }
     }
-}
-return enriched;
+    return enriched;
 }
 
 // ══════════════════════════════════════
