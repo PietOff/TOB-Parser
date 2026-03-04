@@ -306,7 +306,7 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                                                                 loc.locatiecode,
                                                                 `${loc.straatnaam} ${loc.huisnummer} ${loc.postcode}`,
                                                                 token,
-                                                                'pieteroffereins', // Default owner
+                                                                'PietOff', // Default owner
                                                                 'TOB-Parser'      // Default repo
                                                             );
                                                             alert(res.message);
@@ -449,7 +449,7 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                                                         if (!token) token = prompt('GitHub Token:');
                                                         if (!token) throw new Error('No token');
                                                         localStorage.setItem('github_token', token);
-                                                        await triggerDeepScan(loc.locatiecode, `${loc.straatnaam} ${loc.huisnummer}`, token, 'pieteroffereins', 'TOB-Parser');
+                                                        await triggerDeepScan(loc.locatiecode, `${loc.straatnaam} ${loc.huisnummer}`, token, 'PietOff', 'TOB-Parser');
                                                         btn.innerHTML = '✅';
                                                         updateField(loc.locatiecode, 'statusAbel', 'In uitvoering');
                                                     } catch (err) {

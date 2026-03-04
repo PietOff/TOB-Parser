@@ -113,7 +113,7 @@ export default function App() {
             if (token) {
                 setParseStatus('☁️ Cloud-onderzoek (Bodemloket/Topotijdreis) wordt gestart...');
                 try {
-                    await triggerDeepScanBatch(finalLocations, token, 'pieteroffereins', 'TOB-Parser');
+                    await triggerDeepScanBatch(finalLocations, token, 'PietOff', 'TOB-Parser');
                     setParseStatus('✅ Deep Scan succesvol gestart op GitHub! Onderzoek loopt op de achtergrond.');
                     // Small delay so user can read the success message
                     await new Promise(r => setTimeout(r, 2000));
