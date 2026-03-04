@@ -299,24 +299,30 @@ export async function getBuildingDetails(rdX, rdY, buffer = 10) {
 export async function enrichLocation(location) {
     const enriched = { ...location, _enriched: {} };
 
-    // Possible search queries in order of specificity
+    // Step 1: Geocode - Priority on Address/Name over location codes (Nazca codes are less specific for mapping)
     const queries = [];
 
-    // 1. Full address
+    // 1. Street + House Number + Postcode + City
     const fullAddr = [location.straatnaam, location.huisnummer, location.postcode, location.woonplaats].filter(Boolean).join(' ');
     if (fullAddr) queries.push(fullAddr);
 
-    // 2. Street + City
+    // 2. Street + City (for wider matching)
     const streetCity = [location.straatnaam, location.woonplaats].filter(Boolean).join(' ');
-    if (streetCity) queries.push(streetCity);
+    if (streetCity && streetCity !== fullAddr) queries.push(streetCity);
 
-    // 3. Location name (often a description or project name)
+    // 3. Location name + City
     if (location.locatienaam) {
         queries.push(`${location.locatienaam} ${location.woonplaats || ''}`.trim());
     }
 
+    // 4. Fallback to location code if nothing else works
+    if (location.locatiecode) {
+        queries.push(location.locatiecode);
+    }
+
     let results = [];
     for (const q of queries) {
+        if (!q.trim()) continue;
         results = await pdokSearch(q);
         if (results.length > 0) break;
     }

@@ -211,39 +211,30 @@ export function generateSmartContent(caseData) {
     };
 }
 
+// ══════════════════════════════════════
+// Column Definitions (Sync with template: bronbestand_template_complexe_zaken.xlsx)
+// ══════════════════════════════════════
+
 /**
  * Get the complete list of fields/columns for a TOB location
+ * Matches the official template headers.
  */
 export function getTobColumns() {
     return [
-        // Overzicht kolommen (uit bronbestand)
-        { key: 'locatiecode', label: 'Locatiecode', section: 'overzicht', type: 'source' },
-        { key: 'locatienaam', label: 'Locatienaam', section: 'overzicht', type: 'source' },
-        { key: 'straatnaam', label: 'Straatnaam', section: 'overzicht', type: 'source' },
-        { key: 'huisnummer', label: 'Huisnummer', section: 'overzicht', type: 'source' },
-        { key: 'postcode', label: 'Postcode', section: 'overzicht', type: 'source' },
-        { key: 'status', label: 'Status rapport', section: 'overzicht', type: 'source' },
-        { key: 'conclusie', label: 'Conclusie', section: 'overzicht', type: 'source' },
-        { key: 'veiligheidsklasse', label: 'Veiligheidsklasse', section: 'overzicht', type: 'source' },
-        { key: 'melding', label: 'Melding', section: 'overzicht', type: 'source' },
-        { key: 'mkb', label: 'MKB', section: 'overzicht', type: 'source' },
-        { key: 'brl7000', label: 'BRL 7000', section: 'overzicht', type: 'source' },
-        { key: 'opmerking', label: 'Opmerking', section: 'overzicht', type: 'source' },
-
-        // Assessment kolommen (berekend door tool)
-        { key: 'complex', label: 'Complex', section: 'assessment', type: 'draft' },
-        { key: 'beoordeling', label: 'Beoordeling', section: 'assessment', type: 'draft' },
-        { key: 'prioriteit', label: 'Prioriteit', section: 'assessment', type: 'draft' },
-        { key: 'rapportJaar', label: 'Rapportjaar', section: 'assessment', type: 'source' },
-        { key: 'afstandTrace', label: 'Afstand tracé (m)', section: 'assessment', type: 'empty' },
-        { key: 'verdachteActiviteiten', label: 'Verdachte activiteiten', section: 'assessment', type: 'source' },
-
-        // ABEL Specifieke kolommen
-        { key: 'crow_grond', label: 'CROW 400 Grond', section: 'tracking', type: 'draft' },
-        { key: 'crow_water', label: 'CROW 400 Grondwater', section: 'tracking', type: 'draft' },
-
-        // Status AbelTalent
-        { key: 'statusAbel', label: 'Status AbelTalent', section: 'tracking', type: 'empty' },
-        { key: 'opmerkingenAbel', label: 'Opmerkingen AbelTalent', section: 'tracking', type: 'empty' },
+        { key: 'locatiecode', label: 'Locatiecode' },
+        { key: 'locatienaam', label: 'Locatienaam' },
+        { key: 'straatnaam', label: 'Straatnaam' },
+        { key: 'huisnummer', label: 'Huisnummer' },
+        { key: 'postcode', label: 'Postcode' },
+        { key: 'status', label: 'Status' },
+        { key: 'conclusie', label: 'Conclusie' },
+        { key: 'veiligheidsklasse', label: 'Veiligheidsklasse' },
+        { key: 'melding', label: 'Melding' },
+        { key: 'mkb', label: 'Mkb' },
+        { key: 'brl7000', label: 'BRL 7000' },
+        { key: 'opmerking', label: 'Opmerking' },
+        { key: 'complex', label: 'Complex' },
+        { key: 'statusAbel', label: 'Status AbelTalent' },
+        { key: 'opmerkingenAbel', label: 'Opmerkingen AbelTalent' },
     ];
 }

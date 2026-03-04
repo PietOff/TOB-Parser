@@ -268,34 +268,60 @@ export default function DataPreview({ locations, onLocationsUpdate }) {
 
             {/* Simple locations table */}
             <div className="preview-section">
-                <h2>✅ Overige Locaties ({simpleLocations.length})</h2>
-                <div className="table-wrapper">
+                <h2>✅ Alle Locaties ({locations.length})</h2>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+                    Onderstaande tabel bevat alle kolommen uit het bronbestand (vorig jaar) en de nieuwe ABEL-velden.
+                </div>
+                <div className="table-wrapper" style={{ overflowX: 'auto' }}>
                     <table className="location-table">
                         <thead>
                             <tr>
                                 <th>Locatiecode</th>
-                                <th>Naam</th>
-                                <th>Straat</th>
+                                <th>Locatienaam</th>
+                                <th>Straatnaam</th>
+                                <th>Huisnr</th>
+                                <th>Postcode</th>
                                 <th>Status</th>
                                 <th>Conclusie</th>
                                 <th>Veiligheidsklasse</th>
+                                <th>Melding</th>
+                                <th>Mkb</th>
+                                <th>BRL 7000</th>
+                                <th>Opmerking</th>
+                                <th>Complex</th>
+                                <th>Status Abel</th>
+                                <th>Opmerkingen Abel</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {simpleLocations.map(loc => (
-                                <tr key={loc.locatiecode}>
-                                    <td>{loc.locatiecode}</td>
-                                    <td>{loc.locatienaam}</td>
-                                    <td>{`${loc.straatnaam} ${loc.huisnummer || ''}`.trim()}</td>
-                                    <td>{loc.status}</td>
-                                    <td>
-                                        <span className="assessment assessment-onverdacht">
-                                            {loc.conclusie || 'onverdacht'}
-                                        </span>
-                                    </td>
-                                    <td>{loc.veiligheidsklasse}</td>
-                                </tr>
-                            ))}
+                            {locations.map(loc => {
+                                const isComplex = !!loc.complex;
+                                return (
+                                    <tr key={loc.locatiecode} className={isComplex ? 'row-complex' : ''}>
+                                        <td>{loc.locatiecode}</td>
+                                        <td>{loc.locatienaam}</td>
+                                        <td>{loc.straatnaam}</td>
+                                        <td>{loc.huisnummer}</td>
+                                        <td>{loc.postcode}</td>
+                                        <td>{loc.status}</td>
+                                        <td>
+                                            <span className={`assessment ${isComplex ? 'assessment-verdacht' : 'assessment-onverdacht'}`}>
+                                                {loc.conclusie || (isComplex ? 'verdacht' : 'onverdacht')}
+                                            </span>
+                                        </td>
+                                        <td>{loc.veiligheidsklasse}</td>
+                                        <td>{loc.melding}</td>
+                                        <td>{loc.mkb}</td>
+                                        <td>{loc.brl7000}</td>
+                                        <td title={loc.opmerking}>{loc.opmerking?.substring(0, 30)}{loc.opmerking?.length > 30 ? '...' : ''}</td>
+                                        <td style={{ fontWeight: 'bold', color: isComplex ? 'var(--danger)' : 'var(--success)' }}>
+                                            {isComplex ? 'Ja' : 'Nee'}
+                                        </td>
+                                        <td>{loc.statusAbel}</td>
+                                        <td title={loc.opmerkingenAbel}>{loc.opmerkingenAbel?.substring(0, 30)}{loc.opmerkingenAbel?.length > 30 ? '...' : ''}</td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>

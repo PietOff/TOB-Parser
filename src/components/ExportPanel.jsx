@@ -67,12 +67,9 @@ export default function ExportPanel({ locations }) {
             const wsOverzicht = wb.addWorksheet('Overzicht Locaties', { properties: { tabColor: { argb: 'FF2196F3' } } });
 
             const overzichtHeaders = [
-                'Locatiecode', 'Locatienaam', 'Straatnaam', 'Huisnummer', 'Postcode',
-                'Status rapport', 'Conclusie', 'Veiligheidsklasse', 'CROW 400 Grond', 'CROW 400 Grondwater',
-                'Melding', 'MKB', 'BRL 7000', 'Opmerking', 'Complex', 'Beoordeling', 'Prioriteit',
-                'Rapportjaar', 'Afstand trace (m)', 'Status AbelTalent', 'Opmerkingen AbelTalent',
-                'Gemeente', 'Provincie', 'RD-X', 'RD-Y', 'Bodemkwaliteitsklasse',
-                'Topotijdreis Link', 'Bodemloket Link', 'Toelichting', 'Actie (Protocol Code)'
+                'locatiecode', 'locatienaam', 'straatnaam', 'huisnummer', 'postcode',
+                'status', 'conclusie', 'veiligheidsklasse', 'melding', 'mkb',
+                'BRL 7000', 'opmerking', 'Complex', 'Status AbelTalent', 'Opmerkingen AbelTalent'
             ];
 
             const headerRow = wsOverzicht.addRow(overzichtHeaders);
@@ -80,17 +77,22 @@ export default function ExportPanel({ locations }) {
             headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4285F4' } };
 
             for (const loc of locations) {
-                const assessment = assessLocation(loc);
                 const rowData = [
-                    loc.locatiecode || '', loc.locatienaam || '', loc.straatnaam || '', loc.huisnummer || '', loc.postcode || '',
-                    loc.status || '', loc.conclusie || '', loc.veiligheidsklasse || '', loc.crow_grond || '', loc.crow_water || '',
-                    loc.melding || '', loc.mkb || '', loc.brl7000 || '', loc.opmerking || '', loc.complex ? 'Ja' : 'Nee', assessment.beoordeling || '', assessment.prioriteit || '',
-                    loc.rapportJaar || '', loc.afstandTrace || '', '', loc.opmerkingenAbel || '',
-                    loc._enriched?.gemeente || '', loc._enriched?.provincie || '', loc._enriched?.rd?.x || '', loc._enriched?.rd?.y || '',
-                    loc._enriched?.bodemkwaliteit?.[0]?.klasse || '',
-                    loc._enriched?.topotijdreisHuidig ? { text: 'Klik hier', hyperlink: loc._enriched.topotijdreisHuidig } : '',
-                    loc._enriched?.bodemloket ? { text: 'Klik hier', hyperlink: loc._enriched.bodemloket } : '',
-                    assessment.toelichting || '', assessment.actie || ''
+                    loc.locatiecode || '',
+                    loc.locatienaam || '',
+                    loc.straatnaam || '',
+                    loc.huisnummer || '',
+                    loc.postcode || '',
+                    loc.status || '',
+                    loc.conclusie || '',
+                    loc.veiligheidsklasse || '',
+                    loc.melding || '',
+                    loc.mkb || '',
+                    loc.brl7000 || '',
+                    loc.opmerking || '',
+                    loc.complex ? 'Ja' : 'Nee',
+                    loc.statusAbel || '',
+                    loc.opmerkingenAbel || ''
                 ];
 
                 const row = wsOverzicht.addRow(rowData);
