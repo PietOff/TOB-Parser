@@ -313,8 +313,9 @@ export async function getBuildingDetails(rdX, rdY, buffer = 10) {
 /**
  * Enrich a single TOB location with data from all available APIs
  * contextPostcode is an optional postcode shared from neighboring locations on the same street
+ * contextCity is an optional city shared from the overall project context
  */
-export async function enrichLocation(location, contextPostcode = null) {
+export async function enrichLocation(location, contextPostcode = null, contextCity = null) {
     const enriched = { ...location, _enriched: {} };
 
     // Step 0: Detect and try Nazca location code lookup
@@ -337,13 +338,14 @@ export async function enrichLocation(location, contextPostcode = null) {
     // Step 1: Geocode - Priority on Address/Name over location codes
     const queries = [];
     const effectivePostcode = location.postcode || contextPostcode;
+    const effectiveCity = location.woonplaats || contextCity;
 
-    // 1. Street + House Number + (Effective) Postcode + City
-    const fullAddr = [location.straatnaam, location.huisnummer, effectivePostcode, location.woonplaats].filter(Boolean).join(' ');
+    // 1. Street + House Number + effectivePostcode + effectiveCity
+    const fullAddr = [location.straatnaam, location.huisnummer, effectivePostcode, effectiveCity].filter(Boolean).join(' ');
     if (fullAddr) queries.push(fullAddr);
 
-    // 2. Street + City (for wider matching if house number fails)
-    const streetCity = [location.straatnaam, location.woonplaats].filter(Boolean).join(' ');
+    // 2. Street + effectiveCity (for wider matching if house number fails)
+    const streetCity = [location.straatnaam, effectiveCity].filter(Boolean).join(' ');
     if (streetCity && streetCity !== fullAddr) queries.push(streetCity);
 
     // 3. Postcode + House Number (Very reliable if available)
@@ -375,8 +377,9 @@ export async function enrichLocation(location, contextPostcode = null) {
 
     // If still no results, try a "fuzzy" search on the location name if it looks like a street
     if (results.length === 0 && location.locatienaam) {
-        console.log(`⚠️ [Geocode] Trying fuzzy name fallback: "${location.locatienaam}"`);
-        results = await pdokSearch(location.locatienaam);
+        const fuzzyQuery = [location.locatienaam, effectiveCity].filter(Boolean).join(' ');
+        console.log(`⚠️ [Geocode] Trying fuzzy name fallback: "${fuzzyQuery}"`);
+        results = await pdokSearch(fuzzyQuery);
     }
 
     if (results.length > 0) {
@@ -445,15 +448,35 @@ export async function enrichLocation(location, contextPostcode = null) {
  * Enrich all locations (with rate limiting to avoid API abuse)
  */
 export async function enrichAllLocations(locations, onProgress) {
-    // Phase 1: Context building (Postcode Proximity)
-    // Map street names to the most likely postcode if found in the list
+    // Phase 1: Context building (Postcode & City Proximity)
     const streetContext = {};
+    const cityCounts = {};
+
     for (const loc of locations) {
+        // Collect postcodes per street
         if (loc.straatnaam && loc.postcode) {
             const street = loc.straatnaam.toLowerCase().trim();
             if (!streetContext[street]) streetContext[street] = new Set();
             streetContext[street].add(loc.postcode.replace(/\s+/g, '').toUpperCase());
         }
+        // Count city occurrences to find the 'Project City'
+        if (loc.woonplaats) {
+            const city = loc.woonplaats.trim();
+            cityCounts[city] = (cityCounts[city] || 0) + 1;
+        }
+    }
+
+    // Determine the most common city in the project (if any)
+    let projectCityContext = null;
+    let maxCityCount = 0;
+    for (const [city, count] of Object.entries(cityCounts)) {
+        if (count > maxCityCount) {
+            maxCityCount = count;
+            projectCityContext = city;
+        }
+    }
+    if (projectCityContext) {
+        console.log(`🏙️ [Context] Determined primary project city: ${projectCityContext} (${maxCityCount} occurrences)`);
     }
 
     const enriched = [];
@@ -472,7 +495,13 @@ export async function enrichAllLocations(locations, onProgress) {
             }
         }
 
-        const enrichedLoc = await enrichLocation(loc, contextPostcode);
+        // Only apply projectCityContext if the location doesn't already have a city AND we don't have a reliable contextPostcode
+        const contextCity = (!loc.woonplaats && !contextPostcode) ? projectCityContext : null;
+        if (contextCity) {
+            console.log(`🏙️ [Context] Applying project city ${contextCity} to independent location ${loc.locatiecode || loc.straatnaam}`);
+        }
+
+        const enrichedLoc = await enrichLocation(loc, contextPostcode, contextCity);
         enriched.push(enrichedLoc);
 
         // Rate limit: 200ms between requests
