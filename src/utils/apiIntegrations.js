@@ -103,9 +103,9 @@ export async function lookupNazcaCode(nazcaCode) {
  * - cityContext: filter by city name (woonplaatsnaam)
  * - postcodeContext: filter by postcode (e.g. "1234AB") — most precise
  */
-export async function pdokSearch(query, cityContext = null, postcodeContext = null) {
+export async function pdokSearch(query, cityContext = null, postcodeContext = null, rows = 5) {
     try {
-        let url = `${PDOK_LOCATIE_BASE}/free?q=${encodeURIComponent(query)}&rows=5`;
+        let url = `${PDOK_LOCATIE_BASE}/free?q=${encodeURIComponent(query)}&rows=${rows}`;
         // Postcode filter is more precise than city — prefer it when available
         if (postcodeContext) {
             // Normalise: PDOK wants "1234 AB" with space
@@ -419,13 +419,88 @@ function extractStreetFromName(name) {
     return null;
 }
 
+// ══════════════════════════════════════
+// Centroid helpers
+// ══════════════════════════════════════
+
+/**
+ * Parse RD coordinates from a PDOK centroide_rd string like "POINT(155000 463000)"
+ */
+function parseRdCoords(centroide_rd) {
+    if (!centroide_rd) return null;
+    const m = centroide_rd.match(/POINT\s*\((\d+\.?\d*)\s+(\d+\.?\d*)\)/);
+    if (!m) return null;
+    return { x: parseFloat(m[1]), y: parseFloat(m[2]) };
+}
+
+/**
+ * Parse WGS84 lat/lng from a PDOK centroide_ll string like "POINT(5.38763 52.15616)"
+ */
+function parseLlCoords(centroide_ll) {
+    if (!centroide_ll) return null;
+    const m = centroide_ll.match(/POINT\s*\((-?\d+\.?\d*)\s+(-?\d+\.?\d*)\)/);
+    if (!m) return null;
+    return { lng: parseFloat(m[1]), lat: parseFloat(m[2]) };
+}
+
+/**
+ * From a list of PDOK results, return the one whose RD coordinates are closest
+ * to the project centroid. Falls back to results[0] when no centroid is available.
+ */
+function pickClosestResult(results, centroid) {
+    if (!results || results.length === 0) return null;
+    if (!centroid || results.length === 1) return results[0];
+
+    let best = results[0];
+    let bestDist = Infinity;
+    for (const r of results) {
+        const rd = parseRdCoords(r.centroide_rd);
+        if (!rd) continue;
+        const dx = rd.x - centroid.x;
+        const dy = rd.y - centroid.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < bestDist) {
+            bestDist = dist;
+            best = r;
+        }
+    }
+    if (bestDist < Infinity) {
+        console.log(`🎯 [Centroid] Picked closest result (${Math.round(bestDist)}m from centroid): ${best.weergavenaam}`);
+    }
+    return best;
+}
+
+/**
+ * Quick-geocode a location using only PDOK (no BAG/HBB), to build the project centroid.
+ * Only used in Phase 1 of enrichAllLocations.
+ */
+async function quickGeocode(location) {
+    const street = cleanAddressQuery(location.straatnaam);
+    const baseAddr = [street, location.huisnummer].filter(Boolean).join(' ');
+    const postcode = location.postcode ? location.postcode.replace(/\s+/g, '').toUpperCase() : null;
+    if (!baseAddr) return null;
+
+    try {
+        const results = await pdokSearch(baseAddr, null, postcode, 3);
+        if (results.length === 0) return null;
+        const rd = parseRdCoords(results[0].centroide_rd);
+        if (rd) {
+            console.log(`🧭 [Phase1] Anchor "${location.straatnaam} ${location.huisnummer || ''}" → RD(${Math.round(rd.x)}, ${Math.round(rd.y)})`);
+        }
+        return rd;
+    } catch {
+        return null;
+    }
+}
+
 /**
  * Enrich a single TOB location with data from all available APIs
  * contextPostcode: postcode from a nearby/same-street location
  * primaryCity: most frequent city in the dataset
  * datasetPostcodes: all postcodes found across the entire dataset (used as geo-context)
+ * projectCentroid: RD {x, y} of the project area centre — used to pick closest PDOK result
  */
-export async function enrichLocation(location, contextPostcode = null, primaryCity = null, datasetPostcodes = []) {
+export async function enrichLocation(location, contextPostcode = null, primaryCity = null, datasetPostcodes = [], projectCentroid = null) {
     const enriched = { ...location, _enriched: {} };
 
     // Step 0: Detect and try Nazca location code lookup
@@ -530,8 +605,11 @@ export async function enrichLocation(location, contextPostcode = null, primaryCi
         console.log(`🔍 [Geocode] Targeting: "${first.q}" [pc:${first.postcode || '-'}, city:${first.city || '-'}] (${uniquePlan.length - 1} fallbacks)`);
     }
 
+    // Request more results when we have a centroid so pickClosestResult has options to compare
+    const numRows = projectCentroid ? 10 : 5;
+
     for (const { q, postcode, city } of uniquePlan) {
-        results = await pdokSearch(q, city, postcode);
+        results = await pdokSearch(q, city, postcode, numRows);
         if (results.length > 0) {
             console.log(`✅ [Geocode] Success for "${q}" [pc:${postcode || '-'}, city:${city || '-'}]: ${results.length} results.`);
             break;
@@ -542,11 +620,12 @@ export async function enrichLocation(location, contextPostcode = null, primaryCi
     if (results.length === 0 && location.locatienaam) {
         const fuzzyQuery = cleanAddressQuery(location.locatienaam);
         console.log(`⚠️ [Geocode] Trying fuzzy name fallback: "${fuzzyQuery}"`);
-        results = await pdokSearch(fuzzyQuery, null, null);
+        results = await pdokSearch(fuzzyQuery, null, null, numRows);
     }
 
     if (results.length > 0) {
-        const best = results[0];
+        // Pick the result geographically closest to the known project area
+        const best = pickClosestResult(results, projectCentroid);
         enriched._enriched.pdok = best;
 
         // Save original values for traceability
@@ -569,45 +648,47 @@ export async function enrichLocation(location, contextPostcode = null, primaryCi
 
         console.log(`📍 [Address] Resolved: ${enriched.straatnaam} ${enriched.huisnummer}, ${enriched.postcode} ${enriched.woonplaats} (${best.gemeente}, ${best.provincie})`);
 
-        // Parse RD coordinates from centroid
-        if (best.centroide_rd) {
-            // Updated regex to handle optional space after POINT
-            const rdMatch = best.centroide_rd.match(/POINT\s*\((\d+\.?\d*)\s+(\d+\.?\d*)\)/);
-            if (rdMatch) {
-                const rdX = parseFloat(rdMatch[1]);
-                const rdY = parseFloat(rdMatch[2]);
-                enriched._enriched.rd = { x: rdX, y: rdY };
-                console.log(`📍 [Geocode] Resolved RD Coords for "${best.weergavenaam}": X=${rdX}, Y=${rdY}`);
+        // Parse coordinates
+        const rdCoords = parseRdCoords(best.centroide_rd);
+        const llCoords = parseLlCoords(best.centroide_ll);
 
-                // Generate Topotijdreis links
-                enriched._enriched.topotijdreis = getHistorischeKaartLinks(rdX, rdY);
-                enriched._enriched.topotijdreisHuidig = getTopotijdreisUrl(rdX, rdY);
+        if (rdCoords) {
+            const rdX = rdCoords.x;
+            const rdY = rdCoords.y;
+            enriched._enriched.rd = { x: rdX, y: rdY };
 
-                // Generate Bodemloket link
-                enriched._enriched.bodemloket = getBodemloketUrl(rdX, rdY);
-
-                // ---------------------------------------------------------
-                // DEEP SEARCH: Parallel background research (PDOK/BAG/HBB)
-                // ---------------------------------------------------------
-                console.log('📡 [Enrich] Starting deep research (BAG, HBB, BKK)...');
-                const [bodemkwaliteit, buildings, hbb] = await Promise.all([
-                    getBodemkwaliteit(rdX, rdY, 50),  // 50m buffer
-                    getBuildingDetails(rdX, rdY, 30), // 30m buffer for nearby buildings
-                    getHbbData(rdX, rdY, 25)        // 25m buffer (protocol standard)
-                ]);
-
-                if (bodemkwaliteit) enriched._enriched.bodemkwaliteit = bodemkwaliteit;
-                if (buildings) enriched._enriched.buildings = buildings;
-                if (hbb) enriched._enriched.hbb = hbb;
-                console.log('✨ [Enrich] Deep research complete.');
+            // Set lat/lon directly for map rendering
+            if (llCoords) {
+                enriched._enriched.lat = llCoords.lat;
+                enriched._enriched.lon = llCoords.lng;
             } else {
-                console.error('❌ [Geocode] Failed to parse RD coordinates from centroid:', best.centroide_rd);
+                const wgs = rdToWgs84(rdX, rdY);
+                enriched._enriched.lat = wgs.lat;
+                enriched._enriched.lon = wgs.lng;
             }
+            console.log(`📍 [Geocode] Coords for "${best.weergavenaam}": RD(${Math.round(rdX)}, ${Math.round(rdY)}) WGS84(${enriched._enriched.lat?.toFixed(5)}, ${enriched._enriched.lon?.toFixed(5)})`);
+
+            // Generate links
+            enriched._enriched.topotijdreis = getHistorischeKaartLinks(rdX, rdY);
+            enriched._enriched.topotijdreisHuidig = getTopotijdreisUrl(rdX, rdY);
+            enriched._enriched.bodemloket = getBodemloketUrl(rdX, rdY);
+
+            // Deep research: BAG, HBB, Bodemkwaliteitskaart
+            console.log('📡 [Enrich] Starting deep research (BAG, HBB, BKK)...');
+            const [bodemkwaliteit, buildings, hbb] = await Promise.all([
+                getBodemkwaliteit(rdX, rdY, 50),
+                getBuildingDetails(rdX, rdY, 30),
+                getHbbData(rdX, rdY, 25),
+            ]);
+            if (bodemkwaliteit) enriched._enriched.bodemkwaliteit = bodemkwaliteit;
+            if (buildings) enriched._enriched.buildings = buildings;
+            if (hbb) enriched._enriched.hbb = hbb;
+            console.log('✨ [Enrich] Deep research complete.');
         } else {
-            console.error('❌ [Geocode] No centroide_rd found in PDOK result.');
+            console.error('❌ [Geocode] No valid RD coordinates in PDOK result:', best.centroide_rd);
         }
     } else {
-        console.warn(`❌ [Geocode] Total failure for "${location.locatiecode || location.locatienaam}": No results for any of ${uniqueQueries.length} queries.`);
+        console.warn(`❌ [Geocode] Total failure for "${location.locatiecode || location.locatienaam}": No results for any of ${uniquePlan.length} queries.`);
     }
 
     // Final assessment mapping (placeholder for smartFill logic)
@@ -623,13 +704,12 @@ export async function enrichLocation(location, contextPostcode = null, primaryCi
  * documentPostcodes: postcodes extracted from the raw document text (PDF/DOCX full text)
  */
 export async function enrichAllLocations(locations, onProgress, overrideCity = null, documentPostcodes = []) {
-    // Phase 1: Context building — collect postcodes, streets, cities from the dataset itself
-    const streetContext = {};   // street → Set of postcodes
+    // ── Context: collect postcodes, streets, cities from the dataset ──────────
+    const streetContext = {};
     const cityCounts = {};
     const allDatasetPostcodes = new Set(documentPostcodes.map(p => p.replace(/\s+/g, '').toUpperCase()));
 
     for (const loc of locations) {
-        // Collect postcodes per street
         if (loc.straatnaam && loc.postcode) {
             const street = loc.straatnaam.toLowerCase().trim();
             if (!streetContext[street]) streetContext[street] = new Set();
@@ -639,7 +719,6 @@ export async function enrichAllLocations(locations, onProgress, overrideCity = n
         } else if (loc.postcode) {
             allDatasetPostcodes.add(loc.postcode.replace(/\s+/g, '').toUpperCase());
         }
-        // Count city occurrences to map the project's region
         if (loc.woonplaats) {
             const city = loc.woonplaats.trim();
             cityCounts[city] = (cityCounts[city] || 0) + 1;
@@ -649,13 +728,35 @@ export async function enrichAllLocations(locations, onProgress, overrideCity = n
     const topCities = Object.entries(cityCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(e => e[0]);
     const datasetPostcodesList = [...allDatasetPostcodes];
 
-    if (topCities.length > 0) {
-        console.log(`🏙️ [Context] Project Region Top Cities: ${topCities.join(', ')}`);
-    }
+    if (topCities.length > 0) console.log(`🏙️ [Context] Top Cities: ${topCities.join(', ')}`);
     if (datasetPostcodesList.length > 0) {
-        console.log(`📮 [Context] Dataset Postcodes (${datasetPostcodesList.length}): ${datasetPostcodesList.slice(0, 8).join(', ')}${datasetPostcodesList.length > 8 ? '...' : ''}`);
+        console.log(`📮 [Context] Postcodes (${datasetPostcodesList.length}): ${datasetPostcodesList.slice(0, 8).join(', ')}${datasetPostcodesList.length > 8 ? '...' : ''}`);
     }
 
+    // ── Phase 1: Build project centroid from locations with known postcodes ───
+    // TOB reports are always local — use reliable anchors to find the project area,
+    // then pick the closest PDOK result for every other location.
+    let projectCentroid = null;
+    const anchorLocations = locations.filter(l => l.postcode && l.straatnaam);
+
+    if (anchorLocations.length > 0) {
+        console.log(`🧭 [Phase1] Quick-geocoding ${anchorLocations.length} postcode-location(s) to build centroid...`);
+        const anchorPoints = [];
+        for (const loc of anchorLocations) {
+            const pt = await quickGeocode(loc);
+            if (pt) anchorPoints.push(pt);
+            await new Promise(r => setTimeout(r, 150));
+        }
+        if (anchorPoints.length > 0) {
+            projectCentroid = {
+                x: anchorPoints.reduce((s, p) => s + p.x, 0) / anchorPoints.length,
+                y: anchorPoints.reduce((s, p) => s + p.y, 0) / anchorPoints.length,
+            };
+            console.log(`🎯 [Phase1] Project centroid: RD(${Math.round(projectCentroid.x)}, ${Math.round(projectCentroid.y)}) — all locations will be anchored to this area.`);
+        }
+    }
+
+    // ── Phase 2: Full enrichment of all locations, guided by the centroid ─────
     const enriched = [];
     for (let i = 0; i < locations.length; i++) {
         if (onProgress) onProgress(i + 1, locations.length);
@@ -663,21 +764,24 @@ export async function enrichAllLocations(locations, onProgress, overrideCity = n
         const loc = locations[i];
         let contextPostcode = null;
 
-        // Use a same-street postcode when the current location lacks one
         if (loc.straatnaam && !loc.postcode) {
             const street = loc.straatnaam.toLowerCase().trim();
             if (streetContext[street]) {
                 contextPostcode = Array.from(streetContext[street])[0];
-                console.log(`📍 [Context] Applying postcode ${contextPostcode} to street ${loc.straatnaam}`);
+                console.log(`📍 [Context] Sharing postcode ${contextPostcode} with street ${loc.straatnaam}`);
             }
         }
 
         const primaryCity = overrideCity || topCities[0] || null;
-
-        const enrichedLoc = await enrichLocation(loc, contextPostcode, primaryCity, datasetPostcodesList);
+        const enrichedLoc = await enrichLocation(loc, contextPostcode, primaryCity, datasetPostcodesList, projectCentroid);
         enriched.push(enrichedLoc);
 
-        // Rate limit: 200ms between requests
+        // Update centroid adaptively as more locations are resolved
+        if (enrichedLoc._enriched?.rd?.x && enrichedLoc._enriched?.rd?.y && !projectCentroid) {
+            projectCentroid = { x: enrichedLoc._enriched.rd.x, y: enrichedLoc._enriched.rd.y };
+            console.log(`🎯 [Centroid] Initial centroid from first resolved location: RD(${Math.round(projectCentroid.x)}, ${Math.round(projectCentroid.y)})`);
+        }
+
         if (i < locations.length - 1) {
             await new Promise(r => setTimeout(r, 200));
         }
