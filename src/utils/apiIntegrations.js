@@ -295,6 +295,41 @@ const RD = '+proj=sterea +lat_0=52.15616055555555 +lon_0=5.38763888888889 +k=0.9
 const WGS84 = 'EPSG:4326';
 
 /**
+ * Extract trace coordinates from TOB text
+ * Looks for patterns like:
+ * - "tracé loopt van (123456, 456789) naar (123457, 456790)"
+ * - Coordinates in format: (X, Y) or X, Y or X Y
+ * Returns array of [lat, lng] pairs suitable for Leaflet
+ */
+export function extractTraceCoordinates(text) {
+    if (!text) return [];
+
+    // Pattern 1: Dutch descriptions with coordinates
+    // "tracé loopt van X Y naar X Y" or "van (X,Y) naar (X,Y)"
+    const rdPattern = /[\(\s](\d{5,6})[,\s]+(\d{6,7})[\)\s]/g;
+    const coordinates = [];
+    let match;
+
+    const uniqueCoords = new Set();
+    while ((match = rdPattern.exec(text)) !== null) {
+        const x = parseFloat(match[1]);
+        const y = parseFloat(match[2]);
+
+        // RD coordinates are typically between 12000-300000 for X and 300000-625000 for Y
+        if (x > 10000 && x < 300000 && y > 300000 && y < 700000) {
+            const key = `${x},${y}`;
+            if (!uniqueCoords.has(key)) {
+                uniqueCoords.add(key);
+                const wgs84 = rdToWgs84(x, y);
+                coordinates.push([wgs84.lat, wgs84.lng]);
+            }
+        }
+    }
+
+    return coordinates;
+}
+
+/**
  * Convert WGS84 (lat/lng) to RD (Rijksdriehoek) coordinates
  */
 export function wgs84ToRd(lat, lng) {

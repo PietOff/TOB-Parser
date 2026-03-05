@@ -20,6 +20,7 @@
  *   - Per locatiecode: tabellen met onderzoeksresultaten
  */
 import mammoth from 'mammoth';
+import { extractTraceCoordinates } from './apiIntegrations';
 
 /**
  * Parse a DOCX file and extract TOB-structured data
@@ -228,6 +229,12 @@ export async function parseDocx(file, onProgress) {
         data.conclusieTekst = fullText.substring(conclusieStart, beschikbareStart).trim();
     }
 
+    // ── Extract trace geometry ──
+    const traceSection = fullText.match(/Tracé(?:tekening)?(.{0,2000}?)(?:Aanleiding|Locatiegegevens|Inleiding)/is);
+    const traceText = traceSection ? traceSection[1] : fullText;
+    const traceCoordinates = extractTraceCoordinates(traceText);
+    data.traceCoordinates = traceCoordinates;
+
     return data;
 }
 
@@ -235,8 +242,14 @@ export async function parseDocx(file, onProgress) {
  * Convert parsed DOCX data to location array (same format as other parsers)
  */
 export function docxToLocations(docxData) {
+    const baseTrace = docxData.traceCoordinates || [];
+
     if (docxData.locatiecodes.length > 0) {
-        return docxData.locatiecodes;
+        // Add trace geometry to each location
+        return docxData.locatiecodes.map(loc => ({
+            ...loc,
+            traceGeometry: baseTrace,
+        }));
     }
 
     // If no locatiecodes found, create a single entry from metadata
@@ -256,6 +269,7 @@ export function docxToLocations(docxData) {
         complex: docxData.isVerdacht,
         rapportJaar: null,
         stoffen: [],
+        traceGeometry: baseTrace,
         _source: 'DOCX',
         _projectCode: docxData.projectCode,
         _metadata: {

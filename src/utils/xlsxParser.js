@@ -55,6 +55,7 @@ export async function parseXlsx(file) {
                 afstandTrace: null,
                 verdachteActiviteiten: 0,
                 stoffen: [],
+                traceGeometry: [],
                 _source: `Excel: ${sheetName}`,
             };
 
