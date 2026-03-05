@@ -113,9 +113,9 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                                     <h3>
                                         <span className={`priority-dot ${getPriorityClass(assessment.prioriteit)}`} />
                                         {loc.locatiecode} — {loc.locatienaam || loc.straatnaam || 'Onbekend'}
-                                        <span className={`case-badge ${assessment.beoordeling.includes('verontreinigd') ? 'danger' : 'warning'}`}>
+                                        {assessment.beoordeling && <span className={`case-badge ${assessment.beoordeling.includes('verontreinigd') ? 'danger' : 'warning'}`}>
                                             {assessment.beoordeling.replace('_', ' ')}
-                                        </span>
+                                        </span>}
                                     </h3>
                                     <span className={`case-toggle ${isOpen ? 'open' : ''}`}>▼</span>
                                 </div>

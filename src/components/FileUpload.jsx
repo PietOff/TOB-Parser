@@ -8,7 +8,7 @@ export default function FileUpload({ onFilesReady }) {
     const handleFiles = useCallback((newFiles) => {
         const validFiles = Array.from(newFiles).filter(f => {
             const ext = f.name.toLowerCase().split('.').pop();
-            return ['pdf', 'xlsx', 'xls', 'pptx', 'docx', 'doc'].includes(ext);
+            return ['pdf', 'xlsx', 'xls', 'docx', 'doc'].includes(ext);
         });
         setFiles(prev => {
             const combined = [...prev, ...validFiles];
@@ -37,7 +37,6 @@ export default function FileUpload({ onFilesReady }) {
         const ext = name.toLowerCase().split('.').pop();
         if (ext === 'pdf') return '📄';
         if (['xlsx', 'xls'].includes(ext)) return '📊';
-        if (ext === 'pptx') return '📑';
         return '📎';
     };
 
@@ -58,12 +57,12 @@ export default function FileUpload({ onFilesReady }) {
             >
                 <div className="upload-icon">📂</div>
                 <h3>Sleep TOB bestanden hierheen</h3>
-                <p>PDF rapporten, Excel (.xlsx), Word (.docx), PowerPoint (.pptx)</p>
+                <p>PDF rapporten, Excel (.xlsx), Word (.docx)</p>
                 <input
                     ref={inputRef}
                     type="file"
                     multiple
-                    accept=".pdf,.xlsx,.xls,.pptx,.docx,.doc"
+                    accept=".pdf,.xlsx,.xls,.docx,.doc"
                     style={{ display: 'none' }}
                     onChange={(e) => handleFiles(e.target.files)}
                 />

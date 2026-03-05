@@ -7,12 +7,12 @@ import { parseXlsx } from './utils/xlsxParser';
 import { parseDocx, docxToLocations } from './utils/docxParser';
 import { enrichAllLocations, triggerDeepScanBatch, detectCityFromText, wgs84ToRd } from './utils/apiIntegrations';
 import { assessLocation } from './utils/smartFill';
+import './index.css';
 
 // GitHub token: reads from Vercel env var first, then localStorage
 function getGithubToken() {
     return import.meta.env.VITE_GITHUB_TOKEN || localStorage.getItem('github_token') || null;
 }
-import './index.css';
 
 const STEPS = [
     { id: 1, label: 'Upload' },
