@@ -184,7 +184,7 @@ export async function pdokSuggest(query) {
 
 // Helper to bypass CORS for PDOK WFS services
 // We use corsproxy.io as allorigins rate-limits during batch scans
-const PROXY = 'https://corsproxy.io/?';
+const PROXY = 'https://api.allorigins.win/raw?url=';
 
 /**
  * Get bodemkwaliteitskaart data for a given location (RD coordinates)
