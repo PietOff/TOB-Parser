@@ -183,8 +183,16 @@ export async function pdokSuggest(query) {
 // ══════════════════════════════════════
 
 // Helper to bypass CORS for PDOK WFS services
-// We use corsproxy.io as allorigins rate-limits during batch scans
-const PROXY = 'https://api.allorigins.win/raw?url=';
+// We use allorigins.win but need to use /get instead of /raw to reliably parse JSON
+const PROXY = 'https://api.allorigins.win/get?url=';
+
+async function fetchWithProxy(url) {
+    const res = await fetch(PROXY + encodeURIComponent(url));
+    if (!res.ok) throw new Error(`Proxy error: ${res.status}`);
+    const data = await res.json();
+    if (!data.contents) throw new Error('No contents in proxy response');
+    return JSON.parse(data.contents);
+}
 
 /**
  * Get bodemkwaliteitskaart data for a given location (RD coordinates)
@@ -197,10 +205,7 @@ export async function getBodemkwaliteit(rdX, rdY, buffer = 50) {
             `typeName=bodemkwaliteit:bodemkwaliteitskaart&` +
             `bbox=${bbox},EPSG:28992&outputFormat=application/json&count=5`;
 
-        const res = await fetch(PROXY + encodeURIComponent(originalUrl));
-        if (!res.ok) return null;
-        const data = await res.json();
-        // ...
+        const data = await fetchWithProxy(originalUrl);
 
         if (data.features?.length > 0) {
             return data.features.map(f => ({
@@ -228,9 +233,7 @@ export async function getHbbData(rdX, rdY, buffer = 25) {
             `typeName=bodemkwaliteit:hbb_activiteit,bodemkwaliteit:hbb_asbestverdacht&` +
             `bbox=${bbox},EPSG:28992&outputFormat=application/json&count=10`;
 
-        const res = await fetch(PROXY + encodeURIComponent(originalUrl));
-        if (!res.ok) return null;
-        const data = await res.json();
+        const data = await fetchWithProxy(originalUrl);
 
         return (data.features || []).map(f => ({
             naam: f.properties.naam || f.properties.activiteit,
@@ -360,9 +363,7 @@ export async function getBuildingDetails(rdX, rdY, buffer = 10) {
             `service=WFS&version=2.0.0&request=GetFeature&` +
             `typeName=bag:pand&bbox=${bbox},EPSG:28992&outputFormat=application/json&count=10`;
 
-        const res = await fetch(PROXY + encodeURIComponent(originalUrl));
-        if (!res.ok) return null;
-        const data = await res.json();
+        const data = await fetchWithProxy(originalUrl);
 
         return (data.features || []).map(f => ({
             id: f.properties.identificatie,

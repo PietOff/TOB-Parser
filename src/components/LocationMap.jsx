@@ -10,16 +10,18 @@ import { wgs84ToRd } from '../utils/apiIntegrations';
 function FitBounds({ center, radius }) {
     const map = useMap();
     useEffect(() => {
-        if (center && radius) {
-            // Create bounds around the center point with buffer
-            const radiusKm = radius / 1000;
-            const bounds = L.latLngBounds(
-                [center[0] - radiusKm / 111, center[1] - radiusKm / 111],
-                [center[0] + radiusKm / 111, center[1] + radiusKm / 111]
-            );
-            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
-        } else if (center) {
-            map.setView(center, 14);
+        if (center && Array.isArray(center) && !isNaN(center[0]) && !isNaN(center[1])) {
+            if (radius) {
+                // Create bounds around the center point with buffer
+                const radiusKm = radius / 1000;
+                const bounds = L.latLngBounds(
+                    [center[0] - radiusKm / 111, center[1] - radiusKm / 111],
+                    [center[0] + radiusKm / 111, center[1] + radiusKm / 111]
+                );
+                map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+            } else {
+                map.setView(center, 14);
+            }
         }
     }, [center, radius, map]);
     return null;
@@ -134,9 +136,11 @@ export default function LocationMap({
                     }
                 } else {
                     console.warn(`⚠️ [Map] Could not geocode address:`, query);
+                    setMapCenter(null);
                 }
             } catch (err) {
                 console.warn('Geocoding failed:', err);
+                setMapCenter(null);
             } finally {
                 setIsLoading(false);
             }
@@ -328,7 +332,7 @@ export default function LocationMap({
                 )}
                 <div style={{ fontSize: '10px', opacity: 0.8, borderTop: '1px solid #555', paddingTop: '6px', marginTop: '6px' }}>
                     💡 Gebruik de tekentools (linksboven) om het onderzoeksgebied te definiëren
-                    <br/>💡 Toggle 'Kadastrale Percelen' om erfpachten te zien
+                    <br />💡 Toggle 'Kadastrale Percelen' om erfpachten te zien
                 </div>
             </div>
         </div>
