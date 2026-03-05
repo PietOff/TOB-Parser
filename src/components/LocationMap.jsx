@@ -11,9 +11,10 @@ function FitBounds({ center, radius }) {
     const map = useMap();
     useEffect(() => {
         if (center && Array.isArray(center) && !isNaN(center[0]) && !isNaN(center[1])) {
-            if (radius) {
+            const parsedRadius = parseFloat(radius);
+            if (!isNaN(parsedRadius) && parsedRadius > 0) {
                 // Create bounds around the center point with buffer
-                const radiusKm = radius / 1000;
+                const radiusKm = parsedRadius / 1000;
                 const bounds = L.latLngBounds(
                     [center[0] - radiusKm / 111, center[1] - radiusKm / 111],
                     [center[0] + radiusKm / 111, center[1] + radiusKm / 111]
