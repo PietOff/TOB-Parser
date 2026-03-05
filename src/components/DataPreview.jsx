@@ -372,7 +372,11 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                                     <tr
                                         key={loc.locatiecode}
                                         className={`${isVerdacht ? 'row-verdacht' : ''} ${isSelected ? 'row-selected' : ''}`}
-                                        onClick={() => setExpandedCase(loc.locatiecode)}
+                                        onClick={() => {
+                                            setExpandedCase(loc.locatiecode);
+                                            document.getElementById('master-location-map')
+                                                ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                                        }}
                                         style={{ cursor: 'pointer', backgroundColor: isSelected ? 'var(--bg-secondary)' : undefined }}
                                     >
                                         <td>{loc.locatiecode}</td>
