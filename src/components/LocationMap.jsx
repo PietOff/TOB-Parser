@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, WMSTileLayer, Circle, LayersControl, useMap } from 'react-leaflet';
+import { useEffect, useState, useRef } from 'react';
+import { MapContainer, TileLayer, WMSTileLayer, Circle, LayersControl, useMap, FeatureGroup } from 'react-leaflet';
+import { EditControl } from 'react-leaflet-draw';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import 'leaflet-draw/dist/leaflet.draw.css';
 import { wgs84ToRd } from '../utils/apiIntegrations';
 
 // Component to auto-fit map bounds
@@ -23,6 +25,61 @@ function FitBounds({ center, radius }) {
     return null;
 }
 
+// Component to handle drawing and edit interactions
+function DrawingControl({ onDrawnGeometry }) {
+    const featureGroupRef = useRef(null);
+
+    const handleCreated = (e) => {
+        const { layer } = e;
+        const geoJSON = layer.toGeoJSON();
+        console.log('✏️ [Drawing] Created geometry:', geoJSON);
+        onDrawnGeometry?.(geoJSON);
+    };
+
+    const handleEdited = (e) => {
+        const layers = e.layers;
+        layers.eachLayer((layer) => {
+            const geoJSON = layer.toGeoJSON();
+            console.log('✏️ [Drawing] Edited geometry:', geoJSON);
+            onDrawnGeometry?.(geoJSON);
+        });
+    };
+
+    return (
+        <FeatureGroup ref={featureGroupRef}>
+            <EditControl
+                position="topleft"
+                onCreated={handleCreated}
+                onEdited={handleEdited}
+                draw={{
+                    rectangle: false,
+                    polyline: false,
+                    marker: false,
+                    circle: {
+                        shapeOptions: {
+                            color: '#ff4444',
+                            fillColor: '#ff4444',
+                            fillOpacity: 0.15,
+                            weight: 2,
+                            dashArray: '5, 5',
+                        }
+                    },
+                    polygon: {
+                        shapeOptions: {
+                            color: '#ff4444',
+                            fillColor: '#ff4444',
+                            fillOpacity: 0.15,
+                            weight: 2,
+                            dashArray: '5, 5',
+                        }
+                    },
+                    circlemarker: false,
+                }}
+            />
+        </FeatureGroup>
+    );
+}
+
 /**
  * LocationMap — Interactive map showing project trace area
  * Shows extracted or manually drawn project area around primary address
@@ -38,9 +95,11 @@ export default function LocationMap({
     const [mapCenter, setMapCenter] = useState(null);
     const [bufferRadius, setBufferRadius] = useState(500); // Default 500m buffer
     const [isLoading, setIsLoading] = useState(true);
+    const [manualGeometry, setManualGeometry] = useState(null);
 
     console.log(`🗺️ [Map] Project Address:`, projectAddress);
     console.log(`🗺️ [Map] Project Trace:`, projectTrace);
+    console.log(`✏️ [Map] Manual Geometry:`, manualGeometry);
 
     // Geocode the project address to get map center
     useEffect(() => {
@@ -149,6 +208,7 @@ export default function LocationMap({
                 zoomControl={true}
             >
                 <FitBounds center={center} radius={bufferRadius} />
+                <DrawingControl onDrawnGeometry={setManualGeometry} />
 
                 <LayersControl position="topright">
                     {/* Base layers */}
@@ -256,16 +316,28 @@ export default function LocationMap({
                         <div>{projectAddress.postcode} {projectAddress.city}</div>
                     </div>
                 )}
-                {projectTrace && (
+                {(projectTrace || manualGeometry) && (
                     <div style={{ marginBottom: '6px', fontSize: '11px', borderTop: '1px solid #555', paddingTop: '6px' }}>
-                        <div><strong>Tracé:</strong> {projectTrace.description}</div>
-                        {projectTrace.distance && (
-                            <div>Buffer: {projectTrace.distance} {projectTrace.unit}</div>
+                        {projectTrace && !manualGeometry && (
+                            <>
+                                <div style={{ color: '#4da6ff' }}>🔵 <strong>Auto-gedetecteerd</strong></div>
+                                <div><strong>Tracé:</strong> {projectTrace.description}</div>
+                                {projectTrace.distance && (
+                                    <div>Buffer: {projectTrace.distance} {projectTrace.unit}</div>
+                                )}
+                            </>
+                        )}
+                        {manualGeometry && (
+                            <>
+                                <div style={{ color: '#ff8888' }}>🔴 <strong>Handmatig getekend</strong></div>
+                                <div>Type: {manualGeometry.geometry.type}</div>
+                            </>
                         )}
                     </div>
                 )}
                 <div style={{ fontSize: '10px', opacity: 0.8, borderTop: '1px solid #555', paddingTop: '6px', marginTop: '6px' }}>
-                    💡 Toggle 'Kadastrale Percelen' to see which plots overlap the project area
+                    💡 Gebruik de tekentools (linksboven) om het onderzoeksgebied te definiëren
+                    <br/>💡 Toggle 'Kadastrale Percelen' om erfpachten te zien
                 </div>
             </div>
         </div>
