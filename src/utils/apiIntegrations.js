@@ -100,11 +100,18 @@ export async function lookupNazcaCode(nazcaCode) {
 /**
  * Search for an address using PDOK Locatieserver
  * Returns geocoded results with coordinates and address details
+ * - cityContext: filter by city name (woonplaatsnaam)
+ * - postcodeContext: filter by postcode (e.g. "1234AB") — most precise
  */
-export async function pdokSearch(query, cityContext = null) {
+export async function pdokSearch(query, cityContext = null, postcodeContext = null) {
     try {
         let url = `${PDOK_LOCATIE_BASE}/free?q=${encodeURIComponent(query)}&rows=5`;
-        if (cityContext) {
+        // Postcode filter is more precise than city — prefer it when available
+        if (postcodeContext) {
+            // Normalise: PDOK wants "1234 AB" with space
+            const pc = postcodeContext.replace(/\s+/g, '').toUpperCase();
+            url += `&fq=postcode:${encodeURIComponent(pc.slice(0, 4) + ' ' + pc.slice(4))}`;
+        } else if (cityContext) {
             url += `&fq=woonplaatsnaam:${encodeURIComponent(cityContext)}`;
         }
         const res = await fetch(url);
@@ -414,10 +421,11 @@ function extractStreetFromName(name) {
 
 /**
  * Enrich a single TOB location with data from all available APIs
- * contextPostcode is an optional postcode shared from neighboring locations on the same street
- * primaryCity is the most frequent city in the dataset, used for strict geocoding fallback
+ * contextPostcode: postcode from a nearby/same-street location
+ * primaryCity: most frequent city in the dataset
+ * datasetPostcodes: all postcodes found across the entire dataset (used as geo-context)
  */
-export async function enrichLocation(location, contextPostcode = null, primaryCity = null) {
+export async function enrichLocation(location, contextPostcode = null, primaryCity = null, datasetPostcodes = []) {
     const enriched = { ...location, _enriched: {} };
 
     // Step 0: Detect and try Nazca location code lookup
@@ -446,68 +454,86 @@ export async function enrichLocation(location, contextPostcode = null, primaryCi
         }
     }
 
-    const effectivePostcode = location.postcode || contextPostcode;
+    const effectivePostcode = location.postcode
+        ? location.postcode.replace(/\s+/g, '').toUpperCase()
+        : contextPostcode
+            ? contextPostcode.replace(/\s+/g, '').toUpperCase()
+            : null;
     const cleanedStreet = cleanAddressQuery(effectiveStreet);
     const baseAddr = [cleanedStreet, location.huisnummer].filter(Boolean).join(' ');
 
-    // Build prioritized query list
-    const queries = [];
+    // Build prioritized (query, postcodeFilter, cityFilter) tuples
+    // Order: most specific first (postcode > city > bare query)
+    const queryPlan = []; // each entry: { q, postcode, city }
 
-    // 1. Exact: street + postcode + city
-    if (baseAddr && (effectivePostcode || location.woonplaats)) {
-        queries.push([baseAddr, effectivePostcode, location.woonplaats].filter(Boolean).join(' '));
+    // 1. Exact match: street + number + postcode (postcode as PDOK filter)
+    if (baseAddr && effectivePostcode) {
+        queryPlan.push({ q: baseAddr, postcode: effectivePostcode, city: null });
     }
 
-    // 2. Street + city (without postcode) — high priority when city is known
+    // 2. Street + number + city (city as PDOK filter)
     if (baseAddr && location.woonplaats) {
-        queries.push([baseAddr, location.woonplaats].filter(Boolean).join(' '));
+        queryPlan.push({ q: baseAddr, postcode: null, city: location.woonplaats });
     }
 
-    // 3. Street + primaryCity (detected from filename/title/dataset)
+    // 3. Street + number embedded in query with postcode string
+    if (baseAddr && effectivePostcode) {
+        queryPlan.push({ q: `${baseAddr} ${effectivePostcode}`, postcode: null, city: null });
+    }
+
+    // 4. Street + primaryCity
     if (baseAddr && primaryCity && primaryCity !== location.woonplaats) {
-        queries.push([baseAddr, primaryCity].filter(Boolean).join(' '));
+        queryPlan.push({ q: baseAddr, postcode: null, city: primaryCity });
     }
 
-    // 4. Street alone
+    // 5. Street + each dataset postcode as filter (broadest area context)
+    if (baseAddr && datasetPostcodes.length > 0) {
+        for (const pc of datasetPostcodes.slice(0, 3)) { // top 3 postcodes max
+            if (pc !== effectivePostcode) {
+                queryPlan.push({ q: baseAddr, postcode: pc, city: null });
+            }
+        }
+    }
+
+    // 6. Street alone (no filter)
     if (baseAddr) {
-        queries.push(baseAddr);
+        queryPlan.push({ q: baseAddr, postcode: null, city: null });
     }
 
-    // 5. Locatienaam (cleaned) + city context
+    // 7. Locatienaam + city/postcode context
     if (location.locatienaam) {
         const cleanedName = cleanAddressQuery(location.locatienaam);
         if (cleanedName && cleanedName !== cleanedStreet) {
-            queries.push([cleanedName, location.woonplaats || primaryCity].filter(Boolean).join(' '));
+            if (effectivePostcode) queryPlan.push({ q: cleanedName, postcode: effectivePostcode, city: null });
+            if (location.woonplaats) queryPlan.push({ q: cleanedName, postcode: null, city: location.woonplaats });
+            queryPlan.push({ q: cleanedName, postcode: null, city: null });
         }
     }
 
-    // 6. Locatiecode as last resort
+    // 8. Locatiecode as last resort
     if (location.locatiecode && location.locatiecode !== 'ONBEKEND') {
-        queries.push(location.locatiecode);
+        queryPlan.push({ q: location.locatiecode, postcode: null, city: null });
     }
 
-    // De-duplicate queries
-    const uniqueQueries = [...new Set(queries.filter(q => q.trim()))];
+    // De-duplicate by q+postcode+city key
+    const seen = new Set();
+    const uniquePlan = queryPlan.filter(({ q, postcode, city }) => {
+        const key = `${q}|${postcode}|${city}`;
+        if (seen.has(key) || !q.trim()) return false;
+        seen.add(key);
+        return true;
+    });
 
     let results = [];
-    if (uniqueQueries.length > 0) {
-        console.log(`🔍 [Geocode] Targeting: "${uniqueQueries[0]}"... (${uniqueQueries.length - 1} fallbacks)`);
+    if (uniquePlan.length > 0) {
+        const first = uniquePlan[0];
+        console.log(`🔍 [Geocode] Targeting: "${first.q}" [pc:${first.postcode || '-'}, city:${first.city || '-'}] (${uniquePlan.length - 1} fallbacks)`);
     }
 
-    // Try each query, use city filter when primaryCity is available
-    for (const q of uniqueQueries) {
-        // First try WITH city filter
-        if (primaryCity) {
-            results = await pdokSearch(q, primaryCity);
-            if (results.length > 0) {
-                console.log(`✅ [Geocode] Success for "${q}" (city: ${primaryCity}): Found ${results.length} results.`);
-                break;
-            }
-        }
-        // Then try WITHOUT city filter (broader search)
-        results = await pdokSearch(q, null);
+    for (const { q, postcode, city } of uniquePlan) {
+        results = await pdokSearch(q, city, postcode);
         if (results.length > 0) {
-            console.log(`✅ [Geocode] Success for "${q}" (no city filter): Found ${results.length} results.`);
+            console.log(`✅ [Geocode] Success for "${q}" [pc:${postcode || '-'}, city:${city || '-'}]: ${results.length} results.`);
             break;
         }
     }
@@ -516,7 +542,7 @@ export async function enrichLocation(location, contextPostcode = null, primaryCi
     if (results.length === 0 && location.locatienaam) {
         const fuzzyQuery = cleanAddressQuery(location.locatienaam);
         console.log(`⚠️ [Geocode] Trying fuzzy name fallback: "${fuzzyQuery}"`);
-        results = await pdokSearch(fuzzyQuery, null);
+        results = await pdokSearch(fuzzyQuery, null, null);
     }
 
     if (results.length > 0) {
@@ -593,19 +619,25 @@ export async function enrichLocation(location, contextPostcode = null, primaryCi
 
 /**
  * Enrich all locations (with rate limiting to avoid API abuse)
- * overrideCity is a city detected from the project title/filename to force context
+ * overrideCity: city detected from the project title/filename
+ * documentPostcodes: postcodes extracted from the raw document text (PDF/DOCX full text)
  */
-export async function enrichAllLocations(locations, onProgress, overrideCity = null) {
-    // Phase 1: Context building (Postcode & Regional City Proximity)
-    const streetContext = {};
+export async function enrichAllLocations(locations, onProgress, overrideCity = null, documentPostcodes = []) {
+    // Phase 1: Context building — collect postcodes, streets, cities from the dataset itself
+    const streetContext = {};   // street → Set of postcodes
     const cityCounts = {};
+    const allDatasetPostcodes = new Set(documentPostcodes.map(p => p.replace(/\s+/g, '').toUpperCase()));
 
     for (const loc of locations) {
         // Collect postcodes per street
         if (loc.straatnaam && loc.postcode) {
             const street = loc.straatnaam.toLowerCase().trim();
             if (!streetContext[street]) streetContext[street] = new Set();
-            streetContext[street].add(loc.postcode.replace(/\s+/g, '').toUpperCase());
+            const pc = loc.postcode.replace(/\s+/g, '').toUpperCase();
+            streetContext[street].add(pc);
+            allDatasetPostcodes.add(pc);
+        } else if (loc.postcode) {
+            allDatasetPostcodes.add(loc.postcode.replace(/\s+/g, '').toUpperCase());
         }
         // Count city occurrences to map the project's region
         if (loc.woonplaats) {
@@ -615,8 +647,13 @@ export async function enrichAllLocations(locations, onProgress, overrideCity = n
     }
 
     const topCities = Object.entries(cityCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(e => e[0]);
+    const datasetPostcodesList = [...allDatasetPostcodes];
+
     if (topCities.length > 0) {
         console.log(`🏙️ [Context] Project Region Top Cities: ${topCities.join(', ')}`);
+    }
+    if (datasetPostcodesList.length > 0) {
+        console.log(`📮 [Context] Dataset Postcodes (${datasetPostcodesList.length}): ${datasetPostcodesList.slice(0, 8).join(', ')}${datasetPostcodesList.length > 8 ? '...' : ''}`);
     }
 
     const enriched = [];
@@ -626,6 +663,7 @@ export async function enrichAllLocations(locations, onProgress, overrideCity = n
         const loc = locations[i];
         let contextPostcode = null;
 
+        // Use a same-street postcode when the current location lacks one
         if (loc.straatnaam && !loc.postcode) {
             const street = loc.straatnaam.toLowerCase().trim();
             if (streetContext[street]) {
@@ -634,10 +672,9 @@ export async function enrichAllLocations(locations, onProgress, overrideCity = n
             }
         }
 
-        // Use overrideCity (from title/filename) or fall back to statistical majority (topCities[0])
         const primaryCity = overrideCity || topCities[0] || null;
 
-        const enrichedLoc = await enrichLocation(loc, contextPostcode, primaryCity);
+        const enrichedLoc = await enrichLocation(loc, contextPostcode, primaryCity, datasetPostcodesList);
         enriched.push(enrichedLoc);
 
         // Rate limit: 200ms between requests

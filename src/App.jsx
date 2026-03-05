@@ -6,6 +6,7 @@ import { extractPdfText, parseTobReport, mergeToLocations } from './utils/pdfPar
 import { parseXlsx, xlsxToLocations } from './utils/xlsxParser';
 import { parseDocx, docxToLocations } from './utils/docxParser';
 import { enrichAllLocations, triggerDeepScanBatch, detectCityFromText, wgs84ToRd, getGithubToken } from './utils/apiIntegrations';
+import { extractAllPostcodes } from './utils/traceExtraction';
 import { assessLocation } from './utils/smartFill';
 import './index.css';
 
@@ -67,6 +68,7 @@ export default function App() {
         const allLocations = [];
         let capturedAddress = null;
         let capturedTrace = null;
+        const allDocumentPostcodes = new Set(); // postcodes from all raw document texts
 
         // Helper to add timeout to async operations
         const withTimeout = async (promise, timeoutMs, label) => {
@@ -87,9 +89,11 @@ export default function App() {
                             extractPdfText(file, (page, total) => {
                                 setParseStatus(`📄 PDF ${file.name}: pagina ${page}/${total}`);
                             }),
-                            60000, // 60 second timeout for PDF extraction
+                            60000,
                             'PDF extraction'
                         );
+                        // Collect postcodes from full text for geo-context
+                        extractAllPostcodes(fullText).forEach(pc => allDocumentPostcodes.add(pc));
                         const parsed = parseTobReport(fullText);
                         setParseStatus(`✅ PDF geparst: ${parsed.locatiecodes.length} locaties gevonden`);
                         const locs = mergeToLocations(parsed);
@@ -142,6 +146,10 @@ export default function App() {
                             'DOCX parsing'
                         );
                         setParseStatus(`✅ DOCX geparst: ${docxData.locatiecodes.length} locaties gevonden`);
+                        // Collect postcodes from full text for geo-context
+                        if (docxData.fullText) {
+                            extractAllPostcodes(docxData.fullText).forEach(pc => allDocumentPostcodes.add(pc));
+                        }
                         const locs = docxToLocations(docxData);
                         allLocations.push(...locs);
                         // Capture project address & trace if found
@@ -220,7 +228,7 @@ export default function App() {
             const enriched = await withTimeout(
                 enrichAllLocations(mergedArr, (i, total) => {
                     setParseStatus(`🔍 Locatie ${i}/${total} onderzoeken (BAG, HBB, PDOK)...`);
-                }, detectedCity),
+                }, detectedCity, [...allDocumentPostcodes]),
                 300000, // 5 minute timeout for enrichment
                 'Location enrichment'
             );
