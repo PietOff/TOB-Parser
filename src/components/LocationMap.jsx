@@ -1,22 +1,18 @@
-import { useEffect, useState, useRef, useMemo } from 'react';
-import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, Tooltip, LayersControl, useMap, FeatureGroup } from 'react-leaflet';
-import { EditControl } from 'react-leaflet-draw';
+import { useEffect, useState, useMemo } from 'react';
+import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, LayersControl, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import 'leaflet-draw/dist/leaflet.draw.css';
-import { wgs84ToRd, rdToWgs84 } from '../utils/apiIntegrations';
+import { rdToWgs84 } from '../utils/apiIntegrations';
 
 // Component to auto-fit map bounds to all locations
 function FitBounds({ locations, center, radius }) {
     const map = useMap();
     useEffect(() => {
-        // Try to fit all location markers first
         const validCoords = (locations || [])
             .map(loc => {
-                const lat = loc._enriched?.lat ?? (loc._enriched?.rd ? null : null);
+                const lat = loc._enriched?.lat ?? null;
                 const lon = loc._enriched?.lon ?? null;
                 if (lat && lon && !isNaN(lat) && !isNaN(lon)) return [lat, lon];
-                // Try to derive from RD coordinates
                 if (loc._enriched?.rd?.x && loc._enriched?.rd?.y) {
                     const wgs = rdToWgs84(loc._enriched.rd.x, loc._enriched.rd.y);
                     if (wgs && !isNaN(wgs.lat) && !isNaN(wgs.lng)) return [wgs.lat, wgs.lng];
@@ -46,68 +42,12 @@ function FitBounds({ locations, center, radius }) {
     return null;
 }
 
-// Component to handle drawing and edit interactions
-function DrawingControl({ onDrawnGeometry }) {
-    const featureGroupRef = useRef(null);
-
-    const handleCreated = (e) => {
-        const { layer } = e;
-        const geoJSON = layer.toGeoJSON();
-        console.log('✏️ [Drawing] Created geometry:', geoJSON);
-        onDrawnGeometry?.(geoJSON);
-    };
-
-    const handleEdited = (e) => {
-        const layers = e.layers;
-        layers.eachLayer((layer) => {
-            const geoJSON = layer.toGeoJSON();
-            console.log('✏️ [Drawing] Edited geometry:', geoJSON);
-            onDrawnGeometry?.(geoJSON);
-        });
-    };
-
-    return (
-        <FeatureGroup ref={featureGroupRef}>
-            <EditControl
-                position="topleft"
-                onCreated={handleCreated}
-                onEdited={handleEdited}
-                draw={{
-                    rectangle: false,
-                    polyline: false,
-                    marker: false,
-                    circle: {
-                        shapeOptions: {
-                            color: '#ff4444',
-                            fillColor: '#ff4444',
-                            fillOpacity: 0.15,
-                            weight: 2,
-                            dashArray: '5, 5',
-                        }
-                    },
-                    polygon: {
-                        shapeOptions: {
-                            color: '#ff4444',
-                            fillColor: '#ff4444',
-                            fillOpacity: 0.15,
-                            weight: 2,
-                            dashArray: '5, 5',
-                        }
-                    },
-                    circlemarker: false,
-                }}
-            />
-        </FeatureGroup>
-    );
-}
-
 /**
  * LocationMap — Interactive map showing project trace area and location markers
  */
 export default function LocationMap({
     locations = [],
     height = '400px',
-    onLocationDrag,
     highlightedLocationCode,
     projectAddress,
     projectTrace
@@ -115,7 +55,6 @@ export default function LocationMap({
     const [mapCenter, setMapCenter] = useState(null);
     const [bufferRadius, setBufferRadius] = useState(500);
     const [isLoading, setIsLoading] = useState(true);
-    const [manualGeometry, setManualGeometry] = useState(null);
 
     // Compute location markers with WGS84 coordinates
     const locationMarkers = useMemo(() => {
@@ -124,7 +63,6 @@ export default function LocationMap({
                 let lat = loc._enriched?.lat;
                 let lon = loc._enriched?.lon;
 
-                // Derive from RD coordinates if lat/lon not directly available
                 if ((!lat || !lon) && loc._enriched?.rd?.x && loc._enriched?.rd?.y) {
                     const wgs = rdToWgs84(loc._enriched.rd.x, loc._enriched.rd.y);
                     if (wgs && !isNaN(wgs.lat) && !isNaN(wgs.lng)) {
@@ -135,11 +73,7 @@ export default function LocationMap({
 
                 if (!lat || !lon || isNaN(lat) || isNaN(lon)) return null;
 
-                return {
-                    ...loc,
-                    _lat: lat,
-                    _lon: lon,
-                };
+                return { ...loc, _lat: lat, _lon: lon };
             })
             .filter(Boolean);
     }, [locations]);
@@ -149,7 +83,6 @@ export default function LocationMap({
         let cancelled = false;
 
         async function geocodeAddress() {
-            // If we have location markers, derive center from them
             if (locationMarkers.length > 0) {
                 const avgLat = locationMarkers.reduce((s, m) => s + m._lat, 0) / locationMarkers.length;
                 const avgLon = locationMarkers.reduce((s, m) => s + m._lon, 0) / locationMarkers.length;
@@ -173,7 +106,6 @@ export default function LocationMap({
 
             try {
                 const query = `${projectAddress.straatnaam} ${projectAddress.huisnummer}, ${projectAddress.postcode || projectAddress.city}, Netherlands`;
-
                 const response = await fetch(
                     `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`
                 );
@@ -181,10 +113,8 @@ export default function LocationMap({
 
                 if (!cancelled && results.length > 0) {
                     const first = results[0];
-                    const center = [parseFloat(first.lat), parseFloat(first.lon)];
-                    if (!isNaN(center[0]) && !isNaN(center[1])) {
-                        setMapCenter(center);
-                    }
+                    const c = [parseFloat(first.lat), parseFloat(first.lon)];
+                    if (!isNaN(c[0]) && !isNaN(c[1])) setMapCenter(c);
 
                     if (projectTrace?.distance) {
                         const radiusM = projectTrace.unit === 'km'
@@ -204,7 +134,6 @@ export default function LocationMap({
         return () => { cancelled = true; };
     }, [projectAddress, projectTrace, locationMarkers]);
 
-    // Default center (Utrecht, Netherlands)
     const defaultCenter = [52.0907, 5.1214];
     const center = mapCenter || defaultCenter;
     const hasValidCenter = !!mapCenter;
@@ -270,10 +199,8 @@ export default function LocationMap({
                 zoomControl={true}
             >
                 <FitBounds locations={locations} center={center} radius={safeBufferRadius} />
-                <DrawingControl onDrawnGeometry={setManualGeometry} />
 
                 <LayersControl position="topright">
-                    {/* Base layers */}
                     <LayersControl.BaseLayer checked name="OpenStreetMap">
                         <TileLayer
                             attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>'
@@ -297,7 +224,6 @@ export default function LocationMap({
                         />
                     </LayersControl.BaseLayer>
 
-                    {/* Overlay layers */}
                     <LayersControl.Overlay name="Bodemkwaliteitskaart">
                         <WMSTileLayer
                             url="https://service.pdok.nl/provincies/bodemkwaliteit/wms/v1_0"
@@ -365,26 +291,17 @@ export default function LocationMap({
                                 fillColor: color,
                                 fillOpacity: 0.8,
                             }}
-                            eventHandlers={{
-                                dragend: (e) => {
-                                    if (onLocationDrag) {
-                                        const { lat, lng } = e.target.getLatLng();
-                                        onLocationDrag(loc.locatiecode, lat, lng);
-                                    }
-                                },
-                            }}
                         >
-                            <Tooltip direction="top" offset={[0, -8]} permanent={isHighlighted}>
-                                <span style={{ fontSize: '11px', fontWeight: isHighlighted ? 'bold' : 'normal' }}>
-                                    {loc.locatiecode}
-                                </span>
-                            </Tooltip>
                             <Popup>
                                 <div style={{ fontSize: '12px', minWidth: '150px' }}>
                                     <strong>{loc.locatiecode}</strong>
                                     {loc.locatienaam && <div>{loc.locatienaam}</div>}
                                     {loc.straatnaam && <div>{loc.straatnaam} {loc.huisnummer}</div>}
-                                    {loc.conclusie && <div style={{ marginTop: '4px', color: isComplex ? '#ef4444' : '#22c55e' }}>{loc.conclusie}</div>}
+                                    {loc.conclusie && (
+                                        <div style={{ marginTop: '4px', color: isComplex ? '#ef4444' : '#22c55e' }}>
+                                            {loc.conclusie}
+                                        </div>
+                                    )}
                                 </div>
                             </Popup>
                         </CircleMarker>
@@ -414,22 +331,12 @@ export default function LocationMap({
                         <div>{projectAddress.postcode} {projectAddress.city}</div>
                     </div>
                 )}
-                {(projectTrace || manualGeometry) && (
+                {projectTrace && (
                     <div style={{ marginBottom: '6px', fontSize: '11px', borderTop: '1px solid #555', paddingTop: '6px' }}>
-                        {projectTrace && !manualGeometry && (
-                            <>
-                                <div style={{ color: '#4da6ff' }}>Auto-gedetecteerd</div>
-                                <div><strong>Tracé:</strong> {projectTrace.description}</div>
-                                {projectTrace.distance && (
-                                    <div>Buffer: {projectTrace.distance} {projectTrace.unit}</div>
-                                )}
-                            </>
-                        )}
-                        {manualGeometry && (
-                            <>
-                                <div style={{ color: '#ff8888' }}>Handmatig getekend</div>
-                                <div>Type: {manualGeometry.geometry?.type}</div>
-                            </>
+                        <div style={{ color: '#4da6ff' }}>Auto-gedetecteerd</div>
+                        <div><strong>Tracé:</strong> {projectTrace.description}</div>
+                        {projectTrace.distance && (
+                            <div>Buffer: {projectTrace.distance} {projectTrace.unit}</div>
                         )}
                     </div>
                 )}
