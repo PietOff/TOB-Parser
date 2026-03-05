@@ -3,7 +3,7 @@ import FileUpload from './components/FileUpload';
 import DataPreview from './components/DataPreview';
 import ExportPanel from './components/ExportPanel';
 import { extractPdfText, parseTobReport, mergeToLocations } from './utils/pdfParser';
-import { parseXlsx } from './utils/xlsxParser';
+import { parseXlsx, xlsxToLocations } from './utils/xlsxParser';
 import { parseDocx, docxToLocations } from './utils/docxParser';
 import { enrichAllLocations, triggerDeepScanBatch, detectCityFromText, wgs84ToRd } from './utils/apiIntegrations';
 import { assessLocation } from './utils/smartFill';
@@ -59,8 +59,15 @@ export default function App() {
                     }
                 } else if (['xlsx', 'xls'].includes(ext)) {
                     setParseStatus(`Excel verwerken: ${file.name}...`);
-                    const locs = await parseXlsx(file);
+                    const xlsxData = await parseXlsx(file);
+                    setParseStatus(`✅ Excel geparst: ${xlsxData.locatiecodes.length} locaties gevonden`);
+                    const locs = xlsxToLocations(xlsxData);
                     allLocations.push(...locs);
+                    // Capture project address if found
+                    if (xlsxData.projectAddress && !capturedAddress) {
+                        capturedAddress = xlsxData.projectAddress;
+                        setParseStatus(`📍 Projectadres gevonden: ${xlsxData.projectAddress.straatnaam}`);
+                    }
                 } else if (['docx', 'doc'].includes(ext)) {
                     setParseStatus(`Word document verwerken: ${file.name}...`);
                     const docxData = await parseDocx(file, (status) => {
