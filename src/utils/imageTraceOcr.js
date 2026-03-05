@@ -1,8 +1,44 @@
 /**
  * Image OCR Utility: Extracts trace information from document images
- * Uses Tesseract.js for client-side OCR
+ * Uses Tesseract.js for client-side OCR (loaded dynamically)
  */
-import Tesseract from 'tesseract.js';
+
+let tesseractWorker = null;
+const OCR_TIMEOUT = 30000; // 30 second timeout
+
+/**
+ * Initialize Tesseract worker with timeout
+ */
+async function initializeWorker(onProgress) {
+    if (tesseractWorker) {
+        return tesseractWorker;
+    }
+
+    try {
+        // Dynamically import to avoid loading if not needed
+        const Tesseract = (await import('tesseract.js')).default;
+
+        console.log('🖼️ [OCR] Initializing Tesseract worker (downloading WASM ~20MB)...');
+        if (onProgress) onProgress('Tesseract-engine aan het laden...');
+
+        const initPromise = Tesseract.createWorker('nld', 1, {
+            corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@v5/tesseract-core.wasm.js',
+        });
+
+        // Add timeout to prevent hanging
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Tesseract initialization timeout')), OCR_TIMEOUT)
+        );
+
+        tesseractWorker = await Promise.race([initPromise, timeoutPromise]);
+        console.log('✅ [OCR] Tesseract worker ready');
+
+        return tesseractWorker;
+    } catch (err) {
+        console.warn('⚠️ [OCR] Failed to initialize Tesseract:', err.message);
+        throw err;
+    }
+}
 
 /**
  * Run OCR on an image and extract trace-related text
@@ -10,20 +46,21 @@ import Tesseract from 'tesseract.js';
 export async function ocrImageForTrace(imageSource, onProgress) {
     try {
         console.log('🖼️ [OCR] Starting OCR on image...');
+        if (onProgress) onProgress('OCR aan het verwerken...');
 
-        const worker = await Tesseract.createWorker('nld', 1, {
-            // Use Dutch language for better results in Netherlands
-            corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@v5/tesseract-core.wasm.js',
-        });
+        const worker = await initializeWorker(onProgress);
 
-        const result = await worker.recognize(imageSource);
+        const recognizePromise = worker.recognize(imageSource);
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('OCR recognition timeout')), OCR_TIMEOUT)
+        );
+
+        const result = await Promise.race([recognizePromise, timeoutPromise]);
         console.log('🖼️ [OCR] OCR completed. Confidence:', result.data.confidence);
 
         // Extract trace-related patterns from OCR text
         const text = result.data.text;
         const traceInfo = extractTracePatterns(text);
-
-        await worker.terminate();
 
         return {
             fullText: text,
@@ -31,7 +68,7 @@ export async function ocrImageForTrace(imageSource, onProgress) {
             traceInfo,
         };
     } catch (err) {
-        console.warn('⚠️ [OCR] Error during OCR:', err);
+        console.warn('⚠️ [OCR] Error during OCR:', err.message);
         throw err;
     }
 }

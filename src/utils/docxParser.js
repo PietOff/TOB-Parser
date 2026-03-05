@@ -265,48 +265,55 @@ export async function parseDocx(file, onProgress) {
         console.warn('⚠️ [DOCX] Error extracting trace:', err);
     }
 
-    // ── Attempt OCR on embedded images for additional trace info ──
-    try {
-        if (onProgress) onProgress('OCR-onderzoek van afbeeldingen...');
-        const images = await extractImagesFromDocx(arrayBuffer);
+    // ── Attempt OCR on embedded images for additional trace info (optional, non-blocking) ──
+    // Skip OCR if already have good trace info or if file is too small to have images
+    const skipOcr = (arrayBuffer.byteLength < 50000) || (data.projectTrace && data.projectTrace.distance);
 
-        if (images.length > 0) {
-            console.log(`🖼️ [DOCX] Found ${images.length} images, attempting OCR...`);
+    if (!skipOcr) {
+        try {
+            if (onProgress) onProgress('Zoeken naar afbeeldingen met tracé...');
+            const images = await extractImagesFromDocx(arrayBuffer);
 
-            for (const img of images) {
-                try {
-                    const ocrResult = await ocrImageForTrace(img.blob, onProgress);
+            if (images.length > 0) {
+                console.log(`🖼️ [DOCX] Found ${images.length} images, attempting OCR...`);
 
-                    // Look for distance information in OCR results
-                    if (ocrResult.traceInfo.distances.length > 0) {
-                        const mainDistance = ocrResult.traceInfo.distances[0];
-                        if (!data.projectTrace || !data.projectTrace.distance) {
-                            data.projectTrace = data.projectTrace || {};
-                            data.projectTrace.distance = mainDistance.value;
-                            data.projectTrace.unit = mainDistance.unit;
-                            data.projectTrace.ocrConfidence = ocrResult.confidence;
-                            console.log(`🖼️ [DOCX] OCR found distance: ${mainDistance.value} ${mainDistance.unit}`);
+                for (const img of images.slice(0, 2)) { // Limit to first 2 images
+                    try {
+                        const ocrResult = await ocrImageForTrace(img.blob, onProgress);
+
+                        // Look for distance information in OCR results
+                        if (ocrResult.traceInfo.distances.length > 0) {
+                            const mainDistance = ocrResult.traceInfo.distances[0];
+                            if (!data.projectTrace || !data.projectTrace.distance) {
+                                data.projectTrace = data.projectTrace || {};
+                                data.projectTrace.distance = mainDistance.value;
+                                data.projectTrace.unit = mainDistance.unit;
+                                data.projectTrace.ocrConfidence = ocrResult.confidence;
+                                console.log(`🖼️ [DOCX] OCR found distance: ${mainDistance.value} ${mainDistance.unit}`);
+                            }
                         }
-                    }
 
-                    // Enhance route description from OCR
-                    if (ocrResult.traceInfo.routes.length > 0) {
-                        const route = ocrResult.traceInfo.routes[0];
-                        if (!data.projectTrace || !data.projectTrace.description || data.projectTrace.description.includes('Project')) {
-                            data.projectTrace = data.projectTrace || {};
-                            data.projectTrace.description = `Van ${route.from} naar ${route.to}`;
-                            console.log(`🖼️ [DOCX] OCR found route: ${data.projectTrace.description}`);
+                        // Enhance route description from OCR
+                        if (ocrResult.traceInfo.routes.length > 0) {
+                            const route = ocrResult.traceInfo.routes[0];
+                            if (!data.projectTrace || !data.projectTrace.description || data.projectTrace.description.includes('Project')) {
+                                data.projectTrace = data.projectTrace || {};
+                                data.projectTrace.description = `Van ${route.from} naar ${route.to}`;
+                                console.log(`🖼️ [DOCX] OCR found route: ${data.projectTrace.description}`);
+                            }
                         }
+                    } catch (imgErr) {
+                        console.warn('⚠️ [DOCX] OCR error on image:', imgErr.message);
+                        // Continue with other images even if one fails
                     }
-                } catch (imgErr) {
-                    console.warn('⚠️ [DOCX] Error processing image with OCR:', imgErr.message);
-                    // Continue with other images even if one fails
                 }
             }
+        } catch (err) {
+            console.warn('⚠️ [DOCX] Skipping image OCR:', err.message);
+            // Non-critical - don't break parsing
         }
-    } catch (err) {
-        console.warn('⚠️ [DOCX] Error during image OCR processing:', err.message);
-        // Don't fail the entire parsing if OCR fails
+    } else if (skipOcr) {
+        console.log('ℹ️ [DOCX] Skipping OCR (file too small or trace already found)');
     }
 
     return data;

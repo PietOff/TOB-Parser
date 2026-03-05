@@ -35,14 +35,28 @@ export default function App() {
         let capturedAddress = null;
         let capturedTrace = null;
 
+        // Helper to add timeout to async operations
+        const withTimeout = async (promise, timeoutMs, label) => {
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error(`Timeout: ${label} (>${timeoutMs}ms)`)), timeoutMs)
+            );
+            return Promise.race([promise, timeoutPromise]);
+        };
+
         try {
+            console.log(`📂 [App] Starting to process ${files.length} file(s)...`);
             for (const file of files) {
                 const ext = file.name.toLowerCase().split('.').pop();
                 if (ext === 'pdf') {
-                    setParseStatus(`PDF verwerken: ${file.name}...`);
-                    const { fullText } = await extractPdfText(file, (page, total) => {
-                        setParseStatus(`PDF ${file.name}: pagina ${page}/${total}`);
-                    });
+                    setParseStatus(`📄 PDF verwerken: ${file.name}...`);
+                    try {
+                        const { fullText } = await withTimeout(
+                            extractPdfText(file, (page, total) => {
+                                setParseStatus(`📄 PDF ${file.name}: pagina ${page}/${total}`);
+                            }),
+                            60000, // 60 second timeout for PDF extraction
+                            'PDF extraction'
+                        );
                     const parsed = parseTobReport(fullText);
                     setParseStatus(`✅ PDF geparst: ${parsed.locatiecodes.length} locaties gevonden`);
                     const locs = mergeToLocations(parsed);
@@ -57,33 +71,56 @@ export default function App() {
                         capturedTrace = parsed.projectTrace;
                         setParseStatus(`📏 Tracé gevonden: ${parsed.projectTrace.description}`);
                     }
+                    } catch (pdfErr) {
+                        console.error('❌ [PDF] Processing error:', pdfErr);
+                        setParseStatus(`❌ PDF fout: ${pdfErr.message}`);
+                        // Continue with other files even if one fails
+                    }
                 } else if (['xlsx', 'xls'].includes(ext)) {
-                    setParseStatus(`Excel verwerken: ${file.name}...`);
-                    const xlsxData = await parseXlsx(file);
-                    setParseStatus(`✅ Excel geparst: ${xlsxData.locatiecodes.length} locaties gevonden`);
-                    const locs = xlsxToLocations(xlsxData);
-                    allLocations.push(...locs);
-                    // Capture project address if found
-                    if (xlsxData.projectAddress && !capturedAddress) {
-                        capturedAddress = xlsxData.projectAddress;
-                        setParseStatus(`📍 Projectadres gevonden: ${xlsxData.projectAddress.straatnaam}`);
+                    setParseStatus(`📊 Excel verwerken: ${file.name}...`);
+                    try {
+                        const xlsxData = await withTimeout(
+                            parseXlsx(file),
+                            30000,
+                            'Excel parsing'
+                        );
+                        setParseStatus(`✅ Excel geparst: ${xlsxData.locatiecodes.length} locaties gevonden`);
+                        const locs = xlsxToLocations(xlsxData);
+                        allLocations.push(...locs);
+                        // Capture project address if found
+                        if (xlsxData.projectAddress && !capturedAddress) {
+                            capturedAddress = xlsxData.projectAddress;
+                            setParseStatus(`📍 Projectadres gevonden: ${xlsxData.projectAddress.straatnaam}`);
+                        }
+                    } catch (xlsxErr) {
+                        console.error('❌ [XLSX] Processing error:', xlsxErr);
+                        setParseStatus(`❌ Excel fout: ${xlsxErr.message}`);
                     }
                 } else if (['docx', 'doc'].includes(ext)) {
-                    setParseStatus(`Word document verwerken: ${file.name}...`);
-                    const docxData = await parseDocx(file, (status) => {
-                        setParseStatus(`DOCX ${file.name}: ${status}`);
-                    });
-                    setParseStatus(`✅ DOCX geparst: ${docxData.locatiecodes.length} locaties gevonden`);
-                    const locs = docxToLocations(docxData);
-                    allLocations.push(...locs);
-                    // Capture project address & trace if found
-                    if (docxData.projectAddress && !capturedAddress) {
-                        capturedAddress = docxData.projectAddress;
-                        setParseStatus(`📍 Projectadres gevonden: ${docxData.projectAddress.straatnaam}`);
-                    }
-                    if (docxData.projectTrace && !capturedTrace) {
-                        capturedTrace = docxData.projectTrace;
-                        setParseStatus(`📏 Tracé gevonden: ${docxData.projectTrace.description}`);
+                    setParseStatus(`📝 Word document verwerken: ${file.name}...`);
+                    try {
+                        const docxData = await withTimeout(
+                            parseDocx(file, (status) => {
+                                setParseStatus(`📝 DOCX ${file.name}: ${status}`);
+                            }),
+                            90000, // Longer timeout for DOCX with OCR
+                            'DOCX parsing'
+                        );
+                        setParseStatus(`✅ DOCX geparst: ${docxData.locatiecodes.length} locaties gevonden`);
+                        const locs = docxToLocations(docxData);
+                        allLocations.push(...locs);
+                        // Capture project address & trace if found
+                        if (docxData.projectAddress && !capturedAddress) {
+                            capturedAddress = docxData.projectAddress;
+                            setParseStatus(`📍 Projectadres gevonden: ${docxData.projectAddress.straatnaam}`);
+                        }
+                        if (docxData.projectTrace && !capturedTrace) {
+                            capturedTrace = docxData.projectTrace;
+                            setParseStatus(`📏 Tracé gevonden: ${docxData.projectTrace.description}`);
+                        }
+                    } catch (docxErr) {
+                        console.error('❌ [DOCX] Processing error:', docxErr);
+                        setParseStatus(`❌ DOCX fout: ${docxErr.message}`);
                     }
                 }
             }
@@ -130,10 +167,19 @@ export default function App() {
                 }
             }
 
-            setParseStatus(`Diepgaand onderzoek start voor ${mergedArr.length} locaties...`);
-            const enriched = await enrichAllLocations(mergedArr, (i, total) => {
-                setParseStatus(`Locatie ${i}/${total} onderzoeken (BAG, HBB, PDOK)...`);
-            }, detectedCity);
+            if (mergedArr.length === 0) {
+                setParseStatus('⚠️ Geen locaties gevonden. Controleer de geüploade bestanden.');
+                throw new Error('No locations extracted from files');
+            }
+
+            setParseStatus(`🔍 Diepgaand onderzoek start voor ${mergedArr.length} locatie(s)...`);
+            const enriched = await withTimeout(
+                enrichAllLocations(mergedArr, (i, total) => {
+                    setParseStatus(`🔍 Locatie ${i}/${total} onderzoeken (BAG, HBB, PDOK)...`);
+                }, detectedCity),
+                300000, // 5 minute timeout for enrichment
+                'Location enrichment'
+            );
 
             const finalLocations = enriched.map(loc => assessLocation(loc));
             setLocations(finalLocations);
@@ -163,7 +209,12 @@ export default function App() {
         } catch (err) {
             console.error('❌ [App] Parse error:', err);
             const errorMsg = err?.message || String(err);
-            setParseStatus(`❌ FOUT BIJ VERWERKEN:\n${errorMsg}`);
+            const shortMsg = errorMsg.length > 200 ? errorMsg.substring(0, 200) + '...' : errorMsg;
+            setParseStatus(`❌ FOUT:\n${shortMsg}`);
+            // Also try to show more helpful message
+            if (errorMsg.includes('Timeout')) {
+                setParseStatus(`⏱️ TIMEOUT - Bestand is te groot of het duurt te lang. Probeer een kleiner bestand.`);
+            }
         } finally {
             setParsing(false);
         }
