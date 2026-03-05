@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import FileUpload from './components/FileUpload';
 import DataPreview from './components/DataPreview';
 import ExportPanel from './components/ExportPanel';
@@ -90,20 +90,20 @@ export default function App() {
                             60000, // 60 second timeout for PDF extraction
                             'PDF extraction'
                         );
-                    const parsed = parseTobReport(fullText);
-                    setParseStatus(`✅ PDF geparst: ${parsed.locatiecodes.length} locaties gevonden`);
-                    const locs = mergeToLocations(parsed);
-                    locs.forEach(l => { l._source = `PDF: ${file.name}`; });
-                    allLocations.push(...locs);
-                    // Capture project address & trace if found
-                    if (parsed.projectAddress && !capturedAddress) {
-                        capturedAddress = parsed.projectAddress;
-                        setParseStatus(`📍 Projectadres gevonden: ${parsed.projectAddress.straatnaam}`);
-                    }
-                    if (parsed.projectTrace && !capturedTrace) {
-                        capturedTrace = parsed.projectTrace;
-                        setParseStatus(`📏 Tracé gevonden: ${parsed.projectTrace.description}`);
-                    }
+                        const parsed = parseTobReport(fullText);
+                        setParseStatus(`✅ PDF geparst: ${parsed.locatiecodes.length} locaties gevonden`);
+                        const locs = mergeToLocations(parsed);
+                        locs.forEach(l => { l._source = `PDF: ${file.name}`; });
+                        allLocations.push(...locs);
+                        // Capture project address & trace if found
+                        if (parsed.projectAddress && !capturedAddress) {
+                            capturedAddress = parsed.projectAddress;
+                            setParseStatus(`📍 Projectadres gevonden: ${parsed.projectAddress.straatnaam}`);
+                        }
+                        if (parsed.projectTrace && !capturedTrace) {
+                            capturedTrace = parsed.projectTrace;
+                            setParseStatus(`📏 Tracé gevonden: ${parsed.projectTrace.description}`);
+                        }
                     } catch (pdfErr) {
                         console.error('❌ [PDF] Processing error:', pdfErr);
                         setParseStatus(`❌ PDF fout: ${pdfErr.message}`);
