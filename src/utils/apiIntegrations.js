@@ -453,35 +453,42 @@ export async function enrichLocation(location, contextPostcode = null, primaryCi
     // Build prioritized query list
     const queries = [];
 
-    // 1. Exact: street + postcode + city
-    if (baseAddr && (effectivePostcode || location.woonplaats)) {
-        queries.push([baseAddr, effectivePostcode, location.woonplaats].filter(Boolean).join(' '));
+    // 1. Exact: street + postcode + city (highest precision)
+    if (baseAddr && effectivePostcode) {
+        // If we have a postcode, don't even add the city. Postcode is uniquely identifying 
+        // and adding a contradictory city might confuse PDOK.
+        queries.push(`${baseAddr} ${effectivePostcode}`);
     }
 
-    // 2. Street + city (without postcode) — high priority when city is known
+    // 2. Street + explicit location city (without postcode)
     if (baseAddr && location.woonplaats) {
-        queries.push([baseAddr, location.woonplaats].filter(Boolean).join(' '));
+        queries.push(`${baseAddr} ${location.woonplaats}`);
     }
 
-    // 3. Street + primaryCity (detected from filename/title/dataset)
-    if (baseAddr && primaryCity && primaryCity !== location.woonplaats) {
-        queries.push([baseAddr, primaryCity].filter(Boolean).join(' '));
+    // 3. Street + primaryCity (fallback context detected from filename/title/dataset)
+    if (baseAddr && !location.woonplaats && primaryCity) {
+        queries.push(`${baseAddr} ${primaryCity}`);
     }
 
-    // 4. Street alone
+    // 4. Street alone (let PDOK guess based on uniqueness)
     if (baseAddr) {
         queries.push(baseAddr);
     }
 
-    // 5. Locatienaam (cleaned) + city context
+    // 5. Locatienaam (cleaned) + explicit city context
     if (location.locatienaam) {
         const cleanedName = cleanAddressQuery(location.locatienaam);
         if (cleanedName && cleanedName !== cleanedStreet) {
-            queries.push([cleanedName, location.woonplaats || primaryCity].filter(Boolean).join(' '));
+            if (location.woonplaats) {
+                queries.push(`${cleanedName} ${location.woonplaats}`);
+            } else if (primaryCity) {
+                queries.push(`${cleanedName} ${primaryCity}`);
+            }
+            queries.push(cleanedName);
         }
     }
 
-    // 6. Locatiecode as last resort
+    // 6. Locatiecode as last resort (often doesn't yield addresses but sometimes matches PDOK aliases)
     if (location.locatiecode && location.locatiecode !== 'ONBEKEND') {
         queries.push(location.locatiecode);
     }
@@ -494,20 +501,14 @@ export async function enrichLocation(location, contextPostcode = null, primaryCi
         console.log(`🔍 [Geocode] Targeting: "${uniqueQueries[0]}"... (${uniqueQueries.length - 1} fallbacks)`);
     }
 
-    // Try each query, use city filter when primaryCity is available
+    // Try each query in order of priority. 
+    // We remove the strict 'primaryCity' filter loop here, because we already integrated 
+    // primaryCity into the fallback queries when appropriate (query level 3).
+    // Forcing a city filter on PDOK often breaks perfectly good postcode matches.
     for (const q of uniqueQueries) {
-        // First try WITH city filter
-        if (primaryCity) {
-            results = await pdokSearch(q, primaryCity);
-            if (results.length > 0) {
-                console.log(`✅ [Geocode] Success for "${q}" (city: ${primaryCity}): Found ${results.length} results.`);
-                break;
-            }
-        }
-        // Then try WITHOUT city filter (broader search)
         results = await pdokSearch(q, null);
         if (results.length > 0) {
-            console.log(`✅ [Geocode] Success for "${q}" (no city filter): Found ${results.length} results.`);
+            console.log(`✅ [Geocode] Success for "${q}": Found ${results.length} results.`);
             break;
         }
     }
