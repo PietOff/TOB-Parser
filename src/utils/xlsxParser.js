@@ -7,10 +7,12 @@ import { extractBestAddress, extractTraceDescription } from './traceExtraction';
 /**
  * Parse an Excel file and return structured location data with metadata
  */
-export async function parseXlsx(file) {
+export async function parseXlsx(file, onProgress) {
+    if (onProgress) onProgress('📊 Excel-bestand inlezen...');
     const arrayBuffer = await file.arrayBuffer();
     const workbook = XLSX.read(arrayBuffer, { type: 'array' });
     const allLocations = [];
+    if (onProgress) onProgress(`📊 ${workbook.SheetNames.length} blad(en) gevonden...`);
 
     for (const sheetName of workbook.SheetNames) {
         const sheet = workbook.Sheets[sheetName];

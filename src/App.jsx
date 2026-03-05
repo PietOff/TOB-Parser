@@ -118,7 +118,9 @@ export default function App() {
                     setParseStatus(`📊 Excel verwerken: ${file.name}...`);
                     try {
                         const xlsxData = await withTimeout(
-                            parseXlsx(file),
+                            parseXlsx(file, (status) => {
+                                setParseStatus(`📊 Excel ${file.name}: ${status}`);
+                            }),
                             30000,
                             'Excel parsing'
                         );

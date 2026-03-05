@@ -29,7 +29,7 @@ import { extractImagesFromDocx, ocrImageForTrace } from './imageTraceOcr';
 export async function parseDocx(file, onProgress) {
     const arrayBuffer = await file.arrayBuffer();
 
-    if (onProgress) onProgress('Tekst extraheren...');
+    if (onProgress) onProgress('📝 Tekst extraheren uit Word-document...');
 
     // Extract raw text for pattern matching
     const textResult = await mammoth.extractRawText({ arrayBuffer });
@@ -39,7 +39,7 @@ export async function parseDocx(file, onProgress) {
     const htmlResult = await mammoth.convertToHtml({ arrayBuffer });
     const html = htmlResult.value;
 
-    if (onProgress) onProgress('Data analyseren...');
+    if (onProgress) onProgress('🔍 Locatiecodes en adressen parseren...');
 
     const data = {
         // Metadata
@@ -271,11 +271,12 @@ export async function parseDocx(file, onProgress) {
 
     if (!skipOcr) {
         try {
-            if (onProgress) onProgress('Zoeken naar afbeeldingen met tracé...');
+            if (onProgress) onProgress('📷 Zoeken naar afbeeldingen met tracé...');
             const images = await extractImagesFromDocx(arrayBuffer);
 
             if (images.length > 0) {
                 console.log(`🖼️ [DOCX] Found ${images.length} images, attempting OCR...`);
+                if (onProgress) onProgress(`🖼️ ${images.length} afbeelding(en) gevonden - OCR wordt gestart...`);
 
                 for (const img of images.slice(0, 2)) { // Limit to first 2 images
                     try {
