@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, LayersControl, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -40,6 +40,37 @@ function FitBounds({ locations, center, radius }) {
             }
         }
     }, [locations, center, radius, map]);
+    return null;
+}
+
+// Fly to a specific location when the highlighted code changes
+function FlyToLocation({ locations, highlightedCode }) {
+    const map = useMap();
+    const prevCode = useRef(null);
+
+    useEffect(() => {
+        if (!highlightedCode || highlightedCode === prevCode.current) return;
+        prevCode.current = highlightedCode;
+
+        const loc = locations.find(l => l.locatiecode === highlightedCode);
+        if (!loc) return;
+
+        let lat = loc._enriched?.lat;
+        let lon = loc._enriched?.lon;
+
+        if ((!lat || !lon) && loc._enriched?.rd?.x && loc._enriched?.rd?.y) {
+            const wgs = rdToWgs84(loc._enriched.rd.x, loc._enriched.rd.y);
+            if (wgs && !isNaN(wgs.lat) && !isNaN(wgs.lng)) { lat = wgs.lat; lon = wgs.lng; }
+        }
+
+        lat = parseFloat(lat);
+        lon = parseFloat(lon);
+
+        if (!isNaN(lat) && !isNaN(lon)) {
+            map.flyTo([lat, lon], 17, { animate: true, duration: 0.8 });
+        }
+    }, [highlightedCode, locations, map]);
+
     return null;
 }
 
@@ -205,6 +236,7 @@ export default function LocationMap({
                 zoomControl={true}
             >
                 <FitBounds locations={locations} center={center} radius={safeBufferRadius} />
+                <FlyToLocation locations={locationMarkers} highlightedCode={highlightedLocationCode} />
 
                 <LayersControl position="topright">
                     <LayersControl.BaseLayer checked name="OpenStreetMap">
