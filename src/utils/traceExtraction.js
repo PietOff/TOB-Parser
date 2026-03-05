@@ -7,18 +7,33 @@
  */
 export function extractAllAddresses(text) {
     const addresses = [];
-    // Pattern: "Straatnaam 123, 1234 AB City" or variations
-    const addressPattern = /([A-Z][a-zàáäâèéëêìíïîòóöôùúüûñ\s\-\.]+?)(\d{1,3})\s*([a-zA-Z]*)?[,\s]+(\d{4}\s+[A-Z]{2})?[,\s]*([A-Z][a-zàáäâèéëêìíïîòóöôùúüûñ\s\-\.]+)?/g;
+    // Pattern: more flexible - "Straatnaam 123, 1234 AB City" or just "Straatnaam 123"
+    // Look for: Word(s) + number + optional postcode + optional city
+    const addressPattern = /([A-Z][a-zàáäâèéëêìíïîòóöôùúüûñ\s\-\.]+?)\s+(\d{1,3}[A-Za-z]*)\s+([0-9]{4}\s+[A-Z]{2})?([A-Z][a-z\s\-àáäâèéëêìíïîòóöôùúüûñ]*)?/g;
     let match;
+    const seen = new Set();
+
     while ((match = addressPattern.exec(text)) !== null) {
+        const straatnaam = match[1].trim();
+        const huisnummer = match[2].trim();
+        const postcode = match[3]?.trim() || '';
+        const city = match[4]?.trim() || '';
+
+        // Avoid duplicates
+        const key = `${straatnaam}|${huisnummer}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+
         addresses.push({
-            straatnaam: match[1].trim(),
-            huisnummer: match[2] + (match[3] ? match[3] : ''),
-            postcode: match[4]?.trim() || '',
-            city: match[5]?.trim() || '',
-            hasPostcode: !!match[4],
+            straatnaam,
+            huisnummer,
+            postcode,
+            city,
+            hasPostcode: postcode.length > 0,
         });
     }
+
+    console.log(`🔍 [AddressExtraction] Found ${addresses.length} addresses:`, addresses);
     return addresses;
 }
 
