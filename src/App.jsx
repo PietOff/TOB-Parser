@@ -178,7 +178,16 @@ export default function App() {
                     const existing = merged.get(key);
                     for (const [k, v] of Object.entries(loc)) {
                         if (k === 'stoffen') {
-                            existing.stoffen = [...(existing.stoffen || []), ...(v || [])];
+                            const merged = [...(existing.stoffen || []), ...(v || [])];
+                            // Deduplicate stoffen by stof name, keeping highest waarde
+                            const stofMap = new Map();
+                            for (const s of merged) {
+                                const key = s.stof?.toLowerCase();
+                                if (!stofMap.has(key) || (s.waarde > stofMap.get(key).waarde)) {
+                                    stofMap.set(key, s);
+                                }
+                            }
+                            existing.stoffen = [...stofMap.values()];
                         } else if (v && !existing[k]) {
                             existing[k] = v;
                         }
@@ -324,9 +333,9 @@ export default function App() {
                 </div>
             )}
 
-            {/* Step 2 & 3: Preview & Map (Map must stay in DOM for export) */}
+            {/* Step 2 & 3: Preview & Map (Map must stay in DOM for export screenshot) */}
             {(step === 2 || step === 3) && (
-                <div style={{ display: step === 3 ? 'none' : 'block' }}>
+                <div style={step === 3 ? { position: 'absolute', left: '-9999px', top: 0, width: '1200px', opacity: 1, pointerEvents: 'none' } : undefined}>
                     <DataPreview
                         locations={locations}
                         onLocationsUpdate={setLocations}
@@ -348,11 +357,6 @@ export default function App() {
             {/* Step 3: Export Wrapper */}
             {step === 3 && (
                 <div>
-                    {/* Render Map invisibly if needed, but here we just keep the ID reachable */}
-                    <div style={{ height: 0, overflow: 'hidden', opacity: 0, position: 'absolute', pointerEvents: 'none' }}>
-                        <DataPreview locations={locations} />
-                    </div>
-
                     <ExportPanel locations={locations} />
                     <div className="btn-group">
                         <button className="btn btn-secondary" onClick={() => setStep(2)}>

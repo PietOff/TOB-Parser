@@ -1,18 +1,37 @@
-import { useEffect, useState, useRef } from 'react';
-import { MapContainer, TileLayer, WMSTileLayer, Circle, LayersControl, useMap, FeatureGroup } from 'react-leaflet';
+import { useEffect, useState, useRef, useMemo } from 'react';
+import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, Tooltip, LayersControl, useMap, FeatureGroup } from 'react-leaflet';
 import { EditControl } from 'react-leaflet-draw';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-draw/dist/leaflet.draw.css';
-import { wgs84ToRd } from '../utils/apiIntegrations';
+import { wgs84ToRd, rdToWgs84 } from '../utils/apiIntegrations';
 
-// Component to auto-fit map bounds
-function FitBounds({ center, radius }) {
+// Component to auto-fit map bounds to all locations
+function FitBounds({ locations, center, radius }) {
     const map = useMap();
     useEffect(() => {
-        if (center && Array.isArray(center) && !isNaN(center[0]) && !isNaN(center[1])) {
-            if (radius) {
-                // Create bounds around the center point with buffer
+        // Try to fit all location markers first
+        const validCoords = (locations || [])
+            .map(loc => {
+                const lat = loc._enriched?.lat ?? (loc._enriched?.rd ? null : null);
+                const lon = loc._enriched?.lon ?? null;
+                if (lat && lon && !isNaN(lat) && !isNaN(lon)) return [lat, lon];
+                // Try to derive from RD coordinates
+                if (loc._enriched?.rd?.x && loc._enriched?.rd?.y) {
+                    const wgs = rdToWgs84(loc._enriched.rd.x, loc._enriched.rd.y);
+                    if (wgs && !isNaN(wgs.lat) && !isNaN(wgs.lng)) return [wgs.lat, wgs.lng];
+                }
+                return null;
+            })
+            .filter(Boolean);
+
+        if (validCoords.length > 1) {
+            const bounds = L.latLngBounds(validCoords);
+            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+        } else if (validCoords.length === 1) {
+            map.setView(validCoords[0], 15);
+        } else if (center && Array.isArray(center) && !isNaN(center[0]) && !isNaN(center[1])) {
+            if (radius && !isNaN(radius) && radius > 0) {
                 const radiusKm = radius / 1000;
                 const bounds = L.latLngBounds(
                     [center[0] - radiusKm / 111, center[1] - radiusKm / 111],
@@ -23,7 +42,7 @@ function FitBounds({ center, radius }) {
                 map.setView(center, 14);
             }
         }
-    }, [center, radius, map]);
+    }, [locations, center, radius, map]);
     return null;
 }
 
@@ -83,8 +102,7 @@ function DrawingControl({ onDrawnGeometry }) {
 }
 
 /**
- * LocationMap — Interactive map showing project trace area
- * Shows extracted or manually drawn project area around primary address
+ * LocationMap — Interactive map showing project trace area and location markers
  */
 export default function LocationMap({
     locations = [],
@@ -95,64 +113,101 @@ export default function LocationMap({
     projectTrace
 }) {
     const [mapCenter, setMapCenter] = useState(null);
-    const [bufferRadius, setBufferRadius] = useState(500); // Default 500m buffer
+    const [bufferRadius, setBufferRadius] = useState(500);
     const [isLoading, setIsLoading] = useState(true);
     const [manualGeometry, setManualGeometry] = useState(null);
 
-    console.log(`🗺️ [Map] Project Address:`, projectAddress);
-    console.log(`🗺️ [Map] Project Trace:`, projectTrace);
-    console.log(`✏️ [Map] Manual Geometry:`, manualGeometry);
+    // Compute location markers with WGS84 coordinates
+    const locationMarkers = useMemo(() => {
+        return locations
+            .map(loc => {
+                let lat = loc._enriched?.lat;
+                let lon = loc._enriched?.lon;
+
+                // Derive from RD coordinates if lat/lon not directly available
+                if ((!lat || !lon) && loc._enriched?.rd?.x && loc._enriched?.rd?.y) {
+                    const wgs = rdToWgs84(loc._enriched.rd.x, loc._enriched.rd.y);
+                    if (wgs && !isNaN(wgs.lat) && !isNaN(wgs.lng)) {
+                        lat = wgs.lat;
+                        lon = wgs.lng;
+                    }
+                }
+
+                if (!lat || !lon || isNaN(lat) || isNaN(lon)) return null;
+
+                return {
+                    ...loc,
+                    _lat: lat,
+                    _lon: lon,
+                };
+            })
+            .filter(Boolean);
+    }, [locations]);
 
     // Geocode the project address to get map center
     useEffect(() => {
+        let cancelled = false;
+
         async function geocodeAddress() {
+            // If we have location markers, derive center from them
+            if (locationMarkers.length > 0) {
+                const avgLat = locationMarkers.reduce((s, m) => s + m._lat, 0) / locationMarkers.length;
+                const avgLon = locationMarkers.reduce((s, m) => s + m._lon, 0) / locationMarkers.length;
+                if (!cancelled) {
+                    setMapCenter([avgLat, avgLon]);
+                    if (projectTrace?.distance) {
+                        const radiusM = projectTrace.unit === 'km'
+                            ? projectTrace.distance * 1000
+                            : projectTrace.distance;
+                        if (!isNaN(radiusM) && radiusM > 0) setBufferRadius(radiusM);
+                    }
+                    setIsLoading(false);
+                }
+                return;
+            }
+
             if (!projectAddress) {
-                setIsLoading(false);
+                if (!cancelled) setIsLoading(false);
                 return;
             }
 
             try {
                 const query = `${projectAddress.straatnaam} ${projectAddress.huisnummer}, ${projectAddress.postcode || projectAddress.city}, Netherlands`;
-                console.log(`🔍 [Map] Geocoding: ${query}`);
 
                 const response = await fetch(
                     `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`
                 );
                 const results = await response.json();
 
-                if (results.length > 0) {
+                if (!cancelled && results.length > 0) {
                     const first = results[0];
                     const center = [parseFloat(first.lat), parseFloat(first.lon)];
-                    setMapCenter(center);
-                    console.log(`✅ [Map] Geocoded to:`, center);
+                    if (!isNaN(center[0]) && !isNaN(center[1])) {
+                        setMapCenter(center);
+                    }
 
-                    // Calculate buffer radius from trace distance if available
                     if (projectTrace?.distance) {
                         const radiusM = projectTrace.unit === 'km'
                             ? projectTrace.distance * 1000
                             : projectTrace.distance;
-                        setBufferRadius(radiusM);
-                        console.log(`📏 [Map] Buffer radius set to: ${radiusM}m`);
+                        if (!isNaN(radiusM) && radiusM > 0) setBufferRadius(radiusM);
                     }
-                } else {
-                    console.warn(`⚠️ [Map] Could not geocode address:`, query);
-                    setMapCenter(null);
                 }
             } catch (err) {
                 console.warn('Geocoding failed:', err);
-                setMapCenter(null);
             } finally {
-                setIsLoading(false);
+                if (!cancelled) setIsLoading(false);
             }
         }
 
         geocodeAddress();
-    }, [projectAddress, projectTrace]);
+        return () => { cancelled = true; };
+    }, [projectAddress, projectTrace, locationMarkers]);
 
     // Default center (Utrecht, Netherlands)
     const defaultCenter = [52.0907, 5.1214];
     const center = mapCenter || defaultCenter;
-    const isDefaulting = !mapCenter;
+    const hasValidCenter = !!mapCenter;
 
     if (isLoading) {
         return (
@@ -175,7 +230,7 @@ export default function LocationMap({
         );
     }
 
-    if (!mapCenter && !projectAddress) {
+    if (!hasValidCenter && locationMarkers.length === 0 && !projectAddress) {
         return (
             <div style={{
                 height,
@@ -197,6 +252,9 @@ export default function LocationMap({
         );
     }
 
+    const safeBufferRadius = (typeof bufferRadius === 'number' && !isNaN(bufferRadius) && bufferRadius > 0)
+        ? bufferRadius : 500;
+
     return (
         <div id="master-location-map" style={{
             height,
@@ -207,11 +265,11 @@ export default function LocationMap({
         }}>
             <MapContainer
                 center={center}
-                zoom={isDefaulting ? 8 : 14}
+                zoom={!hasValidCenter ? 8 : 14}
                 style={{ height: '100%', width: '100%' }}
                 zoomControl={true}
             >
-                <FitBounds center={center} radius={bufferRadius} />
+                <FitBounds locations={locations} center={center} radius={safeBufferRadius} />
                 <DrawingControl onDrawnGeometry={setManualGeometry} />
 
                 <LayersControl position="topright">
@@ -240,7 +298,7 @@ export default function LocationMap({
                     </LayersControl.BaseLayer>
 
                     {/* Overlay layers */}
-                    <LayersControl.Overlay name="🔴 Bodemkwaliteitskaart">
+                    <LayersControl.Overlay name="Bodemkwaliteitskaart">
                         <WMSTileLayer
                             url="https://service.pdok.nl/provincies/bodemkwaliteit/wms/v1_0"
                             layers="bodemkwaliteitskaart"
@@ -251,7 +309,7 @@ export default function LocationMap({
                         />
                     </LayersControl.Overlay>
 
-                    <LayersControl.Overlay checked name="📐 Kadastrale Percelen (BRK)">
+                    <LayersControl.Overlay checked name="Kadastrale Percelen (BRK)">
                         <WMSTileLayer
                             url="https://service.pdok.nl/kadaster/kadastralekaart/wms/v5_0"
                             layers="Perceel"
@@ -262,7 +320,7 @@ export default function LocationMap({
                         />
                     </LayersControl.Overlay>
 
-                    <LayersControl.Overlay name="🏠 Gebouwcontouren (BAG)">
+                    <LayersControl.Overlay name="Gebouwcontouren (BAG)">
                         <WMSTileLayer
                             url="https://service.pdok.nl/lvbag/bag/wms/v2_0"
                             layers="pand"
@@ -275,10 +333,10 @@ export default function LocationMap({
                 </LayersControl>
 
                 {/* Project area buffer circle */}
-                {mapCenter && !isNaN(bufferRadius) && (
+                {hasValidCenter && (
                     <Circle
                         center={mapCenter}
-                        radius={bufferRadius}
+                        radius={safeBufferRadius}
                         pathOptions={{
                             color: '#1976d2',
                             weight: 3,
@@ -289,6 +347,49 @@ export default function LocationMap({
                         }}
                     />
                 )}
+
+                {/* Individual location markers */}
+                {locationMarkers.map(loc => {
+                    const isHighlighted = highlightedLocationCode === loc.locatiecode;
+                    const isComplex = loc.complex;
+                    const color = isComplex ? '#ef4444' : '#22c55e';
+
+                    return (
+                        <CircleMarker
+                            key={loc.locatiecode}
+                            center={[loc._lat, loc._lon]}
+                            radius={isHighlighted ? 10 : 7}
+                            pathOptions={{
+                                color: isHighlighted ? '#fff' : color,
+                                weight: isHighlighted ? 3 : 2,
+                                fillColor: color,
+                                fillOpacity: 0.8,
+                            }}
+                            eventHandlers={{
+                                dragend: (e) => {
+                                    if (onLocationDrag) {
+                                        const { lat, lng } = e.target.getLatLng();
+                                        onLocationDrag(loc.locatiecode, lat, lng);
+                                    }
+                                },
+                            }}
+                        >
+                            <Tooltip direction="top" offset={[0, -8]} permanent={isHighlighted}>
+                                <span style={{ fontSize: '11px', fontWeight: isHighlighted ? 'bold' : 'normal' }}>
+                                    {loc.locatiecode}
+                                </span>
+                            </Tooltip>
+                            <Popup>
+                                <div style={{ fontSize: '12px', minWidth: '150px' }}>
+                                    <strong>{loc.locatiecode}</strong>
+                                    {loc.locatienaam && <div>{loc.locatienaam}</div>}
+                                    {loc.straatnaam && <div>{loc.straatnaam} {loc.huisnummer}</div>}
+                                    {loc.conclusie && <div style={{ marginTop: '4px', color: isComplex ? '#ef4444' : '#22c55e' }}>{loc.conclusie}</div>}
+                                </div>
+                            </Popup>
+                        </CircleMarker>
+                    );
+                })}
             </MapContainer>
 
             {/* Map legend and info overlay */}
@@ -304,7 +405,9 @@ export default function LocationMap({
                 fontSize: '12px',
                 maxWidth: '300px',
             }}>
-                <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>📍 Projectlocatie:</div>
+                <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>
+                    📍 {locationMarkers.length} locatie(s) op kaart
+                </div>
                 {projectAddress && (
                     <div style={{ marginBottom: '6px', fontSize: '11px' }}>
                         <div><strong>{projectAddress.straatnaam} {projectAddress.huisnummer}</strong></div>
@@ -315,7 +418,7 @@ export default function LocationMap({
                     <div style={{ marginBottom: '6px', fontSize: '11px', borderTop: '1px solid #555', paddingTop: '6px' }}>
                         {projectTrace && !manualGeometry && (
                             <>
-                                <div style={{ color: '#4da6ff' }}>🔵 <strong>Auto-gedetecteerd</strong></div>
+                                <div style={{ color: '#4da6ff' }}>Auto-gedetecteerd</div>
                                 <div><strong>Tracé:</strong> {projectTrace.description}</div>
                                 {projectTrace.distance && (
                                     <div>Buffer: {projectTrace.distance} {projectTrace.unit}</div>
@@ -324,15 +427,15 @@ export default function LocationMap({
                         )}
                         {manualGeometry && (
                             <>
-                                <div style={{ color: '#ff8888' }}>🔴 <strong>Handmatig getekend</strong></div>
-                                <div>Type: {manualGeometry.geometry.type}</div>
+                                <div style={{ color: '#ff8888' }}>Handmatig getekend</div>
+                                <div>Type: {manualGeometry.geometry?.type}</div>
                             </>
                         )}
                     </div>
                 )}
                 <div style={{ fontSize: '10px', opacity: 0.8, borderTop: '1px solid #555', paddingTop: '6px', marginTop: '6px' }}>
-                    💡 Gebruik de tekentools (linksboven) om het onderzoeksgebied te definiëren
-                    <br />💡 Toggle 'Kadastrale Percelen' om erfpachten te zien
+                    <span style={{ color: '#22c55e' }}>●</span> Onverdacht &nbsp;
+                    <span style={{ color: '#ef4444' }}>●</span> Complex/Verdacht
                 </div>
             </div>
         </div>
