@@ -4,11 +4,11 @@
  * with data from PDOK, Topotijdreis, and Bodemloket APIs.
  */
 
+import proj4 from 'proj4';
+
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxkDL0r8JGlPiqsLvDW7daqek4yhNpMWIID0gZZ4FJ02X7Hrs3HOxk-tOR3CoNX_48S/exec';
 
 const PDOK_BASE = 'https://api.pdok.nl/bzk/locatieserver/search/v3_1';
-import fetch from 'node-fetch'; // If needed for older node, but node 20 has it
-import proj4 from 'proj4';
 
 const RD = '+proj=sterea +lat_0=52.15616055555555 +lon_0=5.38763888888889 +k=0.9999079 +x_0=155000 +y_0=463000 +ellps=bessel +units=m +no_defs';
 const WGS84 = 'EPSG:4326';
@@ -28,7 +28,7 @@ async function pdokSearch(query) {
 
         let rdX = null, rdY = null;
         if (doc.centroide_rd) {
-            const m = doc.centroide_rd.match(/POINT\((\d+\.?\d*)\s+(\d+\.?\d*)\)/);
+            const m = doc.centroide_rd.match(/POINT\s*\((\d+\.?\d*)\s+(\d+\.?\d*)\)/);
             if (m) { rdX = parseFloat(m[1]); rdY = parseFloat(m[2]); }
         }
 

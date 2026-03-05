@@ -5,13 +5,8 @@ import ExportPanel from './components/ExportPanel';
 import { extractPdfText, parseTobReport, mergeToLocations } from './utils/pdfParser';
 import { parseXlsx } from './utils/xlsxParser';
 import { parseDocx, docxToLocations } from './utils/docxParser';
-import { enrichAllLocations, triggerDeepScanBatch, detectCityFromText, wgs84ToRd } from './utils/apiIntegrations';
+import { enrichAllLocations, triggerDeepScanBatch, detectCityFromText, wgs84ToRd, getGithubToken } from './utils/apiIntegrations';
 import { assessLocation } from './utils/smartFill';
-
-// GitHub token: reads from Vercel env var first, then localStorage
-function getGithubToken() {
-    return import.meta.env.VITE_GITHUB_TOKEN || localStorage.getItem('github_token') || null;
-}
 import './index.css';
 
 const STEPS = [

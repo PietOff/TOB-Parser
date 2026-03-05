@@ -141,7 +141,7 @@ export function assessLocation(location) {
     }
 
     if (location.stoffen?.some(s => {
-        const key = s.stof.toLowerCase().replace(/[^a-z_]/g, '').replace('minerale olie', 'minerale_olie');
+        const key = s.stof?.toLowerCase().replace(/[^a-z_]/g, '').replace('minerale olie', 'minerale_olie');
         const info = STOF_DATA[key];
         return info && s.waarde > info.interventie_grond;
     })) {
