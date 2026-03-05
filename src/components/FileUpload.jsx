@@ -56,7 +56,7 @@ export default function FileUpload({ onFilesReady }) {
                 onClick={() => inputRef.current?.click()}
             >
                 <div className="upload-icon">📂</div>
-                <h3>Sleep TOB bestanden hierheen</h3>
+                <h3>Sleep of kies TOB bestanden</h3>
                 <p>PDF rapporten, Excel (.xlsx), Word (.docx)</p>
                 <input
                     ref={inputRef}

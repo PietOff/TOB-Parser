@@ -686,10 +686,52 @@ body {
   text-transform: uppercase;
 }
 
+/* ── Inline table controls ── */
+.inline-select,
+.inline-input {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 0.8rem;
+  padding: 0.3rem 0.5rem;
+  width: 100%;
+  max-width: 160px;
+}
+
+.inline-select:focus,
+.inline-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 /* ── Responsive ── */
 @media (max-width: 768px) {
   .app {
     padding: 1rem;
+  }
+
+  .app-header h1 {
+    font-size: 1.5rem;
+  }
+
+  .app-header p {
+    font-size: 0.85rem;
+  }
+
+  .upload-zone {
+    padding: 1.75rem 1rem;
+  }
+
+  .btn-group {
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-width: 140px;
   }
 
   .field-row {
@@ -699,13 +741,63 @@ body {
 
   .steps {
     flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+
+  .step {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8rem;
   }
 
   .legend {
     flex-wrap: wrap;
+    gap: 0.75rem;
   }
 
   .stats-bar {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .case-header {
+    padding: 0.75rem 1rem;
+  }
+
+  .case-header h3 {
+    flex-wrap: wrap;
+    font-size: 0.875rem;
+    gap: 0.5rem;
+  }
+
+  .case-content {
+    padding: 0 1rem 1rem;
+  }
+
+  .export-panel {
+    padding: 1.25rem 1rem;
+  }
+
+  .inline-select,
+  .inline-input {
+    max-width: 120px;
+    font-size: 0.75rem;
+  }
+
+  .section-header {
+    font-size: 0.75rem;
+  }
+}
+
+/* Touch devices — replace drag hint with tap hint */
+@media (hover: none) and (pointer: coarse) {
+  .upload-zone h3 {
+    font-size: 1rem;
+  }
+
+  .upload-zone h3::after {
+    content: ' (tik om te kiezen)';
+    font-size: 0.85rem;
+    font-weight: 400;
+    color: var(--text-secondary);
+    display: block;
   }
 }
