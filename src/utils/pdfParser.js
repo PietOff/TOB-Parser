@@ -145,21 +145,33 @@ export function parseTobReport(fullText) {
     }
 
     // ── Extract project address (smart selection) ──
-    const allAddresses = extractAllAddresses(fullText);
-    const titleContext = '';
-    const bestAddress = extractBestAddress(allAddresses, titleContext);
+    try {
+        const allAddresses = extractAllAddresses(fullText);
+        const titleContext = '';
+        const bestAddress = extractBestAddress(allAddresses, titleContext);
 
-    if (bestAddress) {
-        data.projectAddress = {
-            straatnaam: bestAddress.straatnaam,
-            huisnummer: bestAddress.huisnummer,
-            postcode: bestAddress.postcode,
-            city: bestAddress.city,
-        };
+        if (bestAddress) {
+            data.projectAddress = {
+                straatnaam: bestAddress.straatnaam,
+                huisnummer: bestAddress.huisnummer,
+                postcode: bestAddress.postcode,
+                city: bestAddress.city,
+            };
+            console.log('✅ [PDF] Found projectAddress:', data.projectAddress);
+        } else {
+            console.warn('⚠️ [PDF] No address found in document');
+        }
+    } catch (err) {
+        console.warn('⚠️ [PDF] Error extracting address:', err);
     }
 
     // ── Extract trace description with distance ──
-    data.projectTrace = extractTraceDescription(fullText, '');
+    try {
+        data.projectTrace = extractTraceDescription(fullText, '');
+        console.log('✅ [PDF] Found projectTrace:', data.projectTrace);
+    } catch (err) {
+        console.warn('⚠️ [PDF] Error extracting trace:', err);
+    }
 
     return data;
 }

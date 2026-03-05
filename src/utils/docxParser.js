@@ -234,23 +234,35 @@ export async function parseDocx(file, onProgress) {
     }
 
     // ── Extract project address (smart selection) ──
-    const allAddresses = extractAllAddresses(fullText);
-    const titleContext = `${data.titel} ${data.projectCode} ${data.adres}`;
-    const bestAddress = extractBestAddress(allAddresses, titleContext);
+    try {
+        const allAddresses = extractAllAddresses(fullText);
+        const titleContext = `${data.titel} ${data.projectCode} ${data.adres}`;
+        const bestAddress = extractBestAddress(allAddresses, titleContext);
 
-    if (bestAddress) {
-        data.projectAddress = {
-            straatnaam: bestAddress.straatnaam,
-            huisnummer: bestAddress.huisnummer,
-            postcode: bestAddress.postcode,
-            city: bestAddress.city,
-        };
+        if (bestAddress) {
+            data.projectAddress = {
+                straatnaam: bestAddress.straatnaam,
+                huisnummer: bestAddress.huisnummer,
+                postcode: bestAddress.postcode,
+                city: bestAddress.city,
+            };
+            console.log('✅ [DOCX] Found projectAddress:', data.projectAddress);
+        } else {
+            console.warn('⚠️ [DOCX] No address found in document');
+        }
+    } catch (err) {
+        console.warn('⚠️ [DOCX] Error extracting address:', err);
     }
 
     // ── Extract trace description with distance ──
-    const traceSection = fullText.match(/Tracé(?:tekening)?(.{0,2000}?)(?:Aanleiding|Locatiegegevens|Inleiding)/is);
-    const traceText = traceSection ? traceSection[1] : data.omschrijving;
-    data.projectTrace = extractTraceDescription(traceText, data.projectCode);
+    try {
+        const traceSection = fullText.match(/Tracé(?:tekening)?(.{0,2000}?)(?:Aanleiding|Locatiegegevens|Inleiding)/is);
+        const traceText = traceSection ? traceSection[1] : data.omschrijving;
+        data.projectTrace = extractTraceDescription(traceText, data.projectCode);
+        console.log('✅ [DOCX] Found projectTrace:', data.projectTrace);
+    } catch (err) {
+        console.warn('⚠️ [DOCX] Error extracting trace:', err);
+    }
 
     return data;
 }

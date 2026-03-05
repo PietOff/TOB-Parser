@@ -44,12 +44,19 @@ export default function App() {
                         setParseStatus(`PDF ${file.name}: pagina ${page}/${total}`);
                     });
                     const parsed = parseTobReport(fullText);
+                    setParseStatus(`✅ PDF geparst: ${parsed.locatiecodes.length} locaties gevonden`);
                     const locs = mergeToLocations(parsed);
                     locs.forEach(l => { l._source = `PDF: ${file.name}`; });
                     allLocations.push(...locs);
                     // Capture project address & trace if found
-                    if (parsed.projectAddress && !capturedAddress) capturedAddress = parsed.projectAddress;
-                    if (parsed.projectTrace && !capturedTrace) capturedTrace = parsed.projectTrace;
+                    if (parsed.projectAddress && !capturedAddress) {
+                        capturedAddress = parsed.projectAddress;
+                        setParseStatus(`📍 Projectadres gevonden: ${parsed.projectAddress.straatnaam}`);
+                    }
+                    if (parsed.projectTrace && !capturedTrace) {
+                        capturedTrace = parsed.projectTrace;
+                        setParseStatus(`📏 Tracé gevonden: ${parsed.projectTrace.description}`);
+                    }
                 } else if (['xlsx', 'xls'].includes(ext)) {
                     setParseStatus(`Excel verwerken: ${file.name}...`);
                     const locs = await parseXlsx(file);
@@ -59,11 +66,18 @@ export default function App() {
                     const docxData = await parseDocx(file, (status) => {
                         setParseStatus(`DOCX ${file.name}: ${status}`);
                     });
+                    setParseStatus(`✅ DOCX geparst: ${docxData.locatiecodes.length} locaties gevonden`);
                     const locs = docxToLocations(docxData);
                     allLocations.push(...locs);
                     // Capture project address & trace if found
-                    if (docxData.projectAddress && !capturedAddress) capturedAddress = docxData.projectAddress;
-                    if (docxData.projectTrace && !capturedTrace) capturedTrace = docxData.projectTrace;
+                    if (docxData.projectAddress && !capturedAddress) {
+                        capturedAddress = docxData.projectAddress;
+                        setParseStatus(`📍 Projectadres gevonden: ${docxData.projectAddress.straatnaam}`);
+                    }
+                    if (docxData.projectTrace && !capturedTrace) {
+                        capturedTrace = docxData.projectTrace;
+                        setParseStatus(`📏 Tracé gevonden: ${docxData.projectTrace.description}`);
+                    }
                 }
             }
 
@@ -141,7 +155,8 @@ export default function App() {
 
         } catch (err) {
             console.error('❌ [App] Parse error:', err);
-            setParseStatus(`Fout: ${err.message}`);
+            const errorMsg = err?.message || String(err);
+            setParseStatus(`❌ FOUT BIJ VERWERKEN:\n${errorMsg}`);
         } finally {
             setParsing(false);
         }
