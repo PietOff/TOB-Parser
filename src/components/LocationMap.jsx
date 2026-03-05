@@ -1,132 +1,156 @@
-import { useEffect, useRef, useState } from 'react';
-import { MapContainer, TileLayer, WMSTileLayer, Marker, Popup, LayersControl, useMap } from 'react-leaflet';
+import { useEffect, useState, useRef } from 'react';
+import { MapContainer, TileLayer, WMSTileLayer, Circle, LayersControl, useMap, FeatureGroup } from 'react-leaflet';
+import { EditControl } from 'react-leaflet-draw';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { rdToWgs84 } from '../utils/apiIntegrations';
-
-// Fix default marker icons (Leaflet + bundler issue)
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-    iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-    iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-});
-
-// Red icon for certainly contaminated
-const contaminatedIcon = new L.DivIcon({
-    className: 'custom-marker',
-    html: `<div style="
-        width: 20px; height: 20px;
-        background: linear-gradient(135deg, #ff4444, #cc0000);
-        border: 2px solid white;
-        border-radius: 50%;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.4);
-    "></div>`,
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
-});
-
-// Orange icon for potentially contaminated (verdacht)
-const suspiciousIcon = new L.DivIcon({
-    className: 'custom-marker',
-    html: `<div style="
-        width: 20px; height: 20px;
-        background: linear-gradient(135deg, #ffa500, #ff8c00);
-        border: 2px solid white;
-        border-radius: 50%;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.4);
-    "></div>`,
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
-});
-
-// Green icon for clean sites
-const cleanIcon = new L.DivIcon({
-    className: 'custom-marker',
-    html: `<div style="
-        width: 20px; height: 20px;
-        background: linear-gradient(135deg, #44cc44, #228822);
-        border: 2px solid white;
-        border-radius: 50%;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.4);
-    "></div>`,
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
-});
+import 'leaflet-draw/dist/leaflet.draw.css';
+import { wgs84ToRd } from '../utils/apiIntegrations';
 
 // Component to auto-fit map bounds
-function FitBounds({ positions }) {
+function FitBounds({ center, radius }) {
     const map = useMap();
     useEffect(() => {
-        if (positions.length > 0) {
-            const bounds = L.latLngBounds(positions);
+        if (center && radius) {
+            // Create bounds around the center point with buffer
+            const radiusKm = radius / 1000;
+            const bounds = L.latLngBounds(
+                [center[0] - radiusKm / 111, center[1] - radiusKm / 111],
+                [center[0] + radiusKm / 111, center[1] + radiusKm / 111]
+            );
             map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+        } else if (center) {
+            map.setView(center, 14);
         }
-    }, [positions, map]);
+    }, [center, radius, map]);
     return null;
 }
 
-// Component to auto-pan to a specific marker when selected in the table
-function AutoPan({ highlightedCode, markers }) {
-    const map = useMap();
-    useEffect(() => {
-        if (highlightedCode) {
-            const m = markers.find(mark => mark.locatiecode === highlightedCode);
-            if (m && m.lat && m.lon) {
-                map.flyTo([m.lat, m.lon], 17, { animate: true, duration: 1.5 });
-            }
-        }
-    }, [highlightedCode, markers, map]);
-    return null;
+// Component to handle drawing and edit interactions
+function DrawingControl({ onDrawnGeometry }) {
+    const featureGroupRef = useRef(null);
+
+    const handleCreated = (e) => {
+        const { layer } = e;
+        const geoJSON = layer.toGeoJSON();
+        console.log('✏️ [Drawing] Created geometry:', geoJSON);
+        onDrawnGeometry?.(geoJSON);
+    };
+
+    const handleEdited = (e) => {
+        const layers = e.layers;
+        layers.eachLayer((layer) => {
+            const geoJSON = layer.toGeoJSON();
+            console.log('✏️ [Drawing] Edited geometry:', geoJSON);
+            onDrawnGeometry?.(geoJSON);
+        });
+    };
+
+    return (
+        <FeatureGroup ref={featureGroupRef}>
+            <EditControl
+                position="topleft"
+                onCreated={handleCreated}
+                onEdited={handleEdited}
+                draw={{
+                    rectangle: false,
+                    polyline: false,
+                    marker: false,
+                    circle: {
+                        shapeOptions: {
+                            color: '#ff4444',
+                            fillColor: '#ff4444',
+                            fillOpacity: 0.15,
+                            weight: 2,
+                            dashArray: '5, 5',
+                        }
+                    },
+                    polygon: {
+                        shapeOptions: {
+                            color: '#ff4444',
+                            fillColor: '#ff4444',
+                            fillOpacity: 0.15,
+                            weight: 2,
+                            dashArray: '5, 5',
+                        }
+                    },
+                    circlemarker: false,
+                }}
+            />
+        </FeatureGroup>
+    );
 }
 
 /**
- * LocationMap — Interactive map showing TOB locations
- * with PDOK background layers and Bodemkwaliteitskaart WMS overlay
+ * LocationMap — Interactive map showing project trace area
+ * Shows extracted or manually drawn project area around primary address
  */
-export default function LocationMap({ locations = [], height = '400px', onLocationDrag, highlightedLocationCode }) {
-    const [activeLocation, setActiveLocation] = useState(null);
+export default function LocationMap({
+    locations = [],
+    height = '400px',
+    onLocationDrag,
+    highlightedLocationCode,
+    projectAddress,
+    projectTrace
+}) {
+    const [mapCenter, setMapCenter] = useState(null);
+    const [bufferRadius, setBufferRadius] = useState(500); // Default 500m buffer
+    const [isLoading, setIsLoading] = useState(true);
+    const [manualGeometry, setManualGeometry] = useState(null);
 
-    console.log(`🗺️ [Map] Received ${locations.length} locations.`);
-    if (locations.length > 0) {
-        console.debug('First location detailed:', locations[0]);
-    }
+    console.log(`🗺️ [Map] Project Address:`, projectAddress);
+    console.log(`🗺️ [Map] Project Trace:`, projectTrace);
+    console.log(`✏️ [Map] Manual Geometry:`, manualGeometry);
 
-    // Convert locations to map markers
-    const markers = locations
-        .filter(loc => {
-            // Need either enriched coords or RD coords
-            return (loc._enriched?.rd?.x && loc._enriched?.rd?.y) ||
-                (loc._enriched?.lat && loc._enriched?.lon);
-        })
-        .map(loc => {
-            let lat, lon;
-            if (loc._enriched?.lat && loc._enriched?.lon) {
-                lat = loc._enriched.lat;
-                lon = loc._enriched.lon;
-            } else {
-                // Use the corrected rdToWgs84 function with the right object path
-                const coords = rdToWgs84(loc._enriched.rd.x, loc._enriched.rd.y);
-                lat = coords.lat;
-                lon = coords.lng;
+    // Geocode the project address to get map center
+    useEffect(() => {
+        async function geocodeAddress() {
+            if (!projectAddress) {
+                setIsLoading(false);
+                return;
             }
-            return {
-                ...loc,
-                lat, lon,
-                conclusie: loc.conclusie || 'onverdacht',
-            };
-        });
 
-    console.log(`📍 [Map] Generated ${markers.length} markers.`);
+            try {
+                const query = `${projectAddress.straatnaam} ${projectAddress.huisnummer}, ${projectAddress.postcode || projectAddress.city}, Netherlands`;
+                console.log(`🔍 [Map] Geocoding: ${query}`);
+
+                const response = await fetch(
+                    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`
+                );
+                const results = await response.json();
+
+                if (results.length > 0) {
+                    const first = results[0];
+                    const center = [parseFloat(first.lat), parseFloat(first.lon)];
+                    setMapCenter(center);
+                    console.log(`✅ [Map] Geocoded to:`, center);
+
+                    // Calculate buffer radius from trace distance if available
+                    if (projectTrace?.distance) {
+                        const radiusM = projectTrace.unit === 'km'
+                            ? projectTrace.distance * 1000
+                            : projectTrace.distance;
+                        setBufferRadius(radiusM);
+                        console.log(`📏 [Map] Buffer radius set to: ${radiusM}m`);
+                    }
+                } else {
+                    console.warn(`⚠️ [Map] Could not geocode address:`, query);
+                }
+            } catch (err) {
+                console.warn('Geocoding failed:', err);
+            } finally {
+                setIsLoading(false);
+            }
+        }
+
+        geocodeAddress();
+    }, [projectAddress, projectTrace]);
 
     // Default center (Utrecht, Netherlands)
     const defaultCenter = [52.0907, 5.1214];
-    const center = markers.length > 0
-        ? [markers[0].lat, markers[0].lon]
-        : defaultCenter;
-    const positions = markers.map(m => [m.lat, m.lon]);
+    const center = mapCenter || defaultCenter;
+    const isDefaulting = !mapCenter;
 
-    if (markers.length === 0) {
+    if (isLoading) {
         return (
             <div style={{
                 height,
@@ -141,8 +165,29 @@ export default function LocationMap({ locations = [], height = '400px', onLocati
             }}>
                 <div style={{ textAlign: 'center' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🗺️</div>
-                    <div>Geen coördinaten beschikbaar</div>
-                    <div style={{ fontSize: '0.75rem', opacity: 0.7 }}>Upload een bestand met adresgegevens</div>
+                    <div>Kaart laden...</div>
+                </div>
+            </div>
+        );
+    }
+
+    if (!mapCenter && !projectAddress) {
+        return (
+            <div style={{
+                height,
+                background: 'var(--bg-secondary)',
+                borderRadius: 'var(--radius-md)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--text-secondary)',
+                fontSize: '0.875rem',
+                border: '1px dashed var(--border)',
+            }}>
+                <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🗺️</div>
+                    <div>Geen projectlocatie gevonden</div>
+                    <div style={{ fontSize: '0.75rem', opacity: 0.7 }}>Upload een TOB document met adresgegevens</div>
                 </div>
             </div>
         );
@@ -158,12 +203,12 @@ export default function LocationMap({ locations = [], height = '400px', onLocati
         }}>
             <MapContainer
                 center={center}
-                zoom={14}
+                zoom={isDefaulting ? 8 : 14}
                 style={{ height: '100%', width: '100%' }}
                 zoomControl={true}
             >
-                <FitBounds positions={positions} />
-                <AutoPan highlightedCode={highlightedLocationCode} markers={markers} />
+                <FitBounds center={center} radius={bufferRadius} />
+                <DrawingControl onDrawnGeometry={setManualGeometry} />
 
                 <LayersControl position="topright">
                     {/* Base layers */}
@@ -202,7 +247,7 @@ export default function LocationMap({ locations = [], height = '400px', onLocati
                         />
                     </LayersControl.Overlay>
 
-                    <LayersControl.Overlay name="📐 Kadastrale Percelen (BRK)">
+                    <LayersControl.Overlay checked name="📐 Kadastrale Percelen (BRK)">
                         <WMSTileLayer
                             url="https://service.pdok.nl/kadaster/kadastralekaart/wms/v5_0"
                             layers="Perceel"
@@ -225,86 +270,67 @@ export default function LocationMap({ locations = [], height = '400px', onLocati
                     </LayersControl.Overlay>
                 </LayersControl>
 
-                {markers.map((marker, idx) => {
-                    const conc = marker.conclusie.toLowerCase();
-                    const icon = conc.includes('zeker') || conc.includes('vbo') ? contaminatedIcon :
-                        conc.includes('verdacht') || conc.includes('onzeker') ? suspiciousIcon : cleanIcon;
-
-                    return (
-                        <Marker
-                            key={marker.locatiecode || idx}
-                            position={[marker.lat, marker.lon]}
-                            icon={icon}
-                            draggable={true}
-                            eventHandlers={{
-                                click: () => setActiveLocation(marker),
-                                dragend: (e) => {
-                                    const latLng = e.target.getLatLng();
-                                    if (onLocationDrag && marker.locatiecode) {
-                                        onLocationDrag(marker.locatiecode, latLng.lat, latLng.lng);
-                                    }
-                                }
-                            }}
-                        >
-                            <Popup maxWidth={300}>
-                                <div style={{ fontFamily: 'Inter, sans-serif', fontSize: '13px' }}>
-                                    <div style={{
-                                        fontWeight: 700,
-                                        fontSize: '14px',
-                                        borderBottom: '1px solid #eee',
-                                        paddingBottom: '4px',
-                                        marginBottom: '6px'
-                                    }}>
-                                        {marker.conclusie}
-                                    </div>
-                                    <div><b>Naam:</b> {marker.locatienaam || '—'}</div>
-                                    <div><b>Adres:</b> {`${marker.straatnaam || ''} ${marker.huisnummer || ''}`.trim() || '—'}</div>
-                                    {marker._enriched?.gemeente && (
-                                        <div><b>Gemeente:</b> {marker._enriched.gemeente}</div>
-                                    )}
-                                    {marker._enriched?.bodemkwaliteit?.[0] && (
-                                        <div><b>Bodemklasse:</b> {marker._enriched.bodemkwaliteit[0].klasse}</div>
-                                    )}
-                                    <div style={{ marginTop: '6px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                        {marker._enriched?.topotijdreisHuidig && (
-                                            <a href={marker._enriched.topotijdreisHuidig} target="_blank" rel="noopener noreferrer"
-                                                style={{ fontSize: '12px', color: '#1a73e8' }}>
-                                                🕰️ Topotijdreis
-                                            </a>
-                                        )}
-                                        {marker._enriched?.bodemloket && (
-                                            <a href={marker._enriched.bodemloket} target="_blank" rel="noopener noreferrer"
-                                                style={{ fontSize: '12px', color: '#1a73e8' }}>
-                                                🔍 Bodemloket
-                                            </a>
-                                        )}
-                                    </div>
-                                </div>
-                            </Popup>
-                        </Marker>
-                    );
-                })}
+                {/* Project area buffer circle */}
+                {mapCenter && (
+                    <Circle
+                        center={mapCenter}
+                        radius={bufferRadius}
+                        pathOptions={{
+                            color: '#1976d2',
+                            weight: 3,
+                            opacity: 0.6,
+                            fillColor: '#1976d2',
+                            fillOpacity: 0.1,
+                            dashArray: '5, 5',
+                        }}
+                    />
+                )}
             </MapContainer>
 
-            {/* Map legend overlay */}
+            {/* Map legend and info overlay */}
             <div style={{
                 position: 'absolute',
                 bottom: '8px',
                 left: '8px',
                 zIndex: 1000,
-                background: 'rgba(0,0,0,0.75)',
+                background: 'rgba(0,0,0,0.85)',
                 color: 'white',
-                padding: '6px 10px',
+                padding: '10px 14px',
                 borderRadius: '6px',
-                fontSize: '11px',
-                display: 'flex',
-                gap: '12px',
+                fontSize: '12px',
+                maxWidth: '300px',
             }}>
-                <span style={{ color: '#ff4444' }}>🔴 Verontreinigd</span>
-                <span style={{ color: '#ffa500' }}>🟠 Verdacht</span>
-                <span style={{ color: '#44cc44' }}>🟢 Onverdacht</span>
-                <span style={{ opacity: 0.7 }}>Tip: Zet 'Kadastrale Percelen' aan voor contouren</span>
+                <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>📍 Projectlocatie:</div>
+                {projectAddress && (
+                    <div style={{ marginBottom: '6px', fontSize: '11px' }}>
+                        <div><strong>{projectAddress.straatnaam} {projectAddress.huisnummer}</strong></div>
+                        <div>{projectAddress.postcode} {projectAddress.city}</div>
+                    </div>
+                )}
+                {(projectTrace || manualGeometry) && (
+                    <div style={{ marginBottom: '6px', fontSize: '11px', borderTop: '1px solid #555', paddingTop: '6px' }}>
+                        {projectTrace && !manualGeometry && (
+                            <>
+                                <div style={{ color: '#4da6ff' }}>🔵 <strong>Auto-gedetecteerd</strong></div>
+                                <div><strong>Tracé:</strong> {projectTrace.description}</div>
+                                {projectTrace.distance && (
+                                    <div>Buffer: {projectTrace.distance} {projectTrace.unit}</div>
+                                )}
+                            </>
+                        )}
+                        {manualGeometry && (
+                            <>
+                                <div style={{ color: '#ff8888' }}>🔴 <strong>Handmatig getekend</strong></div>
+                                <div>Type: {manualGeometry.geometry.type}</div>
+                            </>
+                        )}
+                    </div>
+                )}
+                <div style={{ fontSize: '10px', opacity: 0.8, borderTop: '1px solid #555', paddingTop: '6px', marginTop: '6px' }}>
+                    💡 Gebruik de tekentools (linksboven) om het onderzoeksgebied te definiëren
+                    <br/>💡 Toggle 'Kadastrale Percelen' om erfpachten te zien
+                </div>
             </div>
-        </div >
+        </div>
     );
 }

@@ -5,7 +5,7 @@ import { triggerDeepScan, getGithubToken } from '../utils/apiIntegrations';
 // Lazy load map to prevent SSR issues and reduce initial bundle size
 const LocationMap = lazy(() => import('./LocationMap'));
 
-export default function DataPreview({ locations, onLocationsUpdate, onLocationDrag }) {
+export default function DataPreview({ locations, onLocationsUpdate, onLocationDrag, projectAddress, projectTrace }) {
     const [expandedCase, setExpandedCase] = useState(null);
 
     const complexLocations = locations.filter(l => l.complex);
@@ -77,7 +77,7 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                         fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem',
                         backgroundColor: 'var(--bg-secondary)', padding: '0.75rem', borderRadius: 'var(--radius-sm)'
                     }}>
-                        <b>Tip:</b> Rode markers zijn Complexe zaken. Groene markers zijn Onverdacht. Gebruik de lagen-knop rechtsboven voor Bodemkwaliteit en Percelen.
+                        <b>Tip:</b> Blauwe cirkel = projectgebied. Gebruik de lagen-knop rechtsboven voor Bodemkwaliteit en Kadastrale Percelen.
                     </div>
                     <Suspense fallback={<div className="spinner-container"><div className="spinner"></div> Kaart laden...</div>}>
                         <LocationMap
@@ -85,6 +85,8 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                             height="400px"
                             onLocationDrag={onLocationDrag}
                             highlightedLocationCode={expandedCase}
+                            projectAddress={projectAddress}
+                            projectTrace={projectTrace}
                         />
                     </Suspense>
                 </div>

@@ -2,14 +2,17 @@
  * XLSX Parser: extracts TOB data from Excel files (like Tauw's "informatie TOB" spreadsheets)
  */
 import * as XLSX from 'xlsx';
+import { extractBestAddress, extractTraceDescription } from './traceExtraction';
 
 /**
- * Parse an Excel file and return structured location data
+ * Parse an Excel file and return structured location data with metadata
  */
-export async function parseXlsx(file) {
+export async function parseXlsx(file, onProgress) {
+    if (onProgress) onProgress('📊 Excel-bestand inlezen...');
     const arrayBuffer = await file.arrayBuffer();
     const workbook = XLSX.read(arrayBuffer, { type: 'array' });
     const allLocations = [];
+    if (onProgress) onProgress(`📊 ${workbook.SheetNames.length} blad(en) gevonden...`);
 
     for (const sheetName of workbook.SheetNames) {
         const sheet = workbook.Sheets[sheetName];
@@ -80,5 +83,36 @@ export async function parseXlsx(file) {
         }
     }
 
-    return allLocations;
+    // Extract project address from spreadsheet data
+    let projectAddress = null;
+    try {
+        // Try to find a location with postcode, or use the first one
+        const locationsWithPostcode = allLocations.filter(l => l.postcode);
+        const selectedLoc = locationsWithPostcode.length > 0 ? locationsWithPostcode[0] : allLocations[0];
+
+        if (selectedLoc) {
+            projectAddress = {
+                straatnaam: selectedLoc.straatnaam,
+                huisnummer: selectedLoc.huisnummer,
+                postcode: selectedLoc.postcode,
+                city: selectedLoc.woonplaats || '',
+            };
+            console.log('✅ [XLSX] Found projectAddress:', projectAddress);
+        }
+    } catch (err) {
+        console.warn('⚠️ [XLSX] Error extracting address:', err);
+    }
+
+    return {
+        locatiecodes: allLocations,
+        projectAddress,
+        projectTrace: null, // XLSX files don't have trace descriptions
+    };
+}
+
+/**
+ * Convert parsed XLSX data to location array
+ */
+export function xlsxToLocations(xlsxData) {
+    return xlsxData.locatiecodes || [];
 }

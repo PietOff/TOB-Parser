@@ -3,6 +3,8 @@
  * Uses pdf.js (Mozilla) for client-side PDF text extraction
  */
 import * as pdfjsLib from 'pdfjs-dist';
+import { extractAllAddresses, extractBestAddress, extractTraceDescription } from './traceExtraction';
+import { ocrImageForTrace } from './imageTraceOcr';
 
 // Set worker path
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
@@ -39,6 +41,8 @@ export function parseTobReport(fullText) {
         dieptes: [],
         rapportJaar: null,
         rawSections: {},
+        projectAddress: null,
+        projectTrace: null,
     };
 
     // ── Extract locatiecodes ──
@@ -139,6 +143,35 @@ export function parseTobReport(fullText) {
         if (sMatch) {
             data.rawSections[section] = sMatch.index;
         }
+    }
+
+    // ── Extract project address (smart selection) ──
+    try {
+        const allAddresses = extractAllAddresses(fullText);
+        const titleContext = '';
+        const bestAddress = extractBestAddress(allAddresses, titleContext);
+
+        if (bestAddress) {
+            data.projectAddress = {
+                straatnaam: bestAddress.straatnaam,
+                huisnummer: bestAddress.huisnummer,
+                postcode: bestAddress.postcode,
+                city: bestAddress.city,
+            };
+            console.log('✅ [PDF] Found projectAddress:', data.projectAddress);
+        } else {
+            console.warn('⚠️ [PDF] No address found in document');
+        }
+    } catch (err) {
+        console.warn('⚠️ [PDF] Error extracting address:', err);
+    }
+
+    // ── Extract trace description with distance ──
+    try {
+        data.projectTrace = extractTraceDescription(fullText, '');
+        console.log('✅ [PDF] Found projectTrace:', data.projectTrace);
+    } catch (err) {
+        console.warn('⚠️ [PDF] Error extracting trace:', err);
     }
 
     return data;

@@ -20,6 +20,8 @@
  *   - Per locatiecode: tabellen met onderzoeksresultaten
  */
 import mammoth from 'mammoth';
+import { extractAllAddresses, extractBestAddress, extractTraceDescription } from './traceExtraction';
+import { extractImagesFromDocx, ocrImageForTrace } from './imageTraceOcr';
 
 /**
  * Parse a DOCX file and extract TOB-structured data
@@ -27,7 +29,7 @@ import mammoth from 'mammoth';
 export async function parseDocx(file, onProgress) {
     const arrayBuffer = await file.arrayBuffer();
 
-    if (onProgress) onProgress('Tekst extraheren...');
+    if (onProgress) onProgress('📝 Tekst extraheren uit Word-document...');
 
     // Extract raw text for pattern matching
     const textResult = await mammoth.extractRawText({ arrayBuffer });
@@ -37,7 +39,7 @@ export async function parseDocx(file, onProgress) {
     const htmlResult = await mammoth.convertToHtml({ arrayBuffer });
     const html = htmlResult.value;
 
-    if (onProgress) onProgress('Data analyseren...');
+    if (onProgress) onProgress('🔍 Locatiecodes en adressen parseren...');
 
     const data = {
         // Metadata
@@ -63,6 +65,10 @@ export async function parseDocx(file, onProgress) {
         conclusieTekst: '',
         meldingTekst: '',
         asbestverdenking: false,
+
+        // Project location & trace (new)
+        projectAddress: null,
+        projectTrace: null,
 
         // Locatiecodes en rapporten
         locatiecodes: [],
@@ -226,6 +232,89 @@ export async function parseDocx(file, onProgress) {
     const beschikbareStart = fullText.indexOf('Beschikbare bodeminformatie');
     if (conclusieStart > -1 && beschikbareStart > -1) {
         data.conclusieTekst = fullText.substring(conclusieStart, beschikbareStart).trim();
+    }
+
+    // ── Extract project address (smart selection) ──
+    try {
+        const allAddresses = extractAllAddresses(fullText);
+        const titleContext = `${data.titel} ${data.projectCode} ${data.adres}`;
+        const bestAddress = extractBestAddress(allAddresses, titleContext);
+
+        if (bestAddress) {
+            data.projectAddress = {
+                straatnaam: bestAddress.straatnaam,
+                huisnummer: bestAddress.huisnummer,
+                postcode: bestAddress.postcode,
+                city: bestAddress.city,
+            };
+            console.log('✅ [DOCX] Found projectAddress:', data.projectAddress);
+        } else {
+            console.warn('⚠️ [DOCX] No address found in document');
+        }
+    } catch (err) {
+        console.warn('⚠️ [DOCX] Error extracting address:', err);
+    }
+
+    // ── Extract trace description with distance ──
+    try {
+        const traceSection = fullText.match(/Tracé(?:tekening)?(.{0,2000}?)(?:Aanleiding|Locatiegegevens|Inleiding)/is);
+        const traceText = traceSection ? traceSection[1] : data.omschrijving;
+        data.projectTrace = extractTraceDescription(traceText, data.projectCode);
+        console.log('✅ [DOCX] Found projectTrace:', data.projectTrace);
+    } catch (err) {
+        console.warn('⚠️ [DOCX] Error extracting trace:', err);
+    }
+
+    // ── Attempt OCR on embedded images for additional trace info ──
+    // All TOB documents have trace images, so try OCR unless we have complete trace info
+    const skipOcr = (data.projectTrace && data.projectTrace.distance && data.projectTrace.description);
+
+    if (!skipOcr) {
+        try {
+            if (onProgress) onProgress('📷 Zoeken naar afbeeldingen met tracé...');
+            const images = await extractImagesFromDocx(arrayBuffer);
+
+            if (images.length > 0) {
+                console.log(`🖼️ [DOCX] Found ${images.length} images, attempting OCR...`);
+                if (onProgress) onProgress(`🖼️ ${images.length} afbeelding(en) gevonden - OCR wordt gestart...`);
+
+                for (const img of images.slice(0, 2)) { // Limit to first 2 images
+                    try {
+                        const ocrResult = await ocrImageForTrace(img.blob, onProgress);
+
+                        // Look for distance information in OCR results
+                        if (ocrResult.traceInfo.distances.length > 0) {
+                            const mainDistance = ocrResult.traceInfo.distances[0];
+                            if (!data.projectTrace || !data.projectTrace.distance) {
+                                data.projectTrace = data.projectTrace || {};
+                                data.projectTrace.distance = mainDistance.value;
+                                data.projectTrace.unit = mainDistance.unit;
+                                data.projectTrace.ocrConfidence = ocrResult.confidence;
+                                console.log(`🖼️ [DOCX] OCR found distance: ${mainDistance.value} ${mainDistance.unit}`);
+                            }
+                        }
+
+                        // Enhance route description from OCR
+                        if (ocrResult.traceInfo.routes.length > 0) {
+                            const route = ocrResult.traceInfo.routes[0];
+                            if (!data.projectTrace || !data.projectTrace.description || data.projectTrace.description.includes('Project')) {
+                                data.projectTrace = data.projectTrace || {};
+                                data.projectTrace.description = `Van ${route.from} naar ${route.to}`;
+                                console.log(`🖼️ [DOCX] OCR found route: ${data.projectTrace.description}`);
+                            }
+                        }
+                    } catch (imgErr) {
+                        console.warn('⚠️ [DOCX] OCR error on image:', imgErr.message);
+                        // Continue with other images even if one fails
+                    }
+                }
+            }
+        } catch (err) {
+            console.warn('⚠️ [DOCX] Skipping image OCR:', err.message);
+            // Non-critical - don't break parsing
+        }
+    } else if (skipOcr) {
+        console.log('ℹ️ [DOCX] Skipping OCR (file too small or trace already found)');
     }
 
     return data;
