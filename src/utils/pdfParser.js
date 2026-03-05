@@ -4,6 +4,7 @@
  */
 import * as pdfjsLib from 'pdfjs-dist';
 import { extractAllAddresses, extractBestAddress, extractTraceDescription } from './traceExtraction';
+import { ocrImageForTrace } from './imageTraceOcr';
 
 // Set worker path
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
