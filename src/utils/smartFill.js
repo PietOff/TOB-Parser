@@ -231,7 +231,8 @@ export function assessLocation(location) {
     const statusAbel = hasBasis ? (isVerdacht ? 'Ter controle' : 'Gereed') : 'Niet beoordeeld';
     const opmerkingenAbel = reasons.length > 0 ? reasons.join('; ') : (hasBasis ? 'geen' : 'Geen data gevonden voor beoordeling');
 
-    const status = location.status || (rapportJaar ? `rap ${Math.min(4, Math.max(1, 2024 - parseInt(rapportJaar)))}` : (hasBasis ? 'geen rapporten' : ''));
+    const currentYear = new Date().getFullYear();
+    const status = location.status || (rapportJaar ? `rap ${Math.min(4, Math.max(1, currentYear - parseInt(rapportJaar)))}` : (hasBasis ? 'geen rapporten' : ''));
 
     return {
         ...location,
