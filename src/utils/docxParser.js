@@ -265,9 +265,9 @@ export async function parseDocx(file, onProgress) {
         console.warn('⚠️ [DOCX] Error extracting trace:', err);
     }
 
-    // ── Attempt OCR on embedded images for additional trace info (optional, non-blocking) ──
-    // Skip OCR if already have good trace info or if file is too small to have images
-    const skipOcr = (arrayBuffer.byteLength < 50000) || (data.projectTrace && data.projectTrace.distance);
+    // ── Attempt OCR on embedded images for additional trace info ──
+    // All TOB documents have trace images, so try OCR unless we have complete trace info
+    const skipOcr = (data.projectTrace && data.projectTrace.distance && data.projectTrace.description);
 
     if (!skipOcr) {
         try {

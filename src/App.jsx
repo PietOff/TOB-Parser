@@ -27,6 +27,44 @@ export default function App() {
     const [projectTrace, setProjectTrace] = useState(null);
     const [parsing, setParsing] = useState(false);
     const [parseStatus, setParseStatus] = useState('');
+    const [tesseractReady, setTesseractReady] = useState(false);
+
+    // Pre-initialize Tesseract on app load for OCR support
+    useEffect(() => {
+        const initTesseract = async () => {
+            try {
+                console.log('🚀 [App] Pre-initializing Tesseract for OCR...');
+                setParseStatus('📥 Tesseract OCR-engine aan het laden (eenmalig, ~20MB)...');
+
+                // Import dynamically to avoid loading if not used
+                const Tesseract = (await import('tesseract.js')).default;
+
+                // Create worker - this downloads the WASM file
+                const worker = await Promise.race([
+                    Tesseract.createWorker('nld', 1, {
+                        corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@v5/tesseract-core.wasm.js',
+                    }),
+                    new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('Tesseract init timeout')), 120000)
+                    )
+                ]);
+
+                console.log('✅ [App] Tesseract ready for use');
+                setTesseractReady(true);
+                setParseStatus('');
+
+                // Store worker globally for reuse
+                window.__tesseractWorker = worker;
+            } catch (err) {
+                console.warn('⚠️ [App] Tesseract pre-init failed (will try on demand):', err.message);
+                setTesseractReady(false);
+                // Don't block app - OCR will be attempted on demand
+                setParseStatus('');
+            }
+        };
+
+        initTesseract();
+    }, []);
 
     const handleFilesReady = useCallback(async (files) => {
         setParsing(true);

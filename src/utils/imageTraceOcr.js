@@ -3,23 +3,25 @@
  * Uses Tesseract.js for client-side OCR (loaded dynamically)
  */
 
-let tesseractWorker = null;
 const OCR_TIMEOUT = 30000; // 30 second timeout
 
 /**
- * Initialize Tesseract worker with timeout
+ * Get or initialize Tesseract worker
+ * Tries to use pre-initialized worker from app window, falls back to new init
  */
-async function initializeWorker(onProgress) {
-    if (tesseractWorker) {
-        return tesseractWorker;
+async function getWorker(onProgress) {
+    // Check if worker was pre-initialized in App.jsx
+    if (window.__tesseractWorker) {
+        console.log('✅ [OCR] Using pre-initialized Tesseract worker');
+        return window.__tesseractWorker;
     }
 
     try {
-        // Dynamically import to avoid loading if not needed
-        const Tesseract = (await import('tesseract.js')).default;
-
         console.log('🖼️ [OCR] Initializing Tesseract worker (downloading WASM ~20MB)...');
         if (onProgress) onProgress('Tesseract-engine aan het laden...');
+
+        // Dynamically import to avoid loading if not needed
+        const Tesseract = (await import('tesseract.js')).default;
 
         const initPromise = Tesseract.createWorker('nld', 1, {
             corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@v5/tesseract-core.wasm.js',
@@ -30,10 +32,12 @@ async function initializeWorker(onProgress) {
             setTimeout(() => reject(new Error('Tesseract initialization timeout')), OCR_TIMEOUT)
         );
 
-        tesseractWorker = await Promise.race([initPromise, timeoutPromise]);
+        const worker = await Promise.race([initPromise, timeoutPromise]);
         console.log('✅ [OCR] Tesseract worker ready');
 
-        return tesseractWorker;
+        // Cache for reuse
+        window.__tesseractWorker = worker;
+        return worker;
     } catch (err) {
         console.warn('⚠️ [OCR] Failed to initialize Tesseract:', err.message);
         throw err;
@@ -48,7 +52,7 @@ export async function ocrImageForTrace(imageSource, onProgress) {
         console.log('🖼️ [OCR] Starting OCR on image...');
         if (onProgress) onProgress('OCR aan het verwerken...');
 
-        const worker = await initializeWorker(onProgress);
+        const worker = await getWorker(onProgress);
 
         const recognizePromise = worker.recognize(imageSource);
         const timeoutPromise = new Promise((_, reject) =>
