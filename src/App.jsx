@@ -315,9 +315,13 @@ export default function App() {
                 <div>
                     <FileUpload onFilesReady={handleFilesReady} />
                     {parsing && (
-                        <div className="parsing-status">
-                            <div className="spinner" />
-                            {parseStatus}
+                        <div className="parsing-overlay">
+                            <div className="parsing-modal">
+                                <div className="spinner spinner-lg" />
+                                <div className="parsing-title">Bestand verwerken...</div>
+                                <div className="parsing-message">{parseStatus}</div>
+                                <div className="parsing-hint">Dit kan even duren</div>
+                            </div>
                         </div>
                     )}
                 </div>
