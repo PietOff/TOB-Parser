@@ -3,7 +3,7 @@
  * Uses pdf.js (Mozilla) for client-side PDF text extraction
  */
 import * as pdfjsLib from 'pdfjs-dist';
-import { extractTraceCoordinates } from './apiIntegrations';
+import { extractAllAddresses, extractBestAddress, extractTraceDescription } from './traceExtraction';
 
 // Set worker path
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
@@ -40,6 +40,8 @@ export function parseTobReport(fullText) {
         dieptes: [],
         rapportJaar: null,
         rawSections: {},
+        projectAddress: null,
+        projectTrace: null,
     };
 
     // ── Extract locatiecodes ──
@@ -142,9 +144,22 @@ export function parseTobReport(fullText) {
         }
     }
 
-    // ── Extract trace coordinates ──
-    const traceCoordinates = extractTraceCoordinates(fullText);
-    data.traceCoordinates = traceCoordinates;
+    // ── Extract project address (smart selection) ──
+    const allAddresses = extractAllAddresses(fullText);
+    const titleContext = '';
+    const bestAddress = extractBestAddress(allAddresses, titleContext);
+
+    if (bestAddress) {
+        data.projectAddress = {
+            straatnaam: bestAddress.straatnaam,
+            huisnummer: bestAddress.huisnummer,
+            postcode: bestAddress.postcode,
+            city: bestAddress.city,
+        };
+    }
+
+    // ── Extract trace description with distance ──
+    data.projectTrace = extractTraceDescription(fullText, '');
 
     return data;
 }
@@ -154,7 +169,6 @@ export function parseTobReport(fullText) {
  */
 export function mergeToLocations(parsedData) {
     const locations = [];
-    const traceGeometry = parsedData.traceCoordinates || [];
 
     // If we found locatiecodes, create entries for each
     if (parsedData.locatiecodes.length > 0) {
@@ -176,7 +190,6 @@ export function mergeToLocations(parsedData) {
                 afstandTrace: null,
                 verdachteActiviteiten: 0,
                 stoffen: [],
-                traceGeometry: traceGeometry,
             };
 
             // Attach any found stoffen with values above intervention
@@ -209,7 +222,6 @@ export function mergeToLocations(parsedData) {
             veiligheidsklasse: parsedData.veiligheidsklasse || '',
             rapportJaar: parsedData.rapportJaar,
             stoffen: parsedData.stoffen,
-            traceGeometry: traceGeometry,
             complex: parsedData.conclusies.some(c => c.type === 'VBO_verdacht' || c.type === 'interventiewaarde_overschreden'),
         });
     }

@@ -20,7 +20,7 @@
  *   - Per locatiecode: tabellen met onderzoeksresultaten
  */
 import mammoth from 'mammoth';
-import { extractTraceCoordinates } from './apiIntegrations';
+import { extractAllAddresses, extractBestAddress, extractTraceDescription } from './traceExtraction';
 
 /**
  * Parse a DOCX file and extract TOB-structured data
@@ -64,6 +64,10 @@ export async function parseDocx(file, onProgress) {
         conclusieTekst: '',
         meldingTekst: '',
         asbestverdenking: false,
+
+        // Project location & trace (new)
+        projectAddress: null,
+        projectTrace: null,
 
         // Locatiecodes en rapporten
         locatiecodes: [],
@@ -229,11 +233,24 @@ export async function parseDocx(file, onProgress) {
         data.conclusieTekst = fullText.substring(conclusieStart, beschikbareStart).trim();
     }
 
-    // ── Extract trace geometry ──
+    // ── Extract project address (smart selection) ──
+    const allAddresses = extractAllAddresses(fullText);
+    const titleContext = `${data.titel} ${data.projectCode} ${data.adres}`;
+    const bestAddress = extractBestAddress(allAddresses, titleContext);
+
+    if (bestAddress) {
+        data.projectAddress = {
+            straatnaam: bestAddress.straatnaam,
+            huisnummer: bestAddress.huisnummer,
+            postcode: bestAddress.postcode,
+            city: bestAddress.city,
+        };
+    }
+
+    // ── Extract trace description with distance ──
     const traceSection = fullText.match(/Tracé(?:tekening)?(.{0,2000}?)(?:Aanleiding|Locatiegegevens|Inleiding)/is);
-    const traceText = traceSection ? traceSection[1] : fullText;
-    const traceCoordinates = extractTraceCoordinates(traceText);
-    data.traceCoordinates = traceCoordinates;
+    const traceText = traceSection ? traceSection[1] : data.omschrijving;
+    data.projectTrace = extractTraceDescription(traceText, data.projectCode);
 
     return data;
 }
@@ -242,14 +259,8 @@ export async function parseDocx(file, onProgress) {
  * Convert parsed DOCX data to location array (same format as other parsers)
  */
 export function docxToLocations(docxData) {
-    const baseTrace = docxData.traceCoordinates || [];
-
     if (docxData.locatiecodes.length > 0) {
-        // Add trace geometry to each location
-        return docxData.locatiecodes.map(loc => ({
-            ...loc,
-            traceGeometry: baseTrace,
-        }));
+        return docxData.locatiecodes;
     }
 
     // If no locatiecodes found, create a single entry from metadata
@@ -269,7 +280,6 @@ export function docxToLocations(docxData) {
         complex: docxData.isVerdacht,
         rapportJaar: null,
         stoffen: [],
-        traceGeometry: baseTrace,
         _source: 'DOCX',
         _projectCode: docxData.projectCode,
         _metadata: {
