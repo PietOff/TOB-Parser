@@ -314,6 +314,6 @@ export default function LocationMap({ locations = [], height = '400px', onLocati
                 <span style={{ color: '#44cc44' }}>🟢 Onverdacht</span>
                 <span style={{ opacity: 0.7 }}>Tip: Zet 'Kadastrale Percelen' aan voor contouren</span>
             </div>
-        </div >
+        </div>
     );
 }
