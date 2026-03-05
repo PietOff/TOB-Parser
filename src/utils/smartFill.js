@@ -153,6 +153,7 @@ export function assessLocation(location) {
     const rd = enriched.rd || {};
     const gemeente = enriched.gemeente || '';
     const provincie = enriched.provincie || '';
+    const woonplaats = enriched.woonplaats || location.woonplaats || '';
     const rdX = rd.x || '';
     const rdY = rd.y || '';
     const bodemkwaliteitsklasse = bkk?.[0]?.klasse || '';
@@ -250,6 +251,7 @@ export function assessLocation(location) {
         actie: hasBasis ? actie : '',
         gemeente,
         provincie,
+        woonplaats,
         rdX,
         rdY,
         bodemkwaliteitsklasse,
@@ -338,6 +340,7 @@ export function getTobColumns() {
         { key: 'straatnaam', label: 'Straatnaam' },
         { key: 'huisnummer', label: 'Huisnummer' },
         { key: 'postcode', label: 'Postcode' },
+        { key: 'woonplaats', label: 'Woonplaats' },
         { key: 'status', label: 'Status rapport' },
         { key: 'conclusie', label: 'Conclusie' },
         { key: 'veiligheidsklasse', label: 'Veiligheidsklasse' },

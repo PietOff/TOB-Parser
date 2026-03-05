@@ -377,6 +377,41 @@ export async function getBuildingDetails(rdX, rdY, buffer = 10) {
 }
 
 /**
+ * Clean address queries by removing Dutch suffixes that confuse PDOK geocoding
+ */
+function cleanAddressQuery(query) {
+    if (!query) return '';
+    return query
+        .replace(/\b(e\.?o\.?|eo)\b/gi, '')                    // "e.o." = en omgeving
+        .replace(/\b(t\.?h\.?v\.?)\b/gi, '')                    // "t.h.v." = ter hoogte van
+        .replace(/\b(t\.?\/m\.?|t\/m)\b/gi, '')                // "t/m" = tot en met
+        .replace(/\b(nabij|omgeving|terrein|perceel)\b/gi, '')  // general location terms
+        .replace(/\b(e\.v\.?|ev\.)\b/gi, '')                    // "e.v." = en verder
+        .replace(/\b(ca\.?)\b/gi, '')                            // "ca." = circa
+        .replace(/\b(ongen\.?|ong\.?)\b/gi, '')                  // "ongenummerd" / "ong."
+        .replace(/\s*[-–]\s*/g, ' ')                             // dashes to spaces
+        .replace(/\s{2,}/g, ' ')                                 // multi-space collapse
+        .trim();
+}
+
+/**
+ * Try to extract a street name from a locatienaam string
+ * Examples: "Nieuwe Stationsstraat e.o." → "Nieuwe Stationsstraat"
+ *           "terrein Laan van Westenenk" → "Laan van Westenenk"
+ */
+function extractStreetFromName(name) {
+    if (!name) return null;
+    // Dutch street suffixes that help identify a street name embedded in a project name
+    const streetSuffixes = /(?:straat|laan|weg|plein|singel|gracht|kade|dijk|dreef|steeg|pad|hof|ring|baan|allee|boulevard|markt|park)\b/i;
+    const cleaned = cleanAddressQuery(name);
+    if (streetSuffixes.test(cleaned)) {
+        // Remove leading non-street words like "terrein", "locatie", "project"
+        return cleaned.replace(/^(terrein|locatie|project|gebied|perceel|bouwlocatie)\s+/i, '').trim();
+    }
+    return null;
+}
+
+/**
  * Enrich a single TOB location with data from all available APIs
  * contextPostcode is an optional postcode shared from neighboring locations on the same street
  * primaryCity is the most frequent city in the dataset, used for strict geocoding fallback
@@ -400,71 +435,112 @@ export async function enrichLocation(location, contextPostcode = null, primaryCi
         }
     }
 
-    // Step 1: Geocode - Priority on Address/Name over location codes
-    const queries = [];
-    const effectivePostcode = location.postcode || contextPostcode;
-    const baseAddr = [location.straatnaam, location.huisnummer].filter(Boolean).join(' ');
-
-    // 1. Exact match if we have specific postcode or city
-    if (baseAddr && (effectivePostcode || location.woonplaats)) {
-        queries.push([baseAddr, effectivePostcode, location.woonplaats].filter(Boolean).join(' '));
-        if (location.woonplaats) {
-            queries.push([baseAddr, location.woonplaats].filter(Boolean).join(' ')); // without postcode fallback
+    // Step 1: Smart Address Resolution
+    // Try to extract a street name from locatienaam if no explicit street is set
+    let effectiveStreet = location.straatnaam;
+    if (!effectiveStreet && location.locatienaam) {
+        effectiveStreet = extractStreetFromName(location.locatienaam);
+        if (effectiveStreet) {
+            console.log(`🔍 [Address] Extracted street "${effectiveStreet}" from locatienaam "${location.locatienaam}"`);
         }
     }
 
-    // 2. Regional Context Matching (if no postal code and no city provided)
-    if (baseAddr && !effectivePostcode && !location.woonplaats && primaryCity) {
+    const effectivePostcode = location.postcode || contextPostcode;
+    const cleanedStreet = cleanAddressQuery(effectiveStreet);
+    const baseAddr = [cleanedStreet, location.huisnummer].filter(Boolean).join(' ');
+
+    // Build prioritized query list
+    const queries = [];
+
+    // 1. Exact: street + postcode + city
+    if (baseAddr && (effectivePostcode || location.woonplaats)) {
+        queries.push([baseAddr, effectivePostcode, location.woonplaats].filter(Boolean).join(' '));
+    }
+
+    // 2. Street + city (without postcode) — high priority when city is known
+    if (baseAddr && location.woonplaats) {
+        queries.push([baseAddr, location.woonplaats].filter(Boolean).join(' '));
+    }
+
+    // 3. Street + primaryCity (detected from filename/title/dataset)
+    if (baseAddr && primaryCity && primaryCity !== location.woonplaats) {
         queries.push([baseAddr, primaryCity].filter(Boolean).join(' '));
     }
 
-    // 3. Absolute Fallback
+    // 4. Street alone
     if (baseAddr) {
         queries.push(baseAddr);
     }
 
-    // 4. Locatienaam (Project name) fallback
+    // 5. Locatienaam (cleaned) + city context
     if (location.locatienaam) {
-        queries.push(`${location.locatienaam} ${location.woonplaats || ''}`.trim());
+        const cleanedName = cleanAddressQuery(location.locatienaam);
+        if (cleanedName && cleanedName !== cleanedStreet) {
+            queries.push([cleanedName, location.woonplaats || primaryCity].filter(Boolean).join(' '));
+        }
     }
 
-    if (location.locatiecode) {
+    // 6. Locatiecode as last resort
+    if (location.locatiecode && location.locatiecode !== 'ONBEKEND') {
         queries.push(location.locatiecode);
     }
 
-    let results = [];
-    console.log(`🔍 [Geocode] Targeting: "${queries[0]}"... (Alternative queries: ${queries.length - 1})`);
+    // De-duplicate queries
+    const uniqueQueries = [...new Set(queries.filter(q => q.trim()))];
 
-    for (const q of queries) {
-        if (!q.trim()) continue;
-        results = await pdokSearch(q, primaryCity);
-        // Strict PDOK filters often return good hits. We accept the first query that yields results.
+    let results = [];
+    if (uniqueQueries.length > 0) {
+        console.log(`🔍 [Geocode] Targeting: "${uniqueQueries[0]}"... (${uniqueQueries.length - 1} fallbacks)`);
+    }
+
+    // Try each query, use city filter when primaryCity is available
+    for (const q of uniqueQueries) {
+        // First try WITH city filter
+        if (primaryCity) {
+            results = await pdokSearch(q, primaryCity);
+            if (results.length > 0) {
+                console.log(`✅ [Geocode] Success for "${q}" (city: ${primaryCity}): Found ${results.length} results.`);
+                break;
+            }
+        }
+        // Then try WITHOUT city filter (broader search)
+        results = await pdokSearch(q, null);
         if (results.length > 0) {
-            console.log(`✅ [Geocode] Success for "${q}": Found ${results.length} results.`);
+            console.log(`✅ [Geocode] Success for "${q}" (no city filter): Found ${results.length} results.`);
             break;
         }
     }
 
-    // If still no results, try a "fuzzy" search on the location name
+    // Final fuzzy fallback on cleaned locatienaam
     if (results.length === 0 && location.locatienaam) {
-        const fuzzyQuery = [location.locatienaam, location.woonplaats || primaryCity].filter(Boolean).join(' ');
+        const fuzzyQuery = cleanAddressQuery(location.locatienaam);
         console.log(`⚠️ [Geocode] Trying fuzzy name fallback: "${fuzzyQuery}"`);
-        results = await pdokSearch(fuzzyQuery, primaryCity);
+        results = await pdokSearch(fuzzyQuery, null);
     }
 
     if (results.length > 0) {
         const best = results[0];
         enriched._enriched.pdok = best;
 
-        // Fill in missing address data from PDOK
-        if (!enriched.straatnaam && best.straatnaam) enriched.straatnaam = best.straatnaam;
-        if (!enriched.huisnummer && best.huisnummer) enriched.huisnummer = best.huisnummer;
-        if (!enriched.postcode && best.postcode) enriched.postcode = best.postcode;
-        if (!enriched.woonplaats && best.woonplaats) enriched.woonplaats = best.woonplaats;
+        // Save original values for traceability
+        enriched._enriched._original = {
+            straatnaam: location.straatnaam || '',
+            huisnummer: location.huisnummer || '',
+            postcode: location.postcode || '',
+            woonplaats: location.woonplaats || '',
+        };
+
+        // Backfill ALL address fields from PDOK (overwrite incomplete data)
+        if (best.straatnaam) enriched.straatnaam = best.straatnaam;
+        if (best.huisnummer) enriched.huisnummer = String(best.huisnummer);
+        if (best.postcode) enriched.postcode = best.postcode;
+        if (best.woonplaats) enriched.woonplaats = best.woonplaats;
 
         enriched._enriched.gemeente = best.gemeente;
         enriched._enriched.provincie = best.provincie;
         enriched._enriched.woonplaats = best.woonplaats;
+
+        console.log(`📍 [Address] Resolved: ${enriched.straatnaam} ${enriched.huisnummer}, ${enriched.postcode} ${enriched.woonplaats} (${best.gemeente}, ${best.provincie})`);
 
         // Parse RD coordinates from centroid
         if (best.centroide_rd) {
@@ -504,7 +580,7 @@ export async function enrichLocation(location, contextPostcode = null, primaryCi
             console.error('❌ [Geocode] No centroide_rd found in PDOK result.');
         }
     } else {
-        console.warn('❌ [Geocode] Total failure: No results for any query parts.');
+        console.warn(`❌ [Geocode] Total failure for "${location.locatiecode || location.locatienaam}": No results for any of ${uniqueQueries.length} queries.`);
     }
 
     // Final assessment mapping (placeholder for smartFill logic)

@@ -147,6 +147,7 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                                         <Field label="Locatienaam" value={loc.locatienaam} type="source" />
                                         <Field label="Adres" value={`${loc.straatnaam} ${loc.huisnummer}`.trim()} type="source" />
                                         <Field label="Postcode" value={loc.postcode} type="source" />
+                                        <Field label="Woonplaats" value={loc.woonplaats} type="source" />
                                         <Field label="Huidige functie" value={smart?.locatie.functie} type="draft"
                                             onChange={(v) => updateField(loc.locatiecode, '_functie', v)} />
 

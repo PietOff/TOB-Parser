@@ -188,10 +188,13 @@ export function mergeToLocations(parsedData) {
         for (const code of parsedData.locatiecodes) {
             const location = {
                 locatiecode: code,
-                locatienaam: '',
-                straatnaam: '',
-                huisnummer: '',
-                postcode: '',
+                locatienaam: parsedData.projectAddress?.straatnaam
+                    ? `${parsedData.projectAddress.straatnaam} ${parsedData.projectAddress.huisnummer || ''}`.trim()
+                    : '',
+                straatnaam: parsedData.projectAddress?.straatnaam || '',
+                huisnummer: parsedData.projectAddress?.huisnummer || '',
+                postcode: parsedData.projectAddress?.postcode || '',
+                woonplaats: parsedData.projectAddress?.city || '',
                 status: parsedData.rapportJaar ? `rapport ${parsedData.rapportJaar}` : '',
                 conclusie: '',
                 veiligheidsklasse: parsedData.veiligheidsklasse || '',
