@@ -23,6 +23,8 @@ const STEPS = [
 export default function App() {
     const [step, setStep] = useState(1);
     const [locations, setLocations] = useState([]);
+    const [projectAddress, setProjectAddress] = useState(null);
+    const [projectTrace, setProjectTrace] = useState(null);
     const [parsing, setParsing] = useState(false);
     const [parseStatus, setParseStatus] = useState('');
 
@@ -30,6 +32,8 @@ export default function App() {
         setParsing(true);
         setParseStatus('Bestanden verwerken...');
         const allLocations = [];
+        let capturedAddress = null;
+        let capturedTrace = null;
 
         try {
             for (const file of files) {
@@ -43,6 +47,9 @@ export default function App() {
                     const locs = mergeToLocations(parsed);
                     locs.forEach(l => { l._source = `PDF: ${file.name}`; });
                     allLocations.push(...locs);
+                    // Capture project address & trace if found
+                    if (parsed.projectAddress && !capturedAddress) capturedAddress = parsed.projectAddress;
+                    if (parsed.projectTrace && !capturedTrace) capturedTrace = parsed.projectTrace;
                 } else if (['xlsx', 'xls'].includes(ext)) {
                     setParseStatus(`Excel verwerken: ${file.name}...`);
                     const locs = await parseXlsx(file);
@@ -54,6 +61,9 @@ export default function App() {
                     });
                     const locs = docxToLocations(docxData);
                     allLocations.push(...locs);
+                    // Capture project address & trace if found
+                    if (docxData.projectAddress && !capturedAddress) capturedAddress = docxData.projectAddress;
+                    if (docxData.projectTrace && !capturedTrace) capturedTrace = docxData.projectTrace;
                 }
             }
 
@@ -106,6 +116,8 @@ export default function App() {
 
             const finalLocations = enriched.map(loc => assessLocation(loc));
             setLocations(finalLocations);
+            setProjectAddress(capturedAddress);
+            setProjectTrace(capturedTrace);
             setStep(2);
 
             // --- Automatic Deep Scan Trigger ---
@@ -207,6 +219,8 @@ export default function App() {
                         locations={locations}
                         onLocationsUpdate={setLocations}
                         onLocationDrag={handleLocationDrag}
+                        projectAddress={projectAddress}
+                        projectTrace={projectTrace}
                     />
                     <div className="btn-group">
                         <button className="btn btn-secondary" onClick={() => setStep(1)}>

@@ -1,64 +1,97 @@
 import { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, WMSTileLayer, Polyline, LayersControl, useMap, FeatureGroup } from 'react-leaflet';
-import { EditControl } from 'react-leaflet-draw';
+import { MapContainer, TileLayer, WMSTileLayer, Circle, LayersControl, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import 'leaflet-draw/dist/leaflet.draw.css';
-import { rdToWgs84 } from '../utils/apiIntegrations';
+import { wgs84ToRd } from '../utils/apiIntegrations';
 
 // Component to auto-fit map bounds
-function FitBounds({ positions }) {
+function FitBounds({ center, radius }) {
     const map = useMap();
     useEffect(() => {
-        if (positions.length > 0) {
-            const bounds = L.latLngBounds(positions);
+        if (center && radius) {
+            // Create bounds around the center point with buffer
+            const radiusKm = radius / 1000;
+            const bounds = L.latLngBounds(
+                [center[0] - radiusKm / 111, center[1] - radiusKm / 111],
+                [center[0] + radiusKm / 111, center[1] + radiusKm / 111]
+            );
             map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+        } else if (center) {
+            map.setView(center, 14);
         }
-    }, [positions, map]);
+    }, [center, radius, map]);
     return null;
 }
 
 /**
- * LocationMap — Interactive map showing TOB project traces
- * with PDOK background layers, cadastral parcels, and manual drawing tools
+ * LocationMap — Interactive map showing project trace area
+ * Shows extracted or manually drawn project area around primary address
  */
-export default function LocationMap({ locations = [], height = '400px', onLocationDrag, highlightedLocationCode }) {
-    const [drawingMode, setDrawingMode] = useState(false);
-    const [drawnTraces, setDrawnTraces] = useState([]);
+export default function LocationMap({
+    locations = [],
+    height = '400px',
+    onLocationDrag,
+    highlightedLocationCode,
+    projectAddress,
+    projectTrace
+}) {
+    const [mapCenter, setMapCenter] = useState(null);
+    const [bufferRadius, setBufferRadius] = useState(500); // Default 500m buffer
+    const [isLoading, setIsLoading] = useState(true);
 
-    console.log(`🗺️ [Map] Received ${locations.length} locations.`);
+    console.log(`🗺️ [Map] Project Address:`, projectAddress);
+    console.log(`🗺️ [Map] Project Trace:`, projectTrace);
 
-    // Merge all trace geometries from all locations
-    const allTracePoints = [];
-    const uniqueTraces = new Set();
+    // Geocode the project address to get map center
+    useEffect(() => {
+        async function geocodeAddress() {
+            if (!projectAddress) {
+                setIsLoading(false);
+                return;
+            }
 
-    for (const loc of locations) {
-        if (loc.traceGeometry && Array.isArray(loc.traceGeometry) && loc.traceGeometry.length > 0) {
-            for (const point of loc.traceGeometry) {
-                const key = `${point[0]},${point[1]}`;
-                if (!uniqueTraces.has(key)) {
-                    uniqueTraces.add(key);
-                    allTracePoints.push(point);
+            try {
+                const query = `${projectAddress.straatnaam} ${projectAddress.huisnummer}, ${projectAddress.postcode || projectAddress.city}, Netherlands`;
+                console.log(`🔍 [Map] Geocoding: ${query}`);
+
+                const response = await fetch(
+                    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`
+                );
+                const results = await response.json();
+
+                if (results.length > 0) {
+                    const first = results[0];
+                    const center = [parseFloat(first.lat), parseFloat(first.lon)];
+                    setMapCenter(center);
+                    console.log(`✅ [Map] Geocoded to:`, center);
+
+                    // Calculate buffer radius from trace distance if available
+                    if (projectTrace?.distance) {
+                        const radiusM = projectTrace.unit === 'km'
+                            ? projectTrace.distance * 1000
+                            : projectTrace.distance;
+                        setBufferRadius(radiusM);
+                        console.log(`📏 [Map] Buffer radius set to: ${radiusM}m`);
+                    }
+                } else {
+                    console.warn(`⚠️ [Map] Could not geocode address:`, query);
                 }
+            } catch (err) {
+                console.warn('Geocoding failed:', err);
+            } finally {
+                setIsLoading(false);
             }
         }
-    }
 
-    // Get center and bounds
+        geocodeAddress();
+    }, [projectAddress, projectTrace]);
+
+    // Default center (Utrecht, Netherlands)
     const defaultCenter = [52.0907, 5.1214];
-    let center = defaultCenter;
-    const positions = allTracePoints.length > 0 ? allTracePoints : defaultCenter;
+    const center = mapCenter || defaultCenter;
+    const isDefaulting = !mapCenter;
 
-    if (allTracePoints.length > 0) {
-        const latitudes = allTracePoints.map(p => p[0]);
-        const longitudes = allTracePoints.map(p => p[1]);
-        center = [
-            (Math.min(...latitudes) + Math.max(...latitudes)) / 2,
-            (Math.min(...longitudes) + Math.max(...longitudes)) / 2
-        ];
-    }
-
-    if (!allTracePoints || allTracePoints.length === 0) {
+    if (isLoading) {
         return (
             <div style={{
                 height,
@@ -67,15 +100,35 @@ export default function LocationMap({ locations = [], height = '400px', onLocati
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                flexDirection: 'column',
                 color: 'var(--text-secondary)',
                 fontSize: '0.875rem',
                 border: '1px dashed var(--border)',
             }}>
                 <div style={{ textAlign: 'center' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🗺️</div>
-                    <div>Geen projecttracé gevonden in documenten</div>
-                    <div style={{ fontSize: '0.75rem', opacity: 0.7 }}>Je kunt de tracé hieronder handmatig tekenen</div>
+                    <div>Kaart laden...</div>
+                </div>
+            </div>
+        );
+    }
+
+    if (!mapCenter && !projectAddress) {
+        return (
+            <div style={{
+                height,
+                background: 'var(--bg-secondary)',
+                borderRadius: 'var(--radius-md)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--text-secondary)',
+                fontSize: '0.875rem',
+                border: '1px dashed var(--border)',
+            }}>
+                <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🗺️</div>
+                    <div>Geen projectlocatie gevonden</div>
+                    <div style={{ fontSize: '0.75rem', opacity: 0.7 }}>Upload een TOB document met adresgegevens</div>
                 </div>
             </div>
         );
@@ -91,11 +144,11 @@ export default function LocationMap({ locations = [], height = '400px', onLocati
         }}>
             <MapContainer
                 center={center}
-                zoom={14}
+                zoom={isDefaulting ? 8 : 14}
                 style={{ height: '100%', width: '100%' }}
                 zoomControl={true}
             >
-                <FitBounds positions={positions} />
+                <FitBounds center={center} radius={bufferRadius} />
 
                 <LayersControl position="topright">
                     {/* Base layers */}
@@ -166,60 +219,24 @@ export default function LocationMap({ locations = [], height = '400px', onLocati
                     </LayersControl.Overlay>
                 </LayersControl>
 
-                {/* Display extracted trace as polyline */}
-                {allTracePoints.length > 0 && (
-                    <Polyline
-                        positions={allTracePoints}
-                        color="#1976d2"
-                        weight={4}
-                        opacity={0.8}
-                        dashArray="5, 5"
-                    >
-                    </Polyline>
+                {/* Project area buffer circle */}
+                {mapCenter && (
+                    <Circle
+                        center={mapCenter}
+                        radius={bufferRadius}
+                        pathOptions={{
+                            color: '#1976d2',
+                            weight: 3,
+                            opacity: 0.6,
+                            fillColor: '#1976d2',
+                            fillOpacity: 0.1,
+                            dashArray: '5, 5',
+                        }}
+                    />
                 )}
-
-                {/* Drawing tools for manual trace creation */}
-                <FeatureGroup>
-                    <EditControl
-                        position="topleft"
-                        onCreated={(e) => {
-                            const layer = e.layer;
-                            if (layer instanceof L.Polyline && !(layer instanceof L.Polygon)) {
-                                const coords = layer.getLatLngs();
-                                setDrawnTraces([...drawnTraces, coords]);
-                                console.log('✏️ Handmatig getekende tracé:', coords);
-                            }
-                        }}
-                        onEdited={(e) => {
-                            console.log('✏️ Tracé bewerkt');
-                        }}
-                        onDeleted={() => {
-                            console.log('✏️ Tracé verwijderd');
-                        }}
-                        draw={{
-                            polyline: true,
-                            polygon: true,
-                            rectangle: true,
-                            circle: false,
-                            circlemarker: false,
-                            marker: false,
-                        }}
-                    />
-                </FeatureGroup>
-
-                {/* Display manually drawn traces */}
-                {drawnTraces.map((trace, idx) => (
-                    <Polyline
-                        key={`drawn-${idx}`}
-                        positions={trace}
-                        color="#ff6b6b"
-                        weight={3}
-                        opacity={0.7}
-                    />
-                ))}
             </MapContainer>
 
-            {/* Map legend overlay */}
+            {/* Map legend and info overlay */}
             <div style={{
                 position: 'absolute',
                 bottom: '8px',
@@ -227,15 +244,28 @@ export default function LocationMap({ locations = [], height = '400px', onLocati
                 zIndex: 1000,
                 background: 'rgba(0,0,0,0.85)',
                 color: 'white',
-                padding: '8px 12px',
+                padding: '10px 14px',
                 borderRadius: '6px',
-                fontSize: '11px',
+                fontSize: '12px',
+                maxWidth: '300px',
             }}>
-                <div style={{ marginBottom: '6px', fontWeight: 'bold' }}>Tracé Legend:</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <span><span style={{ color: '#1976d2', fontSize: '16px' }}>—</span> Geëxtraheerde tracé</span>
-                    <span><span style={{ color: '#ff6b6b', fontSize: '16px' }}>—</span> Handmatig getekend</span>
-                    <span style={{ marginTop: '6px', fontSize: '10px', opacity: 0.8 }}>Tip: Zet 'Kadastrale Percelen' aan voor perceelcontouren</span>
+                <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>📍 Projectlocatie:</div>
+                {projectAddress && (
+                    <div style={{ marginBottom: '6px', fontSize: '11px' }}>
+                        <div><strong>{projectAddress.straatnaam} {projectAddress.huisnummer}</strong></div>
+                        <div>{projectAddress.postcode} {projectAddress.city}</div>
+                    </div>
+                )}
+                {projectTrace && (
+                    <div style={{ marginBottom: '6px', fontSize: '11px', borderTop: '1px solid #555', paddingTop: '6px' }}>
+                        <div><strong>Tracé:</strong> {projectTrace.description}</div>
+                        {projectTrace.distance && (
+                            <div>Buffer: {projectTrace.distance} {projectTrace.unit}</div>
+                        )}
+                    </div>
+                )}
+                <div style={{ fontSize: '10px', opacity: 0.8, borderTop: '1px solid #555', paddingTop: '6px', marginTop: '6px' }}>
+                    💡 Toggle 'Kadastrale Percelen' to see which plots overlap the project area
                 </div>
             </div>
         </div>
