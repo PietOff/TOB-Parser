@@ -275,7 +275,7 @@ export default function LocationMap({
                 </LayersControl>
 
                 {/* Project area buffer circle */}
-                {mapCenter && (
+                {mapCenter && !isNaN(bufferRadius) && (
                     <Circle
                         center={mapCenter}
                         radius={bufferRadius}
