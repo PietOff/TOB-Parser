@@ -27,8 +27,9 @@ function FitBounds({ locations, center, radius }) {
         } else if (validCoords.length === 1) {
             map.setView(validCoords[0], 15);
         } else if (center && Array.isArray(center) && !isNaN(center[0]) && !isNaN(center[1])) {
-            if (radius && !isNaN(radius) && radius > 0) {
-                const radiusKm = radius / 1000;
+            const parsedRadius = parseFloat(radius);
+            if (!isNaN(parsedRadius) && parsedRadius > 0) {
+                const radiusKm = parsedRadius / 1000;
                 const bounds = L.latLngBounds(
                     [center[0] - radiusKm / 111, center[1] - radiusKm / 111],
                     [center[0] + radiusKm / 111, center[1] + radiusKm / 111]
@@ -71,7 +72,10 @@ export default function LocationMap({
                     }
                 }
 
-                if (!lat || !lon || isNaN(lat) || isNaN(lon)) return null;
+                lat = parseFloat(lat);
+                lon = parseFloat(lon);
+
+                if (isNaN(lat) || isNaN(lon)) return null;
 
                 return { ...loc, _lat: lat, _lon: lon };
             })
@@ -87,7 +91,9 @@ export default function LocationMap({
                 const avgLat = locationMarkers.reduce((s, m) => s + m._lat, 0) / locationMarkers.length;
                 const avgLon = locationMarkers.reduce((s, m) => s + m._lon, 0) / locationMarkers.length;
                 if (!cancelled) {
-                    setMapCenter([avgLat, avgLon]);
+                    if (!isNaN(avgLat) && !isNaN(avgLon)) {
+                        setMapCenter([avgLat, avgLon]);
+                    }
                     if (projectTrace?.distance) {
                         const radiusM = projectTrace.unit === 'km'
                             ? projectTrace.distance * 1000

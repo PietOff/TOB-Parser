@@ -186,6 +186,14 @@ export async function parseDocx(file, onProgress) {
         const nameMatch = fullText.match(nameRegex);
         if (nameMatch) {
             loc.locatienaam = nameMatch[1].trim().substring(0, 100);
+
+            // Try to extract postcode from locatienaam
+            const pMatch = loc.locatienaam.match(/\b([1-9][0-9]{3}\s?[A-Za-z]{2})\b/);
+            if (pMatch) loc.postcode = pMatch[1].replace(/\s/g, '').toUpperCase();
+
+            // Try to extract huisnummer from locatienaam
+            const hMatch = loc.locatienaam.match(/\b(\d{1,4}[a-zA-Z]?)\b/);
+            if (hMatch) loc.huisnummer = hMatch[1];
         }
 
         // Try to extract year from context around the code
@@ -194,6 +202,28 @@ export async function parseDocx(file, onProgress) {
         if (context) {
             const yearMatch = context[0].match(/\b(20[12]\d)\b/);
             if (yearMatch) loc.rapportJaar = parseInt(yearMatch[1]);
+
+            // Try to extract postcode from context if we don't have it yet
+            if (!loc.postcode) {
+                // Look strictly AFTER the locatiecode to avoid grabbing a previous address
+                const afterCode = context[0].substring(context[0].indexOf(code));
+                const pMatch = afterCode.match(/\b([1-9][0-9]{3}\s?[A-Za-z]{2})\b/);
+                if (pMatch) loc.postcode = pMatch[1].replace(/\s/g, '').toUpperCase();
+            }
+
+            // Look for optional woonplaats near postcode
+            if (loc.postcode) {
+                // Find word after postcode
+                const escapedPostcode = loc.postcode.replace(/(.{4})(.{2})/, "$1\\s?$2");
+                const cityMatch = context[0].match(new RegExp(`${escapedPostcode}\\s+([A-Z][A-Za-z\\-]+)\\b`));
+                if (cityMatch) {
+                    // Filter out non-cities that might casually follow a postcode
+                    const possibleCity = cityMatch[1].trim();
+                    if (!['en', 'de', 'het', 'een', 'van', 'tot'].includes(possibleCity.toLowerCase())) {
+                        loc.woonplaats = possibleCity;
+                    }
+                }
+            }
 
             // Check for verontreiniging keywords near this code
             if (/verdacht|verontreinig|interventiewaarde|sanering/i.test(context[0])) {

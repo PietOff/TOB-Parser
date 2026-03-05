@@ -194,11 +194,19 @@ export async function pdokSuggest(query) {
 const PROXY = 'https://api.allorigins.win/get?url=';
 
 async function fetchWithProxy(url) {
-    const res = await fetch(PROXY + encodeURIComponent(url));
-    if (!res.ok) throw new Error(`Proxy error: ${res.status}`);
-    const data = await res.json();
-    if (!data.contents) throw new Error('No contents in proxy response');
-    return JSON.parse(data.contents);
+    try {
+        const res = await fetch(PROXY + encodeURIComponent(url));
+        if (!res.ok) {
+            console.warn(`Proxy warning for ${url}: ${res.status}`);
+            return null;
+        }
+        const data = await res.json();
+        if (!data.contents) return null;
+        return JSON.parse(data.contents);
+    } catch (e) {
+        console.warn(`Fetch error via proxy for ${url}:`, e);
+        return null; // Return null gracefully instead of throwing to prevent Promise.all crashes
+    }
 }
 
 /**
@@ -213,6 +221,7 @@ export async function getBodemkwaliteit(rdX, rdY, buffer = 50) {
             `bbox=${bbox},EPSG:28992&outputFormat=application/json&count=5`;
 
         const data = await fetchWithProxy(originalUrl);
+        if (!data) return null;
 
         if (data.features?.length > 0) {
             return data.features.map(f => ({
@@ -224,7 +233,7 @@ export async function getBodemkwaliteit(rdX, rdY, buffer = 50) {
         }
         return null;
     } catch (err) {
-        console.warn('Bodemkwaliteit query failed:', err);
+        console.warn('Bodemkwaliteit query data mapping failed:', err);
         return null;
     }
 }
@@ -241,6 +250,7 @@ export async function getHbbData(rdX, rdY, buffer = 25) {
             `bbox=${bbox},EPSG:28992&outputFormat=application/json&count=10`;
 
         const data = await fetchWithProxy(originalUrl);
+        if (!data) return null;
 
         return (data.features || []).map(f => ({
             naam: f.properties.naam || f.properties.activiteit,
@@ -248,7 +258,7 @@ export async function getHbbData(rdX, rdY, buffer = 25) {
             bron: 'HBB (Historisch Bodem Bestand)',
         }));
     } catch (err) {
-        console.warn('HBB query failed:', err);
+        console.warn('HBB query data mapping failed:', err);
         return null;
     }
 }
@@ -366,20 +376,27 @@ export function rdToWgs84(x, y) {
 export async function getBuildingDetails(rdX, rdY, buffer = 10) {
     try {
         const bbox = `${rdX - buffer},${rdY - buffer},${rdX + buffer},${rdY + buffer}`;
-        const originalUrl = `https://service.pdok.nl/lvbag/bag/wfs/v2_0?` +
+        const originalUrl = `https://service.pdok.nl/kadaster/bag/wfs/v2_0?` +
             `service=WFS&version=2.0.0&request=GetFeature&` +
-            `typeName=bag:pand&bbox=${bbox},EPSG:28992&outputFormat=application/json&count=10`;
+            `typeName=bag:pand&` +
+            `bbox=${bbox},EPSG:28992&outputFormat=application/json&count=10`;
 
         const data = await fetchWithProxy(originalUrl);
+        // Check for error object returned by fetchWithProxy
+        if (data && data.error) {
+            console.warn(`BAG WFS query failed for ${originalUrl}:`, data.error);
+            return null;
+        }
+        if (!data) return null;
 
         return (data.features || []).map(f => ({
             id: f.properties.identificatie,
-            bouwjaar: f.properties.oorspronkelijkbouwjaar,
             status: f.properties.status,
-            oppervlakte: f.properties.oppervlakte,
+            bouwjaar: f.properties.oorspronkelijkbouwjaar,
+            bron: 'BAG Pand WFS',
         }));
     } catch (err) {
-        console.warn('BAG WFS query failed:', err);
+        console.warn('BAG WFS query mapping failed:', err);
         return null;
     }
 }
