@@ -1,8 +1,23 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
-import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, LayersControl, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, WMSTileLayer, Circle, Marker, Popup, LayersControl, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { rdToWgs84 } from '../utils/apiIntegrations';
+
+/**
+ * Create a circular div-based Leaflet icon — same visual as CircleMarker but draggable
+ */
+function createCircleIcon(color, isHighlighted) {
+    const size = isHighlighted ? 20 : 14;
+    const border = isHighlighted ? '3px solid #fff' : `2px solid ${color}`;
+    return L.divIcon({
+        className: '',
+        html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:${border};box-shadow:0 2px 5px rgba(0,0,0,0.45);cursor:grab;"></div>`,
+        iconSize: [size, size],
+        iconAnchor: [size / 2, size / 2],
+        popupAnchor: [0, -(size / 2) - 4],
+    });
+}
 
 // Component to auto-fit map bounds to all locations
 function FitBounds({ locations, center, radius }) {
@@ -80,6 +95,7 @@ function FlyToLocation({ locations, highlightedCode }) {
 export default function LocationMap({
     locations = [],
     height = '400px',
+    onLocationDrag,
     highlightedLocationCode,
     projectAddress,
     projectTrace
@@ -312,37 +328,72 @@ export default function LocationMap({
                     />
                 )}
 
-                {/* Individual location markers */}
+                {/* Individual location markers — draggable */}
                 {locationMarkers.map(loc => {
                     const isHighlighted = highlightedLocationCode === loc.locatiecode;
                     const isComplex = loc.complex;
                     const color = isComplex ? '#ef4444' : '#22c55e';
+                    const bagId = loc._enriched?.pdok?.nummeraanduidingId;
+                    const topoUrl = loc._enriched?.topotijdreisHuidig;
+                    const bodemUrl = loc._enriched?.bodemloket;
+                    const hasLinks = bagId || topoUrl || bodemUrl;
 
                     return (
-                        <CircleMarker
+                        <Marker
                             key={loc.locatiecode}
-                            center={[loc._lat, loc._lon]}
-                            radius={isHighlighted ? 10 : 7}
-                            pathOptions={{
-                                color: isHighlighted ? '#fff' : color,
-                                weight: isHighlighted ? 3 : 2,
-                                fillColor: color,
-                                fillOpacity: 0.8,
+                            position={[loc._lat, loc._lon]}
+                            icon={createCircleIcon(color, isHighlighted)}
+                            draggable={true}
+                            eventHandlers={{
+                                dragend: (e) => {
+                                    const { lat, lng } = e.target.getLatLng();
+                                    onLocationDrag?.(loc.locatiecode, lat, lng);
+                                }
                             }}
                         >
-                            <Popup>
-                                <div style={{ fontSize: '12px', minWidth: '150px' }}>
-                                    <strong>{loc.locatiecode}</strong>
-                                    {loc.locatienaam && <div>{loc.locatienaam}</div>}
-                                    {loc.straatnaam && <div>{loc.straatnaam} {loc.huisnummer}</div>}
+                            <Popup minWidth={200}>
+                                <div style={{ fontSize: '12px', lineHeight: '1.5' }}>
+                                    <strong style={{ fontSize: '13px' }}>{loc.locatiecode}</strong>
+                                    {loc.locatienaam && <div style={{ color: '#555' }}>{loc.locatienaam}</div>}
+                                    {loc.straatnaam && (
+                                        <div>{loc.straatnaam} {loc.huisnummer}</div>
+                                    )}
+                                    {loc.postcode && (
+                                        <div>{loc.postcode}{loc.woonplaats ? ` ${loc.woonplaats}` : ''}</div>
+                                    )}
                                     {loc.conclusie && (
-                                        <div style={{ marginTop: '4px', color: isComplex ? '#ef4444' : '#22c55e' }}>
-                                            {loc.conclusie}
+                                        <div style={{ marginTop: '4px', fontWeight: 'bold', color: isComplex ? '#ef4444' : '#16a34a' }}>
+                                            {loc.conclusie.replace(/_/g, ' ')}
                                         </div>
                                     )}
+
+                                    {/* External links */}
+                                    {hasLinks && (
+                                        <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                            {topoUrl && (
+                                                <a href={topoUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'none' }}>
+                                                    🗺️ Topotijdreis
+                                                </a>
+                                            )}
+                                            {bodemUrl && (
+                                                <a href={bodemUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'none' }}>
+                                                    🔍 Bodemloket
+                                                </a>
+                                            )}
+                                            {bagId && (
+                                                <a href={`https://bagviewer.kadaster.nl/lvbag/bag-viewer/?objectid=${bagId}`} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'none' }}>
+                                                    🏠 BAG Viewer
+                                                </a>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    <div style={{ marginTop: '6px', fontSize: '10px', color: '#9ca3af' }}>
+                                        💡 Sleep de pin om de positie te corrigeren
+                                    </div>
                                 </div>
                             </Popup>
-                        </CircleMarker>
+                        </Marker>
                     );
                 })}
             </MapContainer>
