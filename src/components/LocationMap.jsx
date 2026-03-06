@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
-import { MapContainer, TileLayer, WMSTileLayer, Circle, Marker, Popup, LayersControl, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, WMSTileLayer, Circle, Marker, Popup, Polygon, LayersControl, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { rdToWgs84 } from '../utils/apiIntegrations';
+import { ellipseToPolygon } from '../utils/tracePixelAnalyzer';
 
 /**
  * Create a circular div-based Leaflet icon — same visual as CircleMarker but draggable
@@ -327,6 +328,52 @@ export default function LocationMap({
                         }}
                     />
                 )}
+
+                {/* Trace ellipse polygons — one per unique projectCode */}
+                {(() => {
+                    const seen = new Set();
+                    return locationMarkers
+                        .filter(loc => {
+                            const shape = loc._traceShape;
+                            if (!shape || !loc._lat || !loc._lon) return false;
+                            const key = loc._projectCode || loc.locatiecode;
+                            if (seen.has(key)) return false;
+                            seen.add(key);
+                            return true;
+                        })
+                        .map(loc => {
+                            const shape = loc._traceShape;
+                            const pts = ellipseToPolygon(loc._lat, loc._lon, shape.widthM, shape.heightM);
+                            return (
+                                <Polygon
+                                    key={`trace-${loc._projectCode || loc.locatiecode}`}
+                                    positions={pts}
+                                    pathOptions={{
+                                        color: '#f97316',
+                                        weight: 2,
+                                        dashArray: '6 4',
+                                        fillColor: '#f97316',
+                                        fillOpacity: 0.08,
+                                    }}
+                                >
+                                    <Popup minWidth={160}>
+                                        <div style={{ fontSize: '12px' }}>
+                                            <strong>📐 Tracé-contour</strong>
+                                            <div style={{ marginTop: '4px', color: '#555' }}>
+                                                Breedte: {shape.widthM.toFixed(0)} m<br />
+                                                Hoogte: {shape.heightM.toFixed(0)} m
+                                            </div>
+                                            {loc._projectCode && (
+                                                <div style={{ marginTop: '4px', fontSize: '10px', color: '#9ca3af' }}>
+                                                    {loc._projectCode}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </Popup>
+                                </Polygon>
+                            );
+                        });
+                })()}
 
                 {/* Individual location markers — draggable */}
                 {locationMarkers.map(loc => {
