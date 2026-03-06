@@ -83,17 +83,17 @@ async function scanLocation(locatiecode, query, browser) {
         try {
             console.log(`   📡 [${locatiecode}] Checking Bodemloket...`);
             const bodemloketUrl = `https://www.bodemloket.nl/kaart`;
-            await page.goto(bodemloketUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+            await page.goto(bodemloketUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
             // Wait for the page to fully load
-            await page.waitForTimeout(3000);
+            await new Promise(r => setTimeout(r, 3000));
 
             // Try to search for the address
             const searchInput = await page.$('input[type="search"], input[placeholder*="zoek"], input[name="search"]');
             if (searchInput) {
                 await searchInput.type(query, { delay: 50 });
                 await page.keyboard.press('Enter');
-                await page.waitForTimeout(5000);
+                await new Promise(r => setTimeout(r, 5000));
                 console.log(`   ✅ [${locatiecode}] Bodemloket search submitted.`);
             } else {
                 console.log(`   ⚠️ [${locatiecode}] Bodemloket search input not found, using Google fallback.`);
@@ -112,8 +112,8 @@ async function scanLocation(locatiecode, query, browser) {
         try {
             console.log(`   🗺️ [${locatiecode}] Checking Topotijdreis...`);
             const topotijdreisUrl = `https://www.topotijdreis.nl`;
-            await page.goto(topotijdreisUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-            await page.waitForTimeout(2000);
+            await page.goto(topotijdreisUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await new Promise(r => setTimeout(r, 2000));
 
             results.topotijdreis.checked = true;
             results.topotijdreis.findings.push('Topotijdreis pagina geladen.');
