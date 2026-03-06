@@ -5,7 +5,7 @@ import ExportPanel from './components/ExportPanel';
 import { extractPdfText, parseTobReport, mergeToLocations } from './utils/pdfParser';
 import { parseXlsx, xlsxToLocations } from './utils/xlsxParser';
 import { parseDocx, docxToLocations } from './utils/docxParser';
-import { enrichAllLocations, triggerDeepScanBatch, detectCityFromText, wgs84ToRd, pdokReverse, getGithubToken } from './utils/apiIntegrations';
+import { enrichAllLocations, detectCityFromText, wgs84ToRd, pdokReverse } from './utils/apiIntegrations';
 import { extractAllPostcodes } from './utils/traceExtraction';
 import { assessLocation } from './utils/smartFill';
 import './index.css';
@@ -238,25 +238,6 @@ export default function App() {
             setProjectAddress(capturedAddress);
             setProjectTrace(capturedTrace);
             setStep(2);
-
-            // --- Automatic Deep Scan Trigger ---
-            const token = getGithubToken();
-            if (token) {
-                setParseStatus('☁️ Cloud-onderzoek (Bodemloket/Topotijdreis) wordt gestart...');
-                try {
-                    await triggerDeepScanBatch(finalLocations, token, 'PietOff', 'TOB-Parser');
-                    setParseStatus('✅ Deep Scan succesvol gestart op GitHub! Onderzoek loopt op de achtergrond.');
-                    // Small delay so user can read the success message
-                    await new Promise(r => setTimeout(r, 2000));
-                    console.log('✅ Batch Deep Scan gestart voor', finalLocations.length, 'locaties');
-                } catch (dispatchErr) {
-                    console.warn('⚠️ Batch Deep Scan kon niet automatisch starten:', dispatchErr.message);
-                    setParseStatus(`⚠️ Cloud-scan start mislukt: ${dispatchErr.message}. Werk handmatig verder.`);
-                    await new Promise(r => setTimeout(r, 3000));
-                }
-            } else {
-                console.log('ℹ️ Geen GitHub token gevonden — Deep Scan overgeslagen.');
-            }
 
         } catch (err) {
             console.error('❌ [App] Parse error:', err);
