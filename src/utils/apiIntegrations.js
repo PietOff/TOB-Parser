@@ -191,8 +191,8 @@ export async function pdokSuggest(query) {
 // ══════════════════════════════════════
 
 // Helper to bypass CORS for PDOK WFS services
-// We use allorigins.win but need to use /get instead of /raw to reliably parse JSON
-const PROXY = 'https://api.allorigins.win/get?url=';
+// corsproxy.io returns the raw response directly (no .contents wrapper)
+const PROXY = 'https://corsproxy.io/?url=';
 
 async function fetchWithProxy(url) {
     try {
@@ -201,9 +201,7 @@ async function fetchWithProxy(url) {
             console.warn(`Proxy warning for ${url}: ${res.status}`);
             return null;
         }
-        const data = await res.json();
-        if (!data.contents) return null;
-        return JSON.parse(data.contents);
+        return await res.json();
     } catch (e) {
         console.warn(`Fetch error via proxy for ${url}:`, e);
         return null; // Return null gracefully instead of throwing to prevent Promise.all crashes
@@ -417,6 +415,7 @@ function cleanAddressQuery(query) {
         .replace(/\b(ongen\.?|ong\.?)\b/gi, '')                  // "ongenummerd" / "ong."
         .replace(/\s*[-–]\s*/g, ' ')                             // dashes to spaces
         .replace(/\s{2,}/g, ' ')                                 // multi-space collapse
+        .replace(/[\s.,;:]+$/, '')                               // trailing punctuation after stripping terms
         .trim();
 }
 
