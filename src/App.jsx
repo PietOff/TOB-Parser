@@ -5,7 +5,7 @@ import ExportPanel from './components/ExportPanel';
 import { extractPdfText, parseTobReport, mergeToLocations } from './utils/pdfParser';
 import { parseXlsx, xlsxToLocations } from './utils/xlsxParser';
 import { parseDocx, docxToLocations } from './utils/docxParser';
-import { enrichAllLocations, triggerDeepScanBatch, detectCityFromText, wgs84ToRd, getGithubToken } from './utils/apiIntegrations';
+import { enrichAllLocations, triggerDeepScanBatch, detectCityFromText, wgs84ToRd, pdokReverse, getGithubToken } from './utils/apiIntegrations';
 import { extractAllPostcodes } from './utils/traceExtraction';
 import { assessLocation } from './utils/smartFill';
 import './index.css';
@@ -273,29 +273,46 @@ export default function App() {
     }, []);
 
     // Handle manual marker drag from the map
-    const handleLocationDrag = (locatiecode, newLat, newLng) => {
-        setLocations(prevLocations =>
-            prevLocations.map(loc => {
-                if (loc.locatiecode === locatiecode || loc.id === locatiecode) {
-                    const newRd = wgs84ToRd(newLat, newLng);
+    const handleLocationDrag = async (locatiecode, newLat, newLng) => {
+        const newRd = wgs84ToRd(newLat, newLng);
+        console.log(`🗺️ [Map] Drag ${locatiecode}: (${newLat.toFixed(5)}, ${newLng.toFixed(5)}) → RD(${newRd.x}, ${newRd.y})`);
 
-                    console.log(`🗺️ [Map] Manual correction for ${locatiecode}: Lat ${newLat.toFixed(5)}, Lng ${newLng.toFixed(5)} -> RD X: ${newRd.x}, Y: ${newRd.y}`);
+        // 1. Update coords immediately so pin doesn't snap back
+        setLocations(prev => prev.map(loc => {
+            if (loc.locatiecode !== locatiecode && loc.id !== locatiecode) return loc;
+            return {
+                ...loc,
+                _enriched: { ...loc._enriched, lat: newLat, lon: newLng, rd: newRd },
+                rdX: newRd.x,
+                rdY: newRd.y,
+            };
+        }));
 
+        // 2. Reverse geocode and update address fields in the table
+        try {
+            const results = await pdokReverse(newRd.x, newRd.y);
+            const addr = results?.find(r => r.type === 'adres') || results?.[0];
+            if (addr) {
+                console.log(`📬 [Map] Reverse geocode → ${addr.weergavenaam}`);
+                setLocations(prev => prev.map(loc => {
+                    if (loc.locatiecode !== locatiecode && loc.id !== locatiecode) return loc;
                     return {
                         ...loc,
+                        straatnaam: addr.straatnaam || loc.straatnaam,
+                        huisnummer: addr.huisnummer || loc.huisnummer,
+                        postcode: addr.postcode || loc.postcode,
+                        woonplaats: addr.woonplaats || loc.woonplaats,
                         _enriched: {
                             ...loc._enriched,
-                            lat: newLat,
-                            lon: newLng,
-                            rd: newRd
+                            gemeente: addr.gemeente || loc._enriched?.gemeente,
+                            woonplaats: addr.woonplaats || loc._enriched?.woonplaats,
                         },
-                        rdX: newRd.x,
-                        rdY: newRd.y
                     };
-                }
-                return loc;
-            })
-        );
+                }));
+            }
+        } catch (err) {
+            console.warn('Reverse geocode after drag failed:', err);
+        }
     };
 
     return (
