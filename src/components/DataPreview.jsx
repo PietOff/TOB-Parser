@@ -1,6 +1,6 @@
-import { useState, lazy, Suspense, Component } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { assessLocation, generateSmartContent } from '../utils/smartFill';
-import { triggerDeepScan, getGithubToken } from '../utils/apiIntegrations';
+import { triggerDeepScan, triggerDeepScanBatch, getGithubToken } from '../utils/apiIntegrations';
 
 // Lazy load map to prevent SSR issues and reduce initial bundle size
 const LocationMap = lazy(() =>
@@ -13,6 +13,8 @@ const LocationMap = lazy(() =>
 
 export default function DataPreview({ locations, onLocationsUpdate, onLocationDrag, projectAddress, projectTrace }) {
     const [expandedCase, setExpandedCase] = useState(null);
+    const [deepScanStatus, setDeepScanStatus] = useState(null); // null | 'running' | 'done' | 'error'
+    const [deepScanMsg, setDeepScanMsg] = useState('');
 
     const complexLocations = locations.filter(l => l.complex);
     const simpleLocations = locations.filter(l => !l.complex);
@@ -68,11 +70,50 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                 </div>
             </div>
 
-            {/* Legend */}
-            <div className="legend">
-                <div className="legend-item"><div className="legend-dot source" /> Brondata</div>
-                <div className="legend-item"><div className="legend-dot draft" /> Auto-gegenereerd</div>
-                <div className="legend-item"><div className="legend-dot empty" /> In te vullen</div>
+            {/* Legend + Deep Scan batch knop */}
+            <div className="legend" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                    <div className="legend-item"><div className="legend-dot source" /> Brondata</div>
+                    <div className="legend-item"><div className="legend-dot draft" /> Auto-gegenereerd</div>
+                    <div className="legend-item"><div className="legend-dot empty" /> In te vullen</div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    {deepScanMsg && (
+                        <span style={{
+                            fontSize: '0.8rem',
+                            color: deepScanStatus === 'error' ? 'var(--danger)' : deepScanStatus === 'done' ? 'var(--success)' : 'var(--text-secondary)',
+                        }}>
+                            {deepScanMsg}
+                        </span>
+                    )}
+                    <button
+                        className="btn btn-secondary"
+                        disabled={deepScanStatus === 'running'}
+                        style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem', whiteSpace: 'nowrap' }}
+                        title={`Start cloud-onderzoek (Bodemloket/Topotijdreis) voor alle ${locations.length} locaties via GitHub Actions`}
+                        onClick={async () => {
+                            let token = getGithubToken();
+                            if (!token) {
+                                token = prompt('GitHub Personal Access Token (voor Deep Scan):');
+                                if (!token) return;
+                                localStorage.setItem('github_token', token);
+                            }
+                            setDeepScanStatus('running');
+                            setDeepScanMsg(`☁️ Deep Scan starten voor ${locations.length} locaties...`);
+                            try {
+                                await triggerDeepScanBatch(locations, token, 'PietOff', 'TOB-Parser');
+                                setDeepScanStatus('done');
+                                setDeepScanMsg(`✅ Deep Scan gestart — resultaten komen via GitHub Actions`);
+                            } catch (err) {
+                                setDeepScanStatus('error');
+                                setDeepScanMsg(`❌ ${err.message}`);
+                            }
+                        }}
+                    >
+                        {deepScanStatus === 'running' ? <><span className="spinner" style={{ width: '10px', height: '10px', display: 'inline-block', marginRight: '4px' }} />Bezig...</> : '☁️ Deep Scan'}
+                    </button>
+                </div>
             </div>
 
             {/* Master Map Overview */}
