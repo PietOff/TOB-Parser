@@ -40,11 +40,11 @@ async function findTraceMapImage(arrayBuffer) {
         const { default: JSZip } = await import('jszip');
         const zip = await JSZip.loadAsync(arrayBuffer);
 
-        // Build PictureId → filename map from _rels
+        // Build relationship ID → filename map (handles rId1, PictureId1, etc.)
         const relsXml = await zip.files['word/_rels/document.xml.rels']?.async('string') ?? '';
-        const picMap = {};
-        for (const [, id, fname] of relsXml.matchAll(/Id="(PictureId\d+)"[^>]*Target="media\/([^"]+)"/g)) {
-            picMap[id] = fname;
+        const relMap = {};
+        for (const [, id, fname] of relsXml.matchAll(/Id="([^"]+)"[^>]*Target="media\/([^"]+)"/g)) {
+            relMap[id] = fname;
         }
 
         // Split document.xml into paragraphs, track last caption text
@@ -58,9 +58,11 @@ async function findTraceMapImage(arrayBuffer) {
             const text = para.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
             if (text) lastCaption = text;
 
-            const pidMatch = para.match(/PictureId\d+/);
-            if (pidMatch) {
-                const fname = picMap[pidMatch[0]];
+            // Match standard r:id="rId1" / r:embed="rId1" attributes, or legacy PictureId format
+            const ridMatch = para.match(/r:(?:id|embed)="([^"]+)"/i) ?? para.match(/(PictureId\d+)/);
+            if (ridMatch) {
+                const rid = ridMatch[1];
+                const fname = relMap[rid];
                 if (fname && /verontreinigingscontour/i.test(lastCaption)) {
                     targetFname = fname;
                     break;
@@ -68,21 +70,21 @@ async function findTraceMapImage(arrayBuffer) {
             }
         }
 
-        // Fallback: first PNG > 60 KB with yellow content
+        // Fallback: scan all PNGs referenced in rels for yellow pixels
+        // Uses blob.size (not private _data API) for the size pre-filter
         if (!targetFname) {
-            const candidates = Object.values(zip.files)
-                .filter(f => f.name.startsWith('word/media/') && f.name.endsWith('.png'))
-                .map(f => ({ f, size: f._data?.uncompressedSize ?? 0 }))
-                .filter(({ size }) => size > 60_000)
-                .sort((a, b) => b.size - a.size);
-
-            for (const { f } of candidates.slice(0, 8)) {
-                const blob = await f.async('blob');
+            const pngFnames = Object.values(relMap).filter(fname => /\.png$/i.test(fname));
+            for (const fname of pngFnames) {
+                const entry = zip.files[`word/media/${fname}`];
+                if (!entry) continue;
+                const blob = await entry.async('blob');
+                if (blob.size < 20_000) continue;
                 const url = URL.createObjectURL(blob);
                 const hasYellow = await _quickYellowCheck(url);
                 URL.revokeObjectURL(url);
                 if (hasYellow) {
-                    targetFname = f.name.replace('word/media/', '');
+                    targetFname = fname;
+                    console.log('[DocxParser] Found trace image via yellow check:', fname);
                     break;
                 }
             }
