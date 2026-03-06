@@ -1,9 +1,15 @@
-import { useState, lazy, Suspense } from 'react';
+import { useState, lazy, Suspense, Component } from 'react';
 import { assessLocation, generateSmartContent } from '../utils/smartFill';
 import { triggerDeepScan, getGithubToken } from '../utils/apiIntegrations';
 
 // Lazy load map to prevent SSR issues and reduce initial bundle size
-const LocationMap = lazy(() => import('./LocationMap'));
+const LocationMap = lazy(() =>
+    import('./LocationMap').catch(() => {
+        // Chunk hash mismatch after Vercel redeploy — force a hard reload
+        window.location.reload();
+        return new Promise(() => {}); // never resolves, reload takes over
+    })
+);
 
 export default function DataPreview({ locations, onLocationsUpdate, onLocationDrag, projectAddress, projectTrace }) {
     const [expandedCase, setExpandedCase] = useState(null);
