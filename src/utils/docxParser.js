@@ -22,6 +22,106 @@
 import mammoth from 'mammoth';
 import { extractAllAddresses, extractBestAddress, extractTraceDescription } from './traceExtraction';
 import { extractImagesFromDocx, ocrImageForTrace } from './imageTraceOcr';
+import { analyzeTraceImage } from './tracePixelAnalyzer';
+
+/**
+ * Find the trace contour map image inside a DOCX.
+ *
+ * Strategy:
+ *  1. Parse document.xml + _rels to find the image whose preceding paragraph
+ *     contains "verontreinigingscontour" (the standard Tauw caption).
+ *  2. Fall back to the first large (>60 KB) PNG that has detectable yellow pixels.
+ *
+ * @param {ArrayBuffer} arrayBuffer
+ * @returns {Promise<Blob|null>}
+ */
+async function findTraceMapImage(arrayBuffer) {
+    try {
+        const { default: JSZip } = await import('jszip');
+        const zip = await JSZip.loadAsync(arrayBuffer);
+
+        // Build PictureId → filename map from _rels
+        const relsXml = await zip.files['word/_rels/document.xml.rels']?.async('string') ?? '';
+        const picMap = {};
+        for (const [, id, fname] of relsXml.matchAll(/Id="(PictureId\d+)"[^>]*Target="media\/([^"]+)"/g)) {
+            picMap[id] = fname;
+        }
+
+        // Split document.xml into paragraphs, track last caption text
+        const docXml = await zip.files['word/document.xml']?.async('string') ?? '';
+        const paras = docXml.split(/<w:p[ >]/);
+
+        let lastCaption = '';
+        let targetFname = null;
+
+        for (const para of paras) {
+            const text = para.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            if (text) lastCaption = text;
+
+            const pidMatch = para.match(/PictureId\d+/);
+            if (pidMatch) {
+                const fname = picMap[pidMatch[0]];
+                if (fname && /verontreinigingscontour/i.test(lastCaption)) {
+                    targetFname = fname;
+                    break;
+                }
+            }
+        }
+
+        // Fallback: first PNG > 60 KB with yellow content
+        if (!targetFname) {
+            const candidates = Object.values(zip.files)
+                .filter(f => f.name.startsWith('word/media/') && f.name.endsWith('.png'))
+                .map(f => ({ f, size: f._data?.uncompressedSize ?? 0 }))
+                .filter(({ size }) => size > 60_000)
+                .sort((a, b) => b.size - a.size);
+
+            for (const { f } of candidates.slice(0, 8)) {
+                const blob = await f.async('blob');
+                const url = URL.createObjectURL(blob);
+                const hasYellow = await _quickYellowCheck(url);
+                URL.revokeObjectURL(url);
+                if (hasYellow) {
+                    targetFname = f.name.replace('word/media/', '');
+                    break;
+                }
+            }
+        }
+
+        if (!targetFname) return null;
+
+        const fileEntry = zip.files[`word/media/${targetFname}`];
+        if (!fileEntry) return null;
+        return await fileEntry.async('blob');
+    } catch (err) {
+        console.warn('[DocxParser] findTraceMapImage error:', err.message);
+        return null;
+    }
+}
+
+/** Quick check: does an image URL contain any yellow pixels? (samples 200 points) */
+async function _quickYellowCheck(url) {
+    try {
+        const img = await new Promise((res, rej) => {
+            const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url;
+        });
+        const c = document.createElement('canvas');
+        const step = Math.max(1, Math.floor(img.naturalWidth / 20));
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const d = ctx.getImageData(0, 0, c.width, c.height).data;
+        for (let y = 0; y < c.height; y += step) {
+            for (let x = 0; x < c.width; x += step) {
+                const i = (y * c.width + x) * 4;
+                if (d[i] > 150 && d[i+1] > 120 && d[i+2] < 100 && d[i] - d[i+2] > 80) return true;
+            }
+        }
+        return false;
+    } catch {
+        return false;
+    }
+}
 
 /**
  * Parse a DOCX file and extract TOB-structured data
@@ -347,6 +447,23 @@ export async function parseDocx(file, onProgress) {
         console.log('ℹ️ [DOCX] Skipping OCR (file too small or trace already found)');
     }
 
+    // ── Trace shape: pixel analysis of the contour map image ──────────────
+    try {
+        if (onProgress) onProgress('📐 Tracé-afmetingen meten uit kaartafbeelding...');
+        const traceBlob = await findTraceMapImage(arrayBuffer);
+        if (traceBlob) {
+            const shape = await analyzeTraceImage(traceBlob);
+            if (shape && shape.widthM > 1 && shape.heightM > 1) {
+                data.traceShape = shape;
+                console.log(`✅ [DOCX] Trace shape: ${shape.widthM.toFixed(1)}×${shape.heightM.toFixed(1)} m`);
+            }
+        } else {
+            console.log('ℹ️ [DOCX] No trace map image found');
+        }
+    } catch (err) {
+        console.warn('⚠️ [DOCX] Trace shape analysis failed:', err.message);
+    }
+
     return data;
 }
 
@@ -355,6 +472,12 @@ export async function parseDocx(file, onProgress) {
  */
 export function docxToLocations(docxData) {
     if (docxData.locatiecodes.length > 0) {
+        // Attach the trace shape (if found) to every location from this document
+        if (docxData.traceShape) {
+            for (const loc of docxData.locatiecodes) {
+                loc._traceShape = docxData.traceShape;
+            }
+        }
         return docxData.locatiecodes;
     }
 
@@ -377,6 +500,7 @@ export function docxToLocations(docxData) {
         stoffen: [],
         _source: 'DOCX',
         _projectCode: docxData.projectCode,
+        _traceShape: docxData.traceShape || null,
         _metadata: {
             aanvrager: docxData.aanvrager,
             opdrachtgever: docxData.opdrachtgever,
