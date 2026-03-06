@@ -154,6 +154,7 @@ export async function pdokReverse(x, y) {
             weergavenaam: doc.weergavenaam,
             type: doc.type,
             straatnaam: doc.straatnaam,
+            huisnummer: doc.huisnummer ? String(doc.huisnummer) : null,
             postcode: doc.postcode,
             woonplaats: doc.woonplaatsnaam,
             gemeente: doc.gemeentenaam,
