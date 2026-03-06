@@ -20,6 +20,14 @@ export default function ExportPanel({ locations }) {
         setExporting(true);
         setResult(null);
 
+        // Derive project title from location metadata
+        const projectCode = locations[0]?._projectCode || '';
+        const rawSource = locations[0]?._source || '';
+        const sourceFileName = rawSource.replace(/^(DOCX|PDF|XLSX):\s*/i, '');
+        const exportLabel = projectCode
+            ? `TOB-${projectCode}`
+            : sourceFileName.replace(/\.[^.]+$/, '') || 'TOB-Rapportage';
+
         try {
             const wb = new ExcelJS.Workbook();
             wb.creator = 'TOB Parser';
@@ -64,8 +72,23 @@ export default function ExportPanel({ locations }) {
             const wsOverzicht = wb.addWorksheet('Overzicht Locaties', { properties: { tabColor: { argb: 'FF2196F3' } } });
 
             const columns = getTobColumns();
-            const overzichtHeaders = columns.map(c => c.label);
 
+            // Title rows
+            const titleRow = wsOverzicht.addRow([sourceFileName || exportLabel]);
+            titleRow.getCell(1).font = { bold: true, size: 14, color: { argb: 'FF1A1A2E' } };
+            wsOverzicht.mergeCells(`A1:E1`);
+
+            const subRow = wsOverzicht.addRow([
+                projectCode ? `Project: ${projectCode}` : '',
+                '',
+                `Gegenereerd: ${new Date().toLocaleDateString('nl-NL')}`,
+                '',
+                `Locaties: ${locations.length}`,
+            ]);
+            subRow.font = { italic: true, size: 10, color: { argb: 'FF555555' } };
+            wsOverzicht.addRow([]); // blank spacer
+
+            const overzichtHeaders = columns.map(c => c.label);
             const headerRow = wsOverzicht.addRow(overzichtHeaders);
             headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
             headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4285F4' } };
@@ -181,11 +204,11 @@ export default function ExportPanel({ locations }) {
             // ==========================================
             const buffer = await wb.xlsx.writeBuffer();
             const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-            saveAs(blob, `TOB-Rapportage-${new Date().toISOString().split('T')[0]}.xlsx`);
+            saveAs(blob, `${exportLabel}-${new Date().toISOString().split('T')[0]}.xlsx`);
 
             setResult({
                 success: true,
-                message: `✅ Succes! Excel Rapportage met ${locations.length} locaties (inclusief kaart) is gedownload.`
+                message: `✅ Succes! "${exportLabel}" — ${locations.length} locaties geëxporteerd (inclusief kaart).`
             });
         } catch (err) {
             console.error(err);
