@@ -5,6 +5,7 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { extractAllAddresses, extractBestAddress, extractTraceDescription } from './traceExtraction';
 import { ocrImageForTrace } from './imageTraceOcr';
+import { applyDynamicRules } from './dynamicParser';
 
 // Set worker path
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
@@ -43,7 +44,17 @@ export function parseTobReport(fullText) {
         rawSections: {},
         projectAddress: null,
         projectTrace: null,
+        dynamicFields: {},
     };
+
+    // ── Apply dynamic rules ──
+    try {
+        if (zoekregels && zoekregels.length > 0) {
+            data.dynamicFields = applyDynamicRules(fullText, zoekregels);
+        }
+    } catch(err) {
+        console.warn('⚠️ [PDF] Error applying dynamic rules:', err);
+    }
 
     // ── Extract locatiecodes ──
     // Patterns: ST034401142, AA034409286, UT034400363, etc.
@@ -180,7 +191,7 @@ export function parseTobReport(fullText) {
 /**
  * Merge parsed PDF data into structured locations
  */
-export function mergeToLocations(parsedData) {
+export function mergeToLocations(parsedData, zoekregels = []) {
     const locations = [];
 
     // If we found locatiecodes, create entries for each
@@ -206,6 +217,7 @@ export function mergeToLocations(parsedData) {
                 afstandTrace: null,
                 verdachteActiviteiten: 0,
                 stoffen: [],
+                ...parsedData.dynamicFields, // Inject dynamic extraction results
             };
 
             // Attach any found stoffen with values above intervention
@@ -239,6 +251,7 @@ export function mergeToLocations(parsedData) {
             rapportJaar: parsedData.rapportJaar,
             stoffen: parsedData.stoffen,
             complex: parsedData.conclusies.some(c => c.type === 'VBO_verdacht' || c.type === 'interventiewaarde_overschreden'),
+            ...parsedData.dynamicFields, // Inject dynamic extraction results
         });
     }
 

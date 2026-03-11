@@ -22,6 +22,7 @@
 import mammoth from 'mammoth';
 import { extractAllAddresses, extractBestAddress, extractTraceDescription } from './traceExtraction';
 import { extractImagesFromDocx, ocrImageForTrace } from './imageTraceOcr';
+import { applyDynamicRules } from './dynamicParser';
 
 /**
  * Parse a DOCX file and extract TOB-structured data
@@ -353,9 +354,14 @@ export async function parseDocx(file, onProgress) {
 /**
  * Convert parsed DOCX data to location array (same format as other parsers)
  */
-export function docxToLocations(docxData) {
+export function docxToLocations(docxData, zoekregels = []) {
+    const dynamicFields = applyDynamicRules(docxData.fullText, zoekregels);
+
     if (docxData.locatiecodes.length > 0) {
-        return docxData.locatiecodes;
+        return docxData.locatiecodes.map(loc => ({
+            ...loc,
+            ...dynamicFields
+        }));
     }
 
     // If no locatiecodes found, create a single entry from metadata
@@ -385,5 +391,6 @@ export function docxToLocations(docxData) {
             sleufbreedte: docxData.sleufbreedte,
             sleufdiepte: docxData.sleufdiepte,
         },
+        ...dynamicFields, // Inject dynamic fields
     }];
 }

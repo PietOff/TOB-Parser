@@ -3,35 +3,70 @@
 
 const SHEET_NAME = 'Overzicht Locaties';
 const CHECKLIST_NAME = 'Checklist';
+const RULES_SHEET_NAME = 'Zoekregels';
 
 /**
- * GET handler - returns current sheet data as JSON
+ * GET handler - returns current sheet data + dynamic search rules as JSON
  * Used by GitHub Actions to read existing locations before enriching
+ * Used by TOB Parser React App to fetch dynamic text extraction rules
  */
 function doGet(e) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
+    
+    // --- 1. Get Locations ---
     var sheet = ss.getSheetByName(SHEET_NAME);
     if (!sheet) {
       return jsonResponse({ success: false, error: 'Sheet not found' });
     }
 
     var data = sheet.getDataRange().getValues();
-    if (data.length <= 1) {
-      return jsonResponse({ success: true, locations: [], headers: data[0] || [] });
-    }
-
-    var headers = data[0];
+    var headers = data[0] || [];
     var locations = [];
-    for (var i = 1; i < data.length; i++) {
-      var row = {};
-      for (var j = 0; j < headers.length; j++) {
-        row[headers[j]] = data[i][j];
+    
+    if (data.length > 1) {
+      for (var i = 1; i < data.length; i++) {
+        var row = {};
+        for (var j = 0; j < headers.length; j++) {
+          row[headers[j]] = data[i][j];
+        }
+        locations.push(row);
       }
-      locations.push(row);
     }
 
-    return jsonResponse({ success: true, locations: locations, headers: headers });
+    // --- 2. Get Dynamic Rules ---
+    var rulesSheet = ss.getSheetByName(RULES_SHEET_NAME);
+    var rules = [];
+    if (rulesSheet) {
+      var rulesData = rulesSheet.getDataRange().getValues();
+      if (rulesData.length > 1) {
+        var rulesHeaders = rulesData[0];
+        // Ensure expected columns exist
+        var sleutelIdx = rulesHeaders.indexOf('Sleutel');
+        var voorafIdx = rulesHeaders.indexOf('Zoekterm Vooraf');
+        var achterafIdx = rulesHeaders.indexOf('Zoekterm Achteraf');
+
+        if (sleutelIdx > -1 && voorafIdx > -1 && achterafIdx > -1) {
+          for (var k = 1; k < rulesData.length; k++) {
+            var r = rulesData[k];
+            if (r[sleutelIdx]) { // Only add if Sleutel is not empty
+              rules.push({
+                sleutel: r[sleutelIdx],
+                vooraf: r[voorafIdx] || '',
+                achteraf: r[achterafIdx] || ''
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return jsonResponse({ 
+      success: true, 
+      locations: locations, 
+      headers: headers,
+      zoekregels: rules
+    });
   } catch (err) {
     return jsonResponse({ success: false, error: err.toString() });
   }
@@ -120,21 +155,55 @@ function handleFullExport(ss, data) {
   var overzicht = ss.getSheetByName(SHEET_NAME);
   if (!overzicht) overzicht = ss.insertSheet(SHEET_NAME);
 
+  // Read current headers to preserve any dynamically added columns
+  var currentHeaders = overzicht.getLastColumn() > 0 ? overzicht.getRange(1, 1, 1, overzicht.getLastColumn()).getValues()[0] : [];
+  
   // Clear existing data (keep headers)
   if (overzicht.getLastRow() > 1) {
-    overzicht.getRange(2, 1, overzicht.getLastRow() - 1, overzicht.getLastColumn()).clear();
+    overzicht.getRange(2, 1, overzicht.getLastRow() - 1, Math.max(1, overzicht.getLastColumn())).clear();
   }
 
-  // Write headers if empty
-  if (overzicht.getLastRow() === 0) {
-    var headers = [
-      'Locatiecode', 'Locatienaam', 'Straatnaam', 'Huisnummer', 'Postcode',
-      'Status rapport', 'Conclusie', 'Veiligheidsklasse', 'Melding', 'MKB',
-      'BRL 7000', 'Opmerking', 'Complex', 'Beoordeling', 'Prioriteit',
-      'Rapportjaar', 'Afstand trace (m)', 'Status AbelTalent', 'Opmerkingen AbelTalent',
-      'Gemeente', 'Provincie', 'RD-X', 'RD-Y', 'Bodemkwaliteitsklasse',
-      'Topotijdreis Link', 'Bodemloket Link', 'Toelichting', 'Actie'
-    ];
+  // Default headers if none exist
+  var defaultHeaders = [
+    'Locatiecode', 'Locatienaam', 'Straatnaam', 'Huisnummer', 'Postcode',
+    'Status rapport', 'Conclusie', 'Veiligheidsklasse', 'Melding', 'MKB',
+    'BRL 7000', 'Opmerking', 'Complex', 'Beoordeling', 'Prioriteit',
+    'Rapportjaar', 'Afstand trace (m)', 'Status AbelTalent', 'Opmerkingen AbelTalent',
+    'Gemeente', 'Provincie', 'RD-X', 'RD-Y', 'Bodemkwaliteitsklasse',
+    'Topotijdreis Link', 'Bodemloket Link', 'Toelichting', 'Actie'
+  ];
+
+  // If the incoming export data contains MORE headers than default, use those to create columns
+  // This automatically captures dynamic columns from the frontend ExportPanel
+  var incomingDataKeys = new Set();
+  var locations = data.overzicht || [];
+  
+  // The first item should have all keys from the frontend
+  if (locations.length > 0) {
+      Object.keys(locations[0]).forEach(k => {
+          // Ignore private properties
+          if (!k.startsWith('_')) {
+              incomingDataKeys.add(k);
+          }
+      });
+  }
+
+  // Base headers we always want mapped correctly
+  var headers = currentHeaders.length > 0 ? currentHeaders : defaultHeaders;
+  
+  // Add any completely new keys from the dynamic rules (if sent by frontend but not in sheet)
+  var newHeadersAdded = false;
+  if (locations.length > 0 && data.dynamicKeys) {
+      data.dynamicKeys.forEach(key => {
+          if (!headers.includes(key)) {
+              headers.push(key);
+              newHeadersAdded = true;
+          }
+      });
+  }
+
+  // Write headers
+  if (currentHeaders.length === 0 || newHeadersAdded) {
     overzicht.getRange(1, 1, 1, headers.length).setValues([headers]);
     overzicht.getRange(1, 1, 1, headers.length)
       .setFontWeight('bold')
@@ -143,21 +212,80 @@ function handleFullExport(ss, data) {
     overzicht.setFrozenRows(1);
   }
 
-  var locations = data.overzicht || [];
+  // Write data based on the current headers map
   for (var i = 0; i < locations.length; i++) {
     var loc = locations[i];
-    var row = [
-      loc.locatiecode, loc.locatienaam, loc.straatnaam, loc.huisnummer, loc.postcode,
-      loc.status, loc.conclusie, loc.veiligheidsklasse, loc.melding, loc.mkb,
-      loc.brl7000, loc.opmerking, loc.complex, loc.beoordeling, loc.prioriteit,
-      loc.rapportJaar, loc.afstandTrace, loc.statusAbel, loc.opmerkingenAbel,
-      loc.gemeente || '', loc.provincie || '', loc.rdX || '', loc.rdY || '',
-      loc.bodemkwaliteitsklasse || '', loc.topotijdreisLink || '',
-      loc.bodemloketLink || '', loc.toelichting || '', loc.actie || ''
-    ];
+    var row = [];
+    
+    for (var h = 0; h < headers.length; h++) {
+        var headerKey = headers[h];
+        // Match header to data property. 
+        // e.g., 'Locatiecode' -> 'locatiecode', 'TestSleutel' -> 'testSleutel'
+        var propMap = {
+            'Locatiecode': 'locatiecode',
+            'Locatienaam': 'locatienaam',
+            'Straatnaam': 'straatnaam',
+            'Huisnummer': 'huisnummer',
+            'Postcode': 'postcode',
+            'Status rapport': 'status',
+            'Conclusie': 'conclusie',
+            'Veiligheidsklasse': 'veiligheidsklasse',
+            'Melding': 'melding',
+            'MKB': 'mkb',
+            'BRL 7000': 'brl7000',
+            'Opmerking': 'opmerking',
+            'Complex': 'complex',
+            'Beoordeling': 'beoordeling',
+            'Prioriteit': 'prioriteit',
+            'Rapportjaar': 'rapportJaar',
+            'Afstand trace (m)': 'afstandTrace',
+            'Status AbelTalent': 'statusAbel',
+            'Opmerkingen AbelTalent': 'opmerkingenAbel',
+            'Gemeente': 'gemeente',
+            'Provincie': 'provincie',
+            'RD-X': 'rdX',
+            'RD-Y': 'rdY',
+            'Bodemkwaliteitsklasse': 'bodemkwaliteitsklasse',
+            'Topotijdreis Link': 'topotijdreisLink',
+            'Bodemloket Link': 'bodemloketLink',
+            'Toelichting': 'toelichting',
+            'Actie': 'actie'
+        };
+        
+        // If it's a known default header, map it. Otherwise, assume the header name exactly matches the key 
+        // (or camelCased variant) from the dynamic rules
+        var dataKey = propMap[headerKey];
+        if (!dataKey) {
+             // Try exact match first
+             if (loc[headerKey] !== undefined) {
+                 dataKey = headerKey;
+             } else {
+                 // Try camelCase mapping: 'Test Sleutel' -> 'testSleutel'
+                 var camelKey = headerKey.replace(/(?:^\w|[A-Z]|\b\w)/g, function(word, index) {
+                    return index === 0 ? word.toLowerCase() : word.toUpperCase();
+                  }).replace(/\s+/g, '');
+                 if (loc[camelKey] !== undefined) {
+                     dataKey = camelKey;
+                 }
+                 // Last resort: simple exact match from raw data
+                 else {
+                     dataKey = headerKey;
+                 }
+             }
+        }
+        
+        var val = loc[dataKey];
+        // Special case for boolean 'complex'
+        if (dataKey === 'complex') {
+            val = val ? 'Ja' : 'Nee';
+        }
+        
+        row.push(val !== undefined && val !== null ? val : '');
+    }
+    
     overzicht.getRange(i + 2, 1, 1, row.length).setValues([row]);
 
-    if (loc.complex === 'Ja') {
+    if (loc.complex === 'Ja' || loc.complex === true) {
       overzicht.getRange(i + 2, 1, 1, row.length).setBackground('#fce4ec');
     }
   }
@@ -251,6 +379,7 @@ function setupSheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   ss.rename('TOB Parser - Bronbestand Complexe Zaken');
 
+  // --- 1. Main Sheet ---
   var sheet1 = ss.getSheets()[0];
   sheet1.setName(SHEET_NAME);
   sheet1.clear();
@@ -269,12 +398,32 @@ function setupSheet() {
   var statusRule = SpreadsheetApp.newDataValidation()
     .requireValueInList(['Nog te doen', 'In uitvoering', 'Afgerond', 'N.v.t.'])
     .build();
-  sheet1.getRange(2, 18, 500, 1).setDataValidation(statusRule);
+  sheet1.getRange(2, 18, 500, 1).setDataValidation(statusRule); // Column R = Status AbelTalent
   sheet1.setFrozenRows(1);
 
-  var sheet3 = ss.insertSheet(CHECKLIST_NAME);
-  sheet3.getRange(1, 1, 1, 5).setValues([['Locatiecode', 'Stof', 'Document', 'Status', 'Toelichting']]);
-  sheet3.getRange(1, 1, 1, 5).setFontWeight('bold').setBackground('#ea4335').setFontColor('white');
+  // --- 2. Checklist Sheet ---
+  var checklistSheet = ss.getSheetByName(CHECKLIST_NAME);
+  if (!checklistSheet) {
+    checklistSheet = ss.insertSheet(CHECKLIST_NAME);
+  } else {
+    checklistSheet.clear();
+  }
+  checklistSheet.getRange(1, 1, 1, 5).setValues([['Locatiecode', 'Stof', 'Document', 'Status', 'Toelichting']]);
+  checklistSheet.getRange(1, 1, 1, 5).setFontWeight('bold').setBackground('#ea4335').setFontColor('white');
+  checklistSheet.setFrozenRows(1);
+
+  // --- 3. Dynamic Rules Sheet ---
+  var rulesSheet = ss.getSheetByName(RULES_SHEET_NAME);
+  if (!rulesSheet) {
+    rulesSheet = ss.insertSheet(RULES_SHEET_NAME);
+  } else {
+    rulesSheet.clear();
+  }
+  
+  var rulesHeaders = ['Sleutel', 'Zoekterm Vooraf', 'Zoekterm Achteraf'];
+  rulesSheet.getRange(1, 1, 1, rulesHeaders.length).setValues([rulesHeaders]);
+  rulesSheet.getRange(1, 1, 1, rulesHeaders.length).setFontWeight('bold').setBackground('#34a853').setFontColor('white');
+  rulesSheet.setFrozenRows(1);
 
   SpreadsheetApp.getUi().alert('Setup voltooid! Publiceer nu als Web App.');
 }

@@ -12,7 +12,7 @@ function camelToLabel(str) {
         .replace(/_/g, ' ');
 }
 
-export default function ExportPanel({ locations }) {
+export default function ExportPanel({ locations, zoekregels = [] }) {
     const [exporting, setExporting] = useState(false);
     const [result, setResult] = useState(null);
 
@@ -63,7 +63,7 @@ export default function ExportPanel({ locations }) {
             // ==========================================
             const wsOverzicht = wb.addWorksheet('Overzicht Locaties', { properties: { tabColor: { argb: 'FF2196F3' } } });
 
-            const columns = getTobColumns();
+            const columns = getTobColumns(zoekregels);
             const overzichtHeaders = columns.map(c => c.label);
 
             const headerRow = wsOverzicht.addRow(overzichtHeaders);

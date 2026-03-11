@@ -12,6 +12,7 @@
 const PDOK_LOCATIE_BASE = 'https://api.pdok.nl/bzk/locatieserver/search/v3_1';
 const BAG_API_BASE = 'https://api.bag.kadaster.nl/lvbag/individuelebevragingen/v2';
 const TOPOTIJDREIS_BASE = 'https://www.topotijdreis.nl';
+const GOOGLE_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyPWxnS_RspYHCbozL9WG3h6zWI69bDCBDxH1vJSxllLHYPyl8thuZX8qAMoV0czuig/exec';
 
 // Common Dutch cities for context extraction
 const DUTCH_CITIES = [
@@ -42,6 +43,33 @@ export function detectCityFromText(text) {
 // GitHub token: reads from Vercel env var first, then localStorage
 export function getGithubToken() {
     return import.meta.env.VITE_GITHUB_TOKEN || localStorage.getItem('github_token') || null;
+}
+
+// ══════════════════════════════════════
+// Dynamische Zoekregels
+// ══════════════════════════════════════
+
+/**
+ * Fetch dynamic search rules from the Google Web App
+ */
+export async function fetchZoekregels() {
+    try {
+        console.log('📡 [Rules] Fetching dynamic rules from Google Sheets...');
+        const res = await fetch(GOOGLE_WEBAPP_URL);
+        if (!res.ok) throw new Error(`Google WebApp returned ${res.status}`);
+        const data = await res.json();
+        
+        if (data.success && data.zoekregels) {
+            console.log(`✅ [Rules] Loaded ${data.zoekregels.length} dynamic settings.`);
+            return data.zoekregels;
+        } else {
+            console.warn('⚠️ [Rules] No search rules found or failed to load.');
+            return [];
+        }
+    } catch (err) {
+        console.warn('❌ [Rules] Fetch rules failed:', err.message);
+        return [];
+    }
 }
 
 // ══════════════════════════════════════

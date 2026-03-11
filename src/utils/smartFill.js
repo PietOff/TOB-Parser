@@ -334,8 +334,8 @@ export function generateSmartContent(caseData) {
 // Column Definitions — ALL 28 columns
 // ══════════════════════════════════════
 
-export function getTobColumns() {
-    return [
+export function getTobColumns(zoekregels = []) {
+    const columns = [
         { key: 'locatiecode', label: 'Locatiecode' },
         { key: 'locatienaam', label: 'Locatienaam' },
         { key: 'straatnaam', label: 'Straatnaam' },
@@ -366,4 +366,23 @@ export function getTobColumns() {
         { key: 'toelichting', label: 'Toelichting' },
         { key: 'actie', label: 'Actie' },
     ];
+
+    if (zoekregels && Array.isArray(zoekregels)) {
+        for (const rule of zoekregels) {
+            if (rule.sleutel) {
+                // Formatting camelCase/snake_case keys to readable labels
+                const label = rule.sleutel
+                    .replace(/([A-Z])/g, ' $1')
+                    .replace(/^./, s => s.toUpperCase())
+                    .replace(/_/g, ' ');
+
+                // Prevent duplicates
+                if (!columns.some(c => c.key === rule.sleutel)) {
+                    columns.push({ key: rule.sleutel, label });
+                }
+            }
+        }
+    }
+
+    return columns;
 }
