@@ -484,10 +484,70 @@ export async function parseDocx(file, onProgress) {
     }
 
     // ── Extract trace description with distance ──
+    // Priority: 1) sleuf dimensions, 2) text patterns, 3) Tracétekening section, 4) OCR on images
     try {
+        // Source 1: Sleuf dimensions (most reliable from structured fields)
+        const sleufLengte = data.sleuflengte ? parseFloat(data.sleuflengte.replace(',', '.')) : null;
+        const sleufBreedte = data.sleufbreedte ? parseFloat(data.sleufbreedte.replace(',', '.')) : null;
+        const sleufDiepte = data.sleufdiepte ? parseFloat(data.sleufdiepte.replace(',', '.')) : null;
+
+        // Source 2: Ontgravingsvolume
+        const volumeMatch = fullText.match(/Ontgravingsvolume.*?(\d+[.,]?\d*)\s*m[³3]?/i);
+        const volume = volumeMatch ? parseFloat(volumeMatch[1].replace(',', '.')) : null;
+
+        // Source 3: Broader text search for distance patterns
+        const distPatterns = [
+            /(?:lengte|afstand|trace|tracé)\s*(?:van|:)?\s*(?:ca\.?\s*)?(\d+[.,]?\d*)\s*(?:km|m(?:eter)?)\b/i,
+            /(\d+[.,]?\d*)\s*(?:km|m(?:eter)?)\s*(?:sleuf|tracé|leiding|kabel)/i,
+            /(?:ca\.?\s*)?(\d{2,})\s*(?:meter|m)\b/i, // "500 meter" or "250m"
+        ];
+
+        let textDistance = null;
+        let textUnit = 'm';
+        for (const pat of distPatterns) {
+            const m = fullText.match(pat);
+            if (m) {
+                textDistance = parseFloat(m[1].replace(',', '.'));
+                textUnit = m[0].toLowerCase().includes('km') ? 'km' : 'm';
+                break;
+            }
+        }
+
+        // Build the trace object with best available data
+        const traceDistance = sleufLengte || textDistance || (volume && sleufBreedte && sleufDiepte
+            ? volume / (sleufBreedte * sleufDiepte) // Calculate length from volume
+            : null);
+
+        const traceDescription = data.omschrijving
+            || `Tracé project ${data.projectCode || ''}`.trim();
+
+        // Calculate buffer radius for map (trace length + 12.5m buffer on each side)
+        const bufferRadius = traceDistance
+            ? Math.max(traceDistance * 1.5, 50) // At least 50m buffer
+            : 500; // Default
+
+        data.projectTrace = {
+            distance: traceDistance,
+            unit: textUnit,
+            description: traceDescription,
+            buffer: bufferRadius,
+            sleuf: sleufLengte ? {
+                lengte: sleufLengte,
+                breedte: sleufBreedte,
+                diepte: sleufDiepte,
+                volume,
+            } : null,
+        };
+
+        // Source 4: Try Tracétekening section for route description
         const traceSection = fullText.match(/Tracé(?:tekening)?(.{0,2000}?)(?:Aanleiding|Locatiegegevens|Inleiding)/is);
-        const traceText = traceSection ? traceSection[1] : data.omschrijving;
-        data.projectTrace = extractTraceDescription(traceText, data.projectCode);
+        if (traceSection) {
+            const routeMatch = traceSection[1].match(/(?:van|from|route|tracé|leiding)\s+(.+?)\s+(?:naar|to|tot)\s+(.+?)(?:\.|,|$)/i);
+            if (routeMatch) {
+                data.projectTrace.description = `Van ${routeMatch[1].trim()} naar ${routeMatch[2].trim()}`;
+            }
+        }
+
         console.log('✅ [DOCX] Found projectTrace:', data.projectTrace);
     } catch (err) {
         console.warn('⚠️ [DOCX] Error extracting trace:', err);
@@ -495,7 +555,8 @@ export async function parseDocx(file, onProgress) {
 
     // ── Attempt OCR on embedded images for additional trace info ──
     // All TOB documents have trace images, so try OCR unless we have complete trace info
-    const skipOcr = (data.projectTrace && data.projectTrace.distance && data.projectTrace.description);
+    const skipOcr = (data.projectTrace && data.projectTrace.distance && data.projectTrace.description
+                     && !data.projectTrace.description.includes('Tracé project'));
 
     if (!skipOcr) {
         try {
