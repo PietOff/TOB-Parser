@@ -127,8 +127,11 @@ export async function saveLocations(projectId, locationsArray) {
     lon:               loc._enriched?.lon    ?? null,
     rd_x:              loc._enriched?.rd?.x  ?? loc.rdX ?? null,
     rd_y:              loc._enriched?.rd?.y  ?? loc.rdY ?? null,
-    // Verrijkte externe data als JSON-blob
-    enriched_data:     loc._enriched         ?? null,
+    // Verrijkte externe data als JSON-blob (inclusief Nazca detail)
+    enriched_data:     {
+      ...(loc._enriched ?? {}),
+      ...(loc._nazcaDetail ? { nazcaDetail: loc._nazcaDetail } : {}),
+    },
     // Stoffen als JSON-array
     stoffen:           loc.stoffen           ?? null,
     // AbelTalent tracking
