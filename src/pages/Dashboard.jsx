@@ -270,11 +270,15 @@ export default function Dashboard() {
                 // Standaard research-records aanmaken per locatie
                 for (const row of savedRows) {
                     try {
-                        await saveResearches(row.id, {
-                            bag_check:  !!finalLocations.find(l => l.locatiecode === row.locatiecode)?._enriched?.bag,
-                            pdok_check: !!finalLocations.find(l => l.locatiecode === row.locatiecode)?._enriched?.bodemkwaliteit,
-                            hbb_check:  !!finalLocations.find(l => l.locatiecode === row.locatiecode)?._enriched?.hbb,
-                        });
+                        const locData = finalLocations.find(l => l.locatiecode === row.locatiecode);
+                        const researchesToCreate = [
+                            { type: 'Nazca (Bodemonderzoek)', status: 'Nog op te vragen', notes: '' }
+                        ];
+                        if (locData?._enriched?.bag) researchesToCreate.push({ type: 'BAG Check', status: 'Afgerond' });
+                        if (locData?._enriched?.bodemkwaliteit) researchesToCreate.push({ type: 'Bodemloket (PDOK)', status: 'Afgerond' });
+                        if (locData?._enriched?.hbb) researchesToCreate.push({ type: 'Historisch Bodembestand', status: 'Afgerond' });
+
+                        await saveResearches(row.id, researchesToCreate);
                     } catch (resErr) {
                         // Niet kritiek — log en ga door
                         console.warn(`⚠️ [DB] Research insert mislukt voor ${row.locatiecode}:`, resErr.message);

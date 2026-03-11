@@ -253,61 +253,61 @@ export function dbRowToLocation(row) {
 // ─────────────────────────────────────────────
 
 /**
- * Sla de standaard onderzoeksstatus (vinkjes) op voor een locatie.
+/**
+ * Sla de onderzoeksstatus (vinkjes) op voor een locatie.
+ * Omdat we nu een rijen-gebaseerd systeem gebruiken (met type en status),
+ * accepteren we een list van onderzoeken per locatie.
+ * Bij een nieuw project maken we standaard records aan (bijv Bodemloket, PDOK, HBB).
  * @param {string} locationId     - UUID van de locatie
- * @param {Object} defaultVinkjes - object met vinkje-velden, bijv.
- *                                  { bodemloket: false, bag_check: true, ... }
- * @returns {Promise<Object>}     - ingevoegde rij
+ * @param {Array<Object>} researchesList - Array van objecten: { type: 'Nazca', status: 'Wacht', notes: '...' }
+ * @returns {Promise<Array<Object>>}     - ingevoegde rijen
  */
-export async function saveResearches(locationId, defaultVinkjes = {}) {
-  const row = {
-    location_id:     locationId,
-    bodemloket:      defaultVinkjes.bodemloket      ?? false,
-    bag_check:       defaultVinkjes.bag_check       ?? false,
-    pdok_check:      defaultVinkjes.pdok_check      ?? false,
-    hbb_check:       defaultVinkjes.hbb_check       ?? false,
-    deep_scan:       defaultVinkjes.deep_scan       ?? false,
-    deep_scan_done:  defaultVinkjes.deep_scan_done  ?? false,
-    notes:           defaultVinkjes.notes           ?? null,
-  };
+export async function saveResearches(locationId, researchesList = []) {
+  if (!researchesList.length) return [];
+
+  const rows = researchesList.map(r => ({
+    location_id: locationId,
+    type: r.type,
+    status: r.status || 'Opgevraagd',
+    notes: r.notes || null,
+    document_url: r.document_url || null
+  }));
 
   const { data, error } = await supabase
     .from('researches')
-    .insert(row)
-    .select()
-    .single();
+    .insert(rows)
+    .select();
 
   if (error) throw new Error(`saveResearches fout: ${error.message}`);
   return data;
 }
 
 /**
- * Haal de onderzoeksstatus op voor een specifieke locatie.
+ * Haal alle onderzoeken op voor een specifieke locatie.
  * @param {string} locationId
- * @returns {Promise<Object|null>}
+ * @returns {Promise<Array<Object>>}
  */
 export async function fetchResearches(locationId) {
   const { data, error } = await supabase
     .from('researches')
     .select('*')
-    .eq('location_id', locationId)
-    .maybeSingle();
+    .eq('location_id', locationId);
 
   if (error) throw new Error(`fetchResearches fout: ${error.message}`);
-  return data;
+  return data || [];
 }
 
 /**
- * Werk de onderzoeksstatus bij voor een locatie.
- * @param {string} locationId
- * @param {Object} updates
+ * Werk een specifiek onderzoek bij.
+ * @param {string} researchId - De UUID van het 'researches' record
+ * @param {Object} updates - Te updaten velden, bijv { status: 'Afgerond', notes: 'Top' }
  * @returns {Promise<void>}
  */
-export async function updateResearch(locationId, updates) {
+export async function updateResearch(researchId, updates) {
   const { error } = await supabase
     .from('researches')
-    .update(updates)
-    .eq('location_id', locationId);
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', researchId);
 
   if (error) throw new Error(`updateResearch fout: ${error.message}`);
 }
