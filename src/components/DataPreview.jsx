@@ -1,11 +1,12 @@
 import { useState, lazy, Suspense } from 'react';
 import { assessLocation, generateSmartContent } from '../utils/smartFill';
 import { triggerDeepScan, getGithubToken } from '../utils/apiIntegrations';
+import { updateLocation } from '../services/api';
 
 // Lazy load map to prevent SSR issues and reduce initial bundle size
 const LocationMap = lazy(() => import('./LocationMap'));
 
-export default function DataPreview({ locations, onLocationsUpdate, onLocationDrag, projectAddress, projectTrace }) {
+export default function DataPreview({ locations, onLocationsUpdate, onLocationDrag, projectAddress, projectTrace, projectId }) {
     const [expandedCase, setExpandedCase] = useState(null);
 
     const complexLocations = locations.filter(l => l.complex);
@@ -15,7 +16,12 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
         setExpandedCase(expandedCase === code ? null : code);
     };
 
-    const updateField = (locCode, field, value) => {
+    /**
+     * Werk een veld bij in de lokale React state EN persist het naar Supabase
+     * als de locatie een _db_id heeft (d.w.z. al is opgeslagen).
+     */
+    const updateField = async (locCode, field, value) => {
+        // 1. Optimistische UI-update
         const updated = locations.map(l => {
             if (l.locatiecode === locCode) {
                 return { ...l, [field]: value };
@@ -23,6 +29,17 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
             return l;
         });
         onLocationsUpdate(updated);
+
+        // 2. Persist naar Supabase als de locatie een DB-ID heeft
+        const loc = locations.find(l => l.locatiecode === locCode);
+        if (loc?._db_id) {
+            try {
+                await updateLocation(loc._db_id, { [field]: value });
+            } catch (err) {
+                console.error(`❌ [DB] updateLocation mislukt voor ${locCode} (${field}):`, err.message);
+                // Geen UI-rollback — toon eventueel een toast in de toekomst
+            }
+        }
     };
 
     const getPriorityClass = (p) => {
@@ -67,6 +84,11 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                 <div className="legend-item"><div className="legend-dot source" /> Brondata</div>
                 <div className="legend-item"><div className="legend-dot draft" /> Auto-gegenereerd</div>
                 <div className="legend-item"><div className="legend-dot empty" /> In te vullen</div>
+                {projectId && (
+                    <div className="legend-item" style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        💾 Auto-opgeslagen
+                    </div>
+                )}
             </div>
 
             {/* Master Map Overview */}
@@ -151,7 +173,7 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                                         <Field label="Huidige functie" value={smart?.locatie.functie} type="draft"
                                             onChange={(v) => updateField(loc.locatiecode, '_functie', v)} />
 
-                                        {/* Enriched external data */}
+                                        {/* Verrijkte externe data */}
                                         {loc._enriched && Object.keys(loc._enriched).length > 0 && (
                                             <>
                                                 <div className="section-header">📡 Externe Databronnen</div>
@@ -187,11 +209,11 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                                                     </div>
                                                 )}
 
-                                                {/* Visual Map Investigation */}
+                                                {/* Visuele kaart */}
                                                 {(loc._enriched?.rd?.x || loc._enriched?.lat) && (
                                                     <div style={{ marginTop: '1.5rem', marginBottom: '1rem' }}>
                                                         <div className="section-header" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                                            🗺️ Visueel Onderzoek (PDOK & Kadaster)
+                                                            🗺️ Visueel Onderzoek (PDOK &amp; Kadaster)
                                                         </div>
                                                         <div style={{
                                                             fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem',
@@ -229,7 +251,7 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                                                 <Field label="Ernst" value={smart.risico.ernst} type="draft" />
                                                 <Field label="Spoedeisendheid" value={smart.risico.spoedeisendheid} type="draft" />
 
-                                                <div className="section-header">4. Conclusie & Advies</div>
+                                                <div className="section-header">4. Conclusie &amp; Advies</div>
                                                 <Field label="Samenvatting" value={smart.conclusie.samenvatting} type="draft" />
                                                 <Field label="Conclusie" value={smart.conclusie.conclusie} type="draft" />
                                                 <Field label="Advies" value={smart.conclusie.advies} type="draft" />
@@ -239,14 +261,14 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                                                 <Field label="Kosten (indicatief)" value={smart.planVanAanpak.kosten} type="draft" />
                                                 <Field label="Planning" value={smart.planVanAanpak.planning} type="draft" />
 
-                                                <div className="section-header">6. MKB & Melding</div>
+                                                <div className="section-header">6. MKB &amp; Melding</div>
                                                 <Field label="Melding BG" value={smart.melding.teMelden} type="draft" />
                                                 <Field label="MKB Protocol" value={smart.mkb.protocol} type="draft" />
                                                 <Field label="Veiligheidsmaatregelen" value={smart.mkb.veiligheid} type="draft" />
                                             </>
                                         )}
 
-                                        {/* Tracking */}
+                                        {/* Tracking AbelTalent */}
                                         <div className="section-header">Tracking AbelTalent</div>
                                         <div className="field-row">
                                             <div className="field-label">Afstand tracé (m)</div>
@@ -254,7 +276,7 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                                                 <textarea
                                                     placeholder="Afstand tot tracé in meters..."
                                                     defaultValue={loc.afstandTrace || ''}
-                                                    onChange={(e) => updateField(loc.locatiecode, 'afstandTrace', parseFloat(e.target.value) || null)}
+                                                    onBlur={(e) => updateField(loc.locatiecode, 'afstandTrace', parseFloat(e.target.value) || null)}
                                                     style={{ minHeight: '36px' }}
                                                 />
                                             </div>
@@ -280,7 +302,7 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                                                 <textarea
                                                     placeholder="Eigen opmerkingen..."
                                                     defaultValue={loc.opmerkingenAbel || ''}
-                                                    onChange={(e) => updateField(loc.locatiecode, 'opmerkingenAbel', e.target.value)}
+                                                    onBlur={(e) => updateField(loc.locatiecode, 'opmerkingenAbel', e.target.value)}
                                                 />
                                             </div>
                                         </div>
@@ -309,8 +331,8 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                                                                 loc.locatiecode,
                                                                 `${loc.straatnaam} ${loc.huisnummer} ${loc.postcode}`,
                                                                 token,
-                                                                'PietOff', // Default owner
-                                                                'TOB-Parser'      // Default repo
+                                                                'PietOff',
+                                                                'TOB-Parser'
                                                             );
                                                             alert(res.message);
                                                             btn.innerHTML = '✅ Klaar';
@@ -335,11 +357,12 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                 </div>
             )}
 
-            {/* Simple locations table */}
+            {/* Alle locaties tabel */}
             <div className="preview-section">
                 <h2>✅ Alle Locaties ({locations.length})</h2>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-                    Onderstaande tabel bevat alle kolommen uit het bronbestand (vorig jaar) en de nieuwe ABEL-velden.
+                    Onderstaande tabel bevat alle kolommen uit het bronbestand en de nieuwe ABEL-velden.
+                    {projectId && <span style={{ marginLeft: '0.5rem', color: 'var(--success)' }}>● Wijzigingen worden automatisch opgeslagen.</span>}
                 </div>
                 <div className="table-wrapper" style={{ overflowX: 'auto' }}>
                     <table className="location-table">
