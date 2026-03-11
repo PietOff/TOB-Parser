@@ -309,7 +309,9 @@ export default function Dashboard() {
                     }
                 }
 
-                // Redirect to GIS Detail page
+                // Redirect to GIS Detail page — clear overlays first
+                setParsing(false);
+                setIsSaving(false);
                 navigate(`/project/${newProjectId}`);
                 
             } catch (dbErr) {
