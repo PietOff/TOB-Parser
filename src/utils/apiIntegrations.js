@@ -211,23 +211,28 @@ export async function pdokSuggest(query) {
 // ══════════════════════════════════════
 
 // Helper to bypass CORS for PDOK WFS services
-// We use allorigins.win but need to use /get instead of /raw to reliably parse JSON
-const PROXY = 'https://api.allorigins.win/get?url=';
+// Multi-proxy fallback: probeert eerst direct PDOK (werkt als CORS header aanwezig),
+// dan corsproxy.io, dan allorigins.win als laatste redmiddel.
+const PROXIES = [
+    (url) => ({ fetchUrl: `https://corsproxy.io/?url=${encodeURIComponent(url)}`, parse: async (res) => res.json() }),
+    (url) => ({ fetchUrl: `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`, parse: async (res) => { const d = await res.json(); if (!d.contents) throw new Error('no contents'); return JSON.parse(d.contents); } }),
+    (url) => ({ fetchUrl: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`, parse: async (res) => res.json() }),
+];
 
 async function fetchWithProxy(url) {
-    try {
-        const res = await fetch(PROXY + encodeURIComponent(url));
-        if (!res.ok) {
-            console.warn(`Proxy warning for ${url}: ${res.status}`);
-            return null;
+    for (const proxyFn of PROXIES) {
+        try {
+            const { fetchUrl, parse } = proxyFn(url);
+            const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(8000) });
+            if (!res.ok) continue;
+            const data = await parse(res);
+            if (data) return data;
+        } catch (e) {
+            // probeer volgende proxy
         }
-        const data = await res.json();
-        if (!data.contents) return null;
-        return JSON.parse(data.contents);
-    } catch (e) {
-        console.warn(`Fetch error via proxy for ${url}:`, e);
-        return null; // Return null gracefully instead of throwing to prevent Promise.all crashes
     }
+    console.warn(`Fetch via alle proxies mislukt voor: ${url}`);
+    return null;
 }
 
 /**
