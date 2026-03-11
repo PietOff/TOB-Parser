@@ -150,7 +150,7 @@ export async function parseDocx(file, onProgress) {
         data.asbestverdenking = /geen\s+(?:sprake|aanwijzingen)/i.test(fullText) ? false : true;
     }
 
-    // ── Extract locatiecodes ──
+    // ── Extract locatiecodes (ALL matching AA/UT/.. codes) ──
     const locCodeRegex = /\b([A-Z]{2}\d{9,12})\b/g;
     const locCodes = new Set();
     let match;
@@ -158,14 +158,195 @@ export async function parseDocx(file, onProgress) {
         locCodes.add(match[1]);
     }
 
-    // For each locatiecode, try to extract surrounding context
+    // ── STEP 1: Parse "Overzicht bodemlocaties" table ──────────────────
+    // This table has columns: Locatiecode | Locatienaam | Straatnaam | Huisnummer | Postcode | Plaatsnaam
+    // It appears as a flat text pattern after "Overzicht bodemlocaties"
+    const overviewMap = {}; // code → { locatienaam, straatnaam, huisnummer, postcode, plaatsnaam }
+    const overviewMarker = 'Overzicht bodemlocaties';
+    let overviewIdx = fullText.indexOf(overviewMarker);
+    while (overviewIdx > -1) {
+        // Grab text between here and the next major section
+        const nextSectionIdx = fullText.indexOf('Gegevens Bodemlocaties', overviewIdx + overviewMarker.length);
+        const overviewBlock = fullText.substring(
+            overviewIdx + overviewMarker.length,
+            nextSectionIdx > -1 ? nextSectionIdx : overviewIdx + 3000
+        );
+
+        // Find each locatiecode in this block and extract the table row data after it
+        for (const code of locCodes) {
+            const codeIdx = overviewBlock.indexOf(code);
+            if (codeIdx === -1) continue;
+
+            // Get the lines after this code (the table cells follow as separate lines)
+            const afterCode = overviewBlock.substring(codeIdx + code.length);
+            const lines = afterCode.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+            // Table row pattern: locatienaam, straatnaam, huisnummer (or empty), postcode (or empty), plaatsnaam
+            if (lines.length >= 1) {
+                const entry = { locatienaam: '', straatnaam: '', huisnummer: '', postcode: '', plaatsnaam: '' };
+                entry.locatienaam = lines[0] || '';
+                if (lines[1] && !/^[A-Z]{2}\d{9,12}$/.test(lines[1])) entry.straatnaam = lines[1];
+
+                // Scan remaining lines for postcode, plaatsnaam, huisnummer
+                for (let i = 2; i < Math.min(lines.length, 6); i++) {
+                    const line = lines[i];
+                    if (/^[A-Z]{2}\d{9,12}$/.test(line)) break; // next locatiecode
+                    if (/^[1-9]\d{3}\s?[A-Za-z]{2}$/.test(line)) {
+                        entry.postcode = line.replace(/\s/g, '').toUpperCase();
+                    } else if (/^\d{1,5}[a-zA-Z]?$/.test(line)) {
+                        entry.huisnummer = line;
+                    } else if (/^[A-Z][a-z]/.test(line) && line.length < 50 && !entry.plaatsnaam) {
+                        entry.plaatsnaam = line;
+                    }
+                }
+
+                overviewMap[code] = entry;
+            }
+        }
+
+        // Check for another "Overzicht bodemlocaties" (12.5m buffer section)
+        overviewIdx = fullText.indexOf(overviewMarker, overviewIdx + overviewMarker.length + 100);
+    }
+
+    console.log(`📋 [DOCX] Overzicht tabel: ${Object.keys(overviewMap).length} locaties gevonden`);
+
+    // ── STEP 2: Parse detailed "Gegevens Bodemlocaties" sections ────────
+    // Each section starts with: "{locatienaam} {locatiecode}" and contains:
+    //   Locatiecode → code
+    //   Locatienaam → naam
+    //   Adres → straatnaam plaatsnaam
+    //   Beoordeling verontreiniging → assessment
+    //   Vervolgactie i.h.k.v WBB uit status locatie van Nazca → nazca follow-up
+    //   Rapportinformatie (uitgevoerde bodemonderzoeken) → list of research reports
+    //   CROW 400 grond/grondwater classifications
+    const detailMap = {}; // code → { beoordeling, vervolgactie, adres, rapporten[], activiteiten[], crow400 }
+
     for (const code of locCodes) {
+        // Find the detail section for this code (after "Gegevens Bodemlocaties" or as "{name} {code}")
+        const detailRegex = new RegExp(`Locatiecode\\s*\\n\\s*${code}\\s*\\n`, 's');
+        const detailMatch = detailRegex.exec(fullText);
+        if (!detailMatch) continue;
+
+        const sectionStart = detailMatch.index;
+        // Find end of section: next locatiecode detail block or "Bodeminformatie in het Nuts" or "BKK omgerekend"
+        let sectionEnd = fullText.length;
+        for (const otherCode of locCodes) {
+            if (otherCode === code) continue;
+            const nextBlock = new RegExp(`Locatiecode\\s*\\n\\s*${otherCode}\\s*\\n`, 's');
+            const nextMatch = nextBlock.exec(fullText.substring(sectionStart + 50));
+            if (nextMatch) {
+                const candidate = sectionStart + 50 + nextMatch.index;
+                if (candidate < sectionEnd) sectionEnd = candidate;
+            }
+        }
+
+        // Also check for section boundaries
+        const sectionBoundaries = [
+            'Bodeminformatie in het Nuts Bodeminformatiesysteem in een straal',
+            'BKK omgerekend',
+            'Bijlage 1',
+            'Kadastrale Gegevens',
+        ];
+        for (const boundary of sectionBoundaries) {
+            const boundaryIdx = fullText.indexOf(boundary, sectionStart + 50);
+            if (boundaryIdx > -1 && boundaryIdx < sectionEnd) sectionEnd = boundaryIdx;
+        }
+
+        const sectionText = fullText.substring(sectionStart, sectionEnd);
+
+        const detail = {
+            beoordeling: '',
+            vervolgactie: '',
+            adres: '',
+            rapporten: [],
+            activiteiten: [],
+            crow400Grond: '',
+            crow400Grondwater: '',
+        };
+
+        // Extract beoordeling verontreiniging
+        const beoordelingMatch = sectionText.match(/Beoordeling verontreiniging\s*\n\s*(.+?)(?:\n|$)/i);
+        if (beoordelingMatch) detail.beoordeling = beoordelingMatch[1].trim();
+
+        // Extract vervolgactie (Nazca follow-up)
+        const vervolgMatch = sectionText.match(/Vervolgactie i\.h\.k\.v.*?Nazca\s*\n\s*(.+?)(?:\n|$)/i);
+        if (vervolgMatch) detail.vervolgactie = vervolgMatch[1].trim();
+
+        // Extract adres
+        const adresMatch = sectionText.match(/Adres\s*\n\s*(.+?)(?:\n|$)/i);
+        if (adresMatch) detail.adres = adresMatch[1].trim();
+
+        // Extract locatienaam from detail
+        const namaMatch = sectionText.match(/Locatienaam\s*\n\s*(.+?)(?:\n|$)/i);
+
+        // Extract research reports (Rapportinformatie)
+        const rapportIdx = sectionText.indexOf('Rapportinformatie');
+        if (rapportIdx > -1) {
+            // After the header row (Rapportdatum, Bodemonderzoek, Onderzoeksbureau, Rapportnummer, etc.)
+            const rapportBlock = sectionText.substring(rapportIdx);
+            // Find date patterns: dd-mm-yyyy
+            const dateRegex = /(\d{2}-\d{2}-\d{4})\s*\n\s*(.+?)\s*\n\s*(.+?)\s*\n\s*(.+?)(?:\s*\n)/g;
+            let rapMatch;
+            while ((rapMatch = dateRegex.exec(rapportBlock)) !== null) {
+                const datumStr = rapMatch[1];
+                const type = rapMatch[2].trim();
+                const bureau = rapMatch[3].trim();
+                const rapportnummer = rapMatch[4].trim();
+
+                // Skip header rows
+                if (type === 'Bodemonderzoek' || type === 'Rapportdatum') continue;
+
+                detail.rapporten.push({
+                    datum: datumStr,
+                    type,
+                    bureau,
+                    rapportnummer,
+                });
+            }
+        }
+
+        // Extract CROW 400 values from table cells
+        const crow400GrondMatch = sectionText.match(/CROW 400 grond\s*\n\s*CROW 400 grondwater\s*\n.*?\n\s*(.+?)\s*\n\s*(.+?)\s*\n/s);
+        if (crow400GrondMatch) {
+            detail.crow400Grond = crow400GrondMatch[1].trim();
+            detail.crow400Grondwater = crow400GrondMatch[2].trim();
+        }
+
+        // Extract bodembedreigende activiteiten
+        const actIdx = sectionText.indexOf('Mogelijk onderzochte bodembedreigende activiteiten');
+        if (actIdx > -1) {
+            const actBlock = sectionText.substring(actIdx);
+            // Pattern: Gebruik\nVan\nTot\nubi-klasse\nVoldoende onderzocht\n{values repeat}
+            const actRegex = /(?:^|\n)\s*([a-z][\w\s\-()\/.]+?)\s*\n\s*((?:\d{4}|Onbekend))\s*\n\s*((?:\d{4}|Onbekend))\s*\n\s*(\d+)\s*\n\s*(Ja|Nee|Onbekend)/gim;
+            let actMatch;
+            while ((actMatch = actRegex.exec(actBlock)) !== null) {
+                detail.activiteiten.push({
+                    gebruik: actMatch[1].trim(),
+                    van: actMatch[2],
+                    tot: actMatch[3],
+                    ubiKlasse: parseInt(actMatch[4]),
+                    onderzocht: actMatch[5],
+                });
+            }
+        }
+
+        detailMap[code] = detail;
+    }
+
+    console.log(`🔬 [DOCX] Detail secties: ${Object.keys(detailMap).length} locaties met Nazca/rapport data`);
+
+    // ── STEP 3: Build final location objects by merging overview + detail ─
+    for (const code of locCodes) {
+        const overview = overviewMap[code] || {};
+        const detail = detailMap[code] || {};
+
         const loc = {
             locatiecode: code,
-            locatienaam: '',
-            straatnaam: '',
-            huisnummer: '',
-            postcode: '',
+            locatienaam: overview.locatienaam || '',
+            straatnaam: overview.straatnaam || '',
+            huisnummer: overview.huisnummer || '',
+            postcode: overview.postcode || '',
+            woonplaats: overview.plaatsnaam || '',
             status: '',
             conclusie: data.isVerdacht ? 'verdacht' : 'onverdacht',
             veiligheidsklasse: data.veiligheidsklasse,
@@ -182,76 +363,84 @@ export async function parseDocx(file, onProgress) {
             _projectCode: data.projectCode,
         };
 
-        // Try to find the locatienaam near the code
-        const nameRegex = new RegExp(`${code}\\s+(.+?)(?:\\n|$)`, 'i');
-        const nameMatch = fullText.match(nameRegex);
-        if (nameMatch) {
-            loc.locatienaam = nameMatch[1].trim().substring(0, 100);
-
-            // Try to extract postcode from locatienaam
-            const pMatch = loc.locatienaam.match(/\b([1-9][0-9]{3}\s?[A-Za-z]{2})\b/);
-            if (pMatch) loc.postcode = pMatch[1].replace(/\s/g, '').toUpperCase();
-
-            // Try to extract huisnummer from locatienaam
-            const hMatch = loc.locatienaam.match(/\b(\d{1,4}[a-zA-Z]?)\b/);
-            if (hMatch) loc.huisnummer = hMatch[1];
+        // Enrich from detail section
+        if (detail.beoordeling) {
+            loc.opmerking = `Beoordeling: ${detail.beoordeling}`;
+            if (/ernstig|sterk verontreinigd/i.test(detail.beoordeling)) {
+                loc.conclusie = 'verdacht';
+                loc.complex = true;
+            } else if (/niet ernstig/i.test(detail.beoordeling)) {
+                loc.conclusie = 'licht verontreinigd';
+            }
         }
 
-        // Try to extract year from context around the code
-        const contextRegex = new RegExp(`.{0,200}${code}.{0,200}`, 's');
-        const context = fullText.match(contextRegex);
-        if (context) {
-            const yearMatch = context[0].match(/\b(20[12]\d)\b/);
-            if (yearMatch) loc.rapportJaar = parseInt(yearMatch[1]);
+        if (detail.vervolgactie) {
+            loc.status = detail.vervolgactie;
+            if (/uitvoeren/i.test(detail.vervolgactie)) loc.complex = true;
+        }
 
-            // Try to extract postcode from context if we don't have it yet
-            if (!loc.postcode) {
-                // Look strictly AFTER the locatiecode to avoid grabbing a previous address
+        // Parse adres for straatnaam/woonplaats if not from overview
+        if (detail.adres && !loc.straatnaam) {
+            const adresParts = detail.adres.split(/\s+/);
+            if (adresParts.length >= 2) {
+                loc.woonplaats = adresParts[adresParts.length - 1];
+                loc.straatnaam = adresParts.slice(0, -1).join(' ');
+            }
+        } else if (detail.adres && !loc.woonplaats) {
+            // Extract plaatsnaam from adres if missing
+            const adresParts = detail.adres.split(/\s+/);
+            if (adresParts.length >= 2) {
+                loc.woonplaats = adresParts[adresParts.length - 1];
+            }
+        }
+
+        // CROW 400 veiligheidsklasse from detail
+        if (detail.crow400Grond && detail.crow400Grond !== 'Onb.') {
+            loc.veiligheidsklasse = detail.crow400Grond;
+        }
+
+        // Set rapport year from most recent report
+        if (detail.rapporten.length > 0) {
+            const mostRecent = detail.rapporten.sort((a, b) => {
+                const [da, ma, ya] = a.datum.split('-').map(Number);
+                const [db, mb, yb] = b.datum.split('-').map(Number);
+                return (yb * 10000 + mb * 100 + db) - (ya * 10000 + ma * 100 + da);
+            })[0];
+            const [, , year] = mostRecent.datum.split('-').map(Number);
+            loc.rapportJaar = year;
+        }
+
+        // Count verdachte activiteiten
+        loc.verdachteActiviteiten = detail.activiteiten?.length || 0;
+        if (loc.verdachteActiviteiten >= 3) loc.complex = true;
+
+        // Store full Nazca detail as enrichment data
+        loc._nazcaDetail = {
+            beoordeling: detail.beoordeling,
+            vervolgactie: detail.vervolgactie,
+            rapporten: detail.rapporten,
+            activiteiten: detail.activiteiten,
+            crow400Grond: detail.crow400Grond,
+            crow400Grondwater: detail.crow400Grondwater,
+        };
+
+        // Fallback: if we still have no straatnaam, try context-based extraction
+        if (!loc.straatnaam && !loc.locatienaam) {
+            const nameRegex = new RegExp(`${code}\\s+(.+?)(?:\\n|$)`, 'i');
+            const nameMatch = fullText.match(nameRegex);
+            if (nameMatch) {
+                loc.locatienaam = nameMatch[1].trim().substring(0, 100);
+            }
+        }
+
+        // Fallback: context-based postcode extraction
+        if (!loc.postcode) {
+            const contextRegex = new RegExp(`.{0,200}${code}.{0,200}`, 's');
+            const context = fullText.match(contextRegex);
+            if (context) {
                 const afterCode = context[0].substring(context[0].indexOf(code));
                 const pMatch = afterCode.match(/\b([1-9][0-9]{3}\s?[A-Za-z]{2})\b/);
                 if (pMatch) loc.postcode = pMatch[1].replace(/\s/g, '').toUpperCase();
-            }
-
-            // Look for optional woonplaats near postcode
-            if (loc.postcode) {
-                // Find word after postcode
-                const escapedPostcode = loc.postcode.replace(/(.{4})(.{2})/, "$1\\s?$2");
-                const cityMatch = context[0].match(new RegExp(`${escapedPostcode}\\s+([A-Z][A-Za-z\\-]+)\\b`));
-                if (cityMatch) {
-                    // Filter out non-cities that might casually follow a postcode
-                    const possibleCity = cityMatch[1].trim();
-                    if (!['en', 'de', 'het', 'een', 'van', 'tot'].includes(possibleCity.toLowerCase())) {
-                        loc.woonplaats = possibleCity;
-                    }
-                }
-            }
-
-            // Check for verontreiniging keywords near this code
-            if (/verdacht|verontreinig|interventiewaarde|sanering/i.test(context[0])) {
-                loc.conclusie = 'verdacht';
-                loc.complex = true;
-            }
-
-            // Check for "wel" marking
-            if (/\bwel\b/i.test(context[0])) {
-                loc.verdachteActiviteiten += 1;
-            }
-
-            // Extract stoffen if mentioned
-            const stofMatch = context[0].match(/(lood|koper|zink|minerale\s*olie|pak|nikkel)\s*[\s>]*\s*(?:I\s*)?\(?(\d+)/i);
-            if (stofMatch) {
-                loc.stoffen.push({
-                    stof: stofMatch[1].toLowerCase(),
-                    waarde: parseFloat(stofMatch[2]),
-                    raw: stofMatch[0],
-                });
-                loc.complex = true;
-            }
-
-            // Check distance to tracé
-            const afstandMatch = context[0].match(/(\d+[\.,]?\d*)\s*(?:m(?:eter)?)\s*(?:van|tot|afstand)/i);
-            if (afstandMatch) {
-                loc.afstandTrace = parseFloat(afstandMatch[1].replace(',', '.'));
             }
         }
 
