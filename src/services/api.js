@@ -6,9 +6,12 @@
  *  - projects      (hoofd TOB-rapporten)
  *  - locations     (geëxtraheerde adressen/coördinaten)
  *  - researches    (onderzoeksstatus per locatie)
+ *
+ * BELANGRIJK: Alle writes gebruiken supabaseAdmin (service_role) om RLS te omzeilen.
+ * Reads gebruiken de standaard supabase (anon) client.
  */
 
-import { supabase } from '../utils/supabaseClient';
+import { supabase, supabaseAdmin } from '../utils/supabaseClient';
 
 // ─────────────────────────────────────────────
 // PROJECTS
@@ -21,7 +24,7 @@ import { supabase } from '../utils/supabaseClient';
  * @returns {Promise<string>} - UUID van het nieuwe project
  */
 export async function saveProject(name, client = null) {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('projects')
     .insert({ name, client })
     .select('id')
@@ -33,8 +36,6 @@ export async function saveProject(name, client = null) {
 
 /**
  * Haal alle projecten op waartoe de ingelogde gebruiker toegang heeft.
- * RLS zorgt automatisch voor de juiste filtering (admin ziet alles,
- * external ziet alleen zijn project_members).
  * @returns {Promise<Array>}
  */
 export async function fetchProjects() {
@@ -55,7 +56,7 @@ export async function fetchProjects() {
 export async function fetchProject(projectId) {
   const { data, error } = await supabase
     .from('projects')
-    .select('*, locations(*)')
+    .select('*')
     .eq('id', projectId)
     .single();
 
@@ -70,7 +71,7 @@ export async function fetchProject(projectId) {
  * @returns {Promise<void>}
  */
 export async function updateProject(projectId, updates) {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('projects')
     .update(updates)
     .eq('id', projectId);
@@ -84,7 +85,7 @@ export async function updateProject(projectId, updates) {
  * @returns {Promise<void>}
  */
 export async function deleteProject(projectId) {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('projects')
     .delete()
     .eq('id', projectId);
@@ -98,58 +99,85 @@ export async function deleteProject(projectId) {
 
 /**
  * Sla een batch locaties op voor een project.
- * Elke locatie uit de parser-output wordt op de juiste kolommen gemapped.
+ * Mapt alleen kolommen die in de DB bestaan (na migratie: alle kolommen).
+ * Valt gracefully terug naar minimal insert als extended kolommen ontbreken.
  * @param {string} projectId
- * @param {Array}  locationsArray - array van location-objecten zoals uit de parser
- * @returns {Promise<Array>} - ingevoegde rijen inclusief gegenereerde IDs
+ * @param {Array}  locationsArray
+ * @returns {Promise<Array>}
  */
 export async function saveLocations(projectId, locationsArray) {
   if (!locationsArray || locationsArray.length === 0) return [];
 
-  const rows = locationsArray.map((loc) => ({
-    project_id:        projectId,
-    locatiecode:       loc.locatiecode       ?? null,
-    locatienaam:       loc.locatienaam       ?? null,
-    straatnaam:        loc.straatnaam        ?? null,
-    huisnummer:        loc.huisnummer        ?? null,
-    postcode:          loc.postcode          ?? null,
-    woonplaats:        loc.woonplaats        ?? null,
-    status:            loc.status            ?? null,
-    conclusie:         loc.conclusie         ?? null,
-    veiligheidsklasse: loc.veiligheidsklasse ?? null,
-    melding:           loc.melding           ?? null,
-    mkb:               loc.mkb               ?? null,
-    brl7000:           loc.brl7000           ?? null,
-    opmerking:         loc.opmerking         ?? null,
-    complex:           loc.complex           ?? false,
-    // Coördinaten
-    lat:               loc._enriched?.lat    ?? null,
-    lon:               loc._enriched?.lon    ?? null,
-    rd_x:              loc._enriched?.rd?.x  ?? loc.rdX ?? null,
-    rd_y:              loc._enriched?.rd?.y  ?? loc.rdY ?? null,
-    // Verrijkte externe data als JSON-blob (inclusief Nazca detail)
-    enriched_data:     {
-      ...(loc._enriched ?? {}),
-      ...(loc._nazcaDetail ? { nazcaDetail: loc._nazcaDetail } : {}),
-    },
-    // Stoffen als JSON-array
-    stoffen:           loc.stoffen           ?? null,
-    // AbelTalent tracking
-    status_abel:       loc.statusAbel        ?? 'Nog te doen',
-    opmerkingen_abel:  loc.opmerkingenAbel   ?? null,
-    afstand_trace:     loc.afstandTrace      ?? null,
-    // Brondocument
-    source_file:       loc._source           ?? null,
-    // Rapport jaar
-    rapport_jaar:      loc.rapportJaar       ?? null,
-  }));
+  // Full row with all extended columns (after migration 001)
+  const rows = locationsArray.map((loc) => {
+    const enriched = loc._enriched ?? {};
+    return {
+      project_id:        projectId,
+      locatiecode:       loc.locatiecode       ?? null,
+      locatienaam:       loc.locatienaam       ?? null,
+      straatnaam:        loc.straatnaam        ?? null,
+      huisnummer:        loc.huisnummer        ?? null,
+      postcode:          loc.postcode          ?? null,
+      woonplaats:        loc.woonplaats        ?? null,
+      status:            loc.status            ?? null,
+      conclusie:         loc.conclusie         ?? null,
+      veiligheidsklasse: loc.veiligheidsklasse ?? null,
+      melding:           loc.melding           ?? null,
+      mkb:               loc.mkb               ?? null,
+      brl7000:           loc.brl7000           ?? null,
+      opmerking:         loc.opmerking         ?? null,
+      complex:           loc.complex           ?? false,
+      // Coördinaten — lat/lon columns (post-migration rename from latitude/longitude)
+      lat:               enriched.lat          ?? loc.lat ?? null,
+      lon:               enriched.lon          ?? loc.lon ?? null,
+      rd_x:              enriched.rd?.x        ?? loc.rdX ?? null,
+      rd_y:              enriched.rd?.y        ?? loc.rdY ?? null,
+      // Verrijkte externe data als JSON-blob
+      enriched_data: {
+        ...(enriched ?? {}),
+        ...(loc._nazcaDetail ? { nazcaDetail: loc._nazcaDetail } : {}),
+      },
+      stoffen:           loc.stoffen           ?? null,
+      status_abel:       loc.statusAbel        ?? 'Nog te doen',
+      opmerkingen_abel:  loc.opmerkingenAbel   ?? null,
+      afstand_trace:     loc.afstandTrace      ?? null,
+      source_file:       loc._source           ?? null,
+      rapport_jaar:      loc.rapportJaar       ?? null,
+    };
+  });
 
-  const { data, error } = await supabase
+  // Try full insert first (after migration)
+  const { data, error } = await supabaseAdmin
     .from('locations')
     .insert(rows)
     .select();
 
-  if (error) throw new Error(`saveLocations fout: ${error.message}`);
+  if (error) {
+    // If error is about missing columns, fall back to minimal insert
+    if (error.message?.includes('column') || error.message?.includes('schema cache') || error.message?.includes('PGRST204')) {
+      console.warn('[API] Extended columns not found — falling back to minimal insert. Run migration 001!');
+      const minimalRows = rows.map(r => ({
+        project_id:  r.project_id,
+        locatiecode: r.locatiecode,
+        straatnaam:  r.straatnaam,
+        huisnummer:  r.huisnummer,
+        postcode:    r.postcode,
+        woonplaats:  r.woonplaats,
+        complex:     r.complex,
+        // Support both old (latitude/longitude) and new (lat/lon) column names
+        latitude:    r.lat,
+        longitude:   r.lon,
+      }));
+      const { data: minData, error: minError } = await supabaseAdmin
+        .from('locations')
+        .insert(minimalRows)
+        .select();
+      if (minError) throw new Error(`saveLocations (minimal) fout: ${minError.message}`);
+      return minData ?? [];
+    }
+    throw new Error(`saveLocations fout: ${error.message}`);
+  }
+
   return data ?? [];
 }
 
@@ -170,13 +198,12 @@ export async function fetchLocations(projectId) {
 }
 
 /**
- * Werk één locatie bij (bijv. na handmatige aanpassing in de UI).
- * @param {string} locationId  - UUID van de locatie
- * @param {Object} updates     - velden om bij te werken (React state namen)
+ * Werk één locatie bij.
+ * @param {string} locationId
+ * @param {Object} updates
  * @returns {Promise<void>}
  */
 export async function updateLocation(locationId, updates) {
-  // Map React state-namen naar database-kolommen
   const columnMap = {
     statusAbel:        'status_abel',
     opmerkingenAbel:   'opmerkingen_abel',
@@ -194,7 +221,7 @@ export async function updateLocation(locationId, updates) {
     dbUpdates[col] = value;
   }
 
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('locations')
     .update(dbUpdates)
     .eq('id', locationId);
@@ -203,51 +230,48 @@ export async function updateLocation(locationId, updates) {
 }
 
 /**
- * Converteer een Supabase locatie-rij terug naar het React state-formaat
- * dat Dashboard.jsx en DataPreview.jsx verwachten.
+ * Converteer een Supabase locatie-rij terug naar het React state-formaat.
+ * Ondersteunt zowel oude schema (latitude/longitude) als nieuwe (lat/lon).
  * @param {Object} row - rij uit de 'locations' tabel
- * @returns {Object}   - locatie-object voor React state
+ * @returns {Object}
  */
 export function dbRowToLocation(row) {
+  // Support both old (latitude/longitude) and new (lat/lon) column names
+  const lat = row.lat ?? row.latitude ?? row.enriched_data?.lat ?? null;
+  const lon = row.lon ?? row.longitude ?? row.enriched_data?.lon ?? null;
+  const rdX = row.rd_x ?? row.enriched_data?.rd?.x ?? null;
+  const rdY = row.rd_y ?? row.enriched_data?.rd?.y ?? null;
+
   return {
-    // Primaire sleutel bewaren voor latere DB updates
     _db_id:            row.id,
     project_id:        row.project_id,
     locatiecode:       row.locatiecode,
-    locatienaam:       row.locatienaam,
-    straatnaam:        row.straatnaam,
-    huisnummer:        row.huisnummer,
-    postcode:          row.postcode,
-    woonplaats:        row.woonplaats,
-    status:            row.status,
-    conclusie:         row.conclusie,
-    veiligheidsklasse: row.veiligheidsklasse,
-    melding:           row.melding,
-    mkb:               row.mkb,
-    brl7000:           row.brl7000,
-    opmerking:         row.opmerking,
-    complex:           row.complex,
-    stoffen:           row.stoffen,
-    rapportJaar:       row.rapport_jaar,
-    statusAbel:        row.status_abel,
-    opmerkingenAbel:   row.opmerkingen_abel,
-    afstandTrace:      row.afstand_trace,
-    _source:           row.source_file,
-    rdX:               row.rd_x,
-    rdY:               row.rd_y,
-    isComplex:         row.complex ?? false,
-    // Herstel genest _enriched object
+    locatienaam:       row.locatienaam   ?? null,
+    straatnaam:        row.straatnaam    ?? null,
+    huisnummer:        row.huisnummer    ?? null,
+    postcode:          row.postcode      ?? null,
+    woonplaats:        row.woonplaats    ?? null,
+    status:            row.status        ?? null,
+    conclusie:         row.conclusie     ?? null,
+    veiligheidsklasse: row.veiligheidsklasse ?? null,
+    melding:           row.melding       ?? null,
+    mkb:               row.mkb           ?? null,
+    brl7000:           row.brl7000       ?? null,
+    opmerking:         row.opmerking     ?? null,
+    complex:           row.complex       ?? false,
+    isComplex:         row.complex       ?? false,
+    stoffen:           row.stoffen       ?? null,
+    rapportJaar:       row.rapport_jaar  ?? null,
+    statusAbel:        row.status_abel   ?? null,
+    opmerkingenAbel:   row.opmerkingen_abel ?? null,
+    afstandTrace:      row.afstand_trace ?? null,
+    _source:           row.source_file   ?? null,
+    rdX,
+    rdY,
     _enriched: row.enriched_data
-      ? {
-          ...row.enriched_data,
-          lat: row.lat ?? row.latitude ?? row.enriched_data?.lat,
-          lon: row.lon ?? row.longitude ?? row.enriched_data?.lon,
-          rd: row.rd_x
-            ? { x: row.rd_x, y: row.rd_y }
-            : row.enriched_data?.rd ?? null,
-        }
-      : (row.lat ?? row.latitude)
-        ? { lat: row.lat ?? row.latitude, lon: row.lon ?? row.longitude, rd: row.rd_x ? { x: row.rd_x, y: row.rd_y } : null }
+      ? { ...row.enriched_data, lat, lon, rd: rdX ? { x: rdX, y: rdY } : null }
+      : lat
+        ? { lat, lon, rd: rdX ? { x: rdX, y: rdY } : null }
         : null,
   };
 }
@@ -257,58 +281,55 @@ export function dbRowToLocation(row) {
 // ─────────────────────────────────────────────
 
 /**
-/**
- * Sla de onderzoeksstatus (vinkjes) op voor een locatie.
- * Omdat we nu een rijen-gebaseerd systeem gebruiken (met type en status),
- * accepteren we een list van onderzoeken per locatie.
- * Bij een nieuw project maken we standaard records aan (bijv Bodemloket, PDOK, HBB).
- * @param {string} locationId     - UUID van de locatie
- * @param {Array<Object>} researchesList - Array van objecten: { type: 'Nazca', status: 'Wacht', notes: '...' }
- * @returns {Promise<Array<Object>>}     - ingevoegde rijen
+ * Sla onderzoeken op voor een locatie (array-based).
+ * @param {string} locationId
+ * @param {Array<Object>} researchesList - [{ type, status, notes }]
+ * @returns {Promise<Array>}
  */
 export async function saveResearches(locationId, researchesList = []) {
   if (!researchesList.length) return [];
 
   const rows = researchesList.map(r => ({
-    location_id: locationId,
-    type: r.type,
-    status: r.status || 'Opgevraagd',
-    notes: r.notes || null,
-    document_url: r.document_url || null
+    location_id:  locationId,
+    type:         r.type,
+    status:       r.status       || 'Nog op te vragen',
+    notes:        r.notes        || null,
+    document_url: r.document_url || null,
   }));
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('researches')
     .insert(rows)
     .select();
 
   if (error) throw new Error(`saveResearches fout: ${error.message}`);
-  return data;
+  return data ?? [];
 }
 
 /**
- * Haal alle onderzoeken op voor een specifieke locatie.
+ * Haal alle onderzoeken op voor een locatie.
  * @param {string} locationId
- * @returns {Promise<Array<Object>>}
+ * @returns {Promise<Array>}
  */
 export async function fetchResearches(locationId) {
   const { data, error } = await supabase
     .from('researches')
     .select('*')
-    .eq('location_id', locationId);
+    .eq('location_id', locationId)
+    .order('created_at', { ascending: true });
 
   if (error) throw new Error(`fetchResearches fout: ${error.message}`);
-  return data || [];
+  return data ?? [];
 }
 
 /**
  * Werk een specifiek onderzoek bij.
- * @param {string} researchId - De UUID van het 'researches' record
- * @param {Object} updates - Te updaten velden, bijv { status: 'Afgerond', notes: 'Top' }
+ * @param {string} researchId
+ * @param {Object} updates
  * @returns {Promise<void>}
  */
 export async function updateResearch(researchId, updates) {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('researches')
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('id', researchId);
@@ -317,31 +338,19 @@ export async function updateResearch(researchId, updates) {
 }
 
 // ─────────────────────────────────────────────
-// PROJECT MEMBERS (voor externe gebruikers)
+// PROJECT MEMBERS
 // ─────────────────────────────────────────────
 
-/**
- * Voeg een externe gebruiker toe aan een project.
- * @param {string} projectId
- * @param {string} userId     - UUID van de externe gebruiker (auth.users)
- * @returns {Promise<void>}
- */
 export async function addProjectMember(projectId, userId) {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('project_members')
     .insert({ project_id: projectId, user_id: userId });
 
   if (error) throw new Error(`addProjectMember fout: ${error.message}`);
 }
 
-/**
- * Verwijder een externe gebruiker uit een project.
- * @param {string} projectId
- * @param {string} userId
- * @returns {Promise<void>}
- */
 export async function removeProjectMember(projectId, userId) {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('project_members')
     .delete()
     .eq('project_id', projectId)
@@ -350,11 +359,6 @@ export async function removeProjectMember(projectId, userId) {
   if (error) throw new Error(`removeProjectMember fout: ${error.message}`);
 }
 
-/**
- * Haal alle leden van een project op.
- * @param {string} projectId
- * @returns {Promise<Array>}
- */
 export async function fetchProjectMembers(projectId) {
   const { data, error } = await supabase
     .from('project_members')
