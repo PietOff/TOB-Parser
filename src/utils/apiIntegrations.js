@@ -211,12 +211,24 @@ export async function pdokSuggest(query) {
 // ══════════════════════════════════════
 
 // Helper to bypass CORS for PDOK WFS services
-// Multi-proxy fallback: probeert eerst direct PDOK (werkt als CORS header aanwezig),
-// dan corsproxy.io, dan allorigins.win als laatste redmiddel.
+// Multi-proxy fallback: corsproxy.io → allorigins.win → codetabs.com
 const PROXIES = [
-    (url) => ({ fetchUrl: `https://corsproxy.io/?url=${encodeURIComponent(url)}`, parse: async (res) => res.json() }),
-    (url) => ({ fetchUrl: `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`, parse: async (res) => { const d = await res.json(); if (!d.contents) throw new Error('no contents'); return JSON.parse(d.contents); } }),
-    (url) => ({ fetchUrl: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`, parse: async (res) => res.json() }),
+    (url) => ({
+        fetchUrl: `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+        parse: async (res) => res.json(),
+    }),
+    (url) => ({
+        fetchUrl: `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+        parse: async (res) => {
+            const d = await res.json();
+            if (!d.contents) throw new Error('allorigins: geen contents');
+            return JSON.parse(d.contents);
+        },
+    }),
+    (url) => ({
+        fetchUrl: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+        parse: async (res) => res.json(),
+    }),
 ];
 
 async function fetchWithProxy(url) {
@@ -231,7 +243,7 @@ async function fetchWithProxy(url) {
             // probeer volgende proxy
         }
     }
-    console.warn(`Fetch via alle proxies mislukt voor: ${url}`);
+    console.warn(`[Proxy] Alle proxies mislukt voor: ${url}`);
     return null;
 }
 

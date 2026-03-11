@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../utils/supabaseClient';
+import { supabaseAdmin } from '../utils/supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -20,7 +20,7 @@ export default function UserManagement() {
 
     const fetchProfiles = async () => {
         setLoading(true);
-        const { data, error } = await supabase
+        const { data, error } = await supabaseAdmin
             .from('profiles')
             .select('*')
             .order('created_at', { ascending: false });
@@ -38,7 +38,7 @@ export default function UserManagement() {
         const newRole = currentRole === 'admin' ? 'external' : 'admin';
         setStatusText('Status wijzigen...');
         
-        const { error } = await supabase
+        const { error } = await supabaseAdmin
             .from('profiles')
             .update({ role: newRole })
             .eq('id', profileId);

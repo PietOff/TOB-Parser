@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from '../utils/supabaseClient';
+import { supabase, supabaseAdmin } from '../utils/supabaseClient';
 
 const AuthContext = createContext({});
 
@@ -32,7 +32,11 @@ export const AuthProvider = ({ children }) => {
 
     const fetchProfile = async (userId) => {
         try {
-            const { data, error } = await supabase
+            // Use supabaseAdmin (service_role) to bypass RLS entirely.
+            // The profiles table has a recursive RLS policy that causes an infinite
+            // loop when the anon/user client tries to read profiles. The admin client
+            // skips RLS so we can safely read the user's own row.
+            const { data, error } = await supabaseAdmin
                 .from('profiles')
                 .select('*')
                 .eq('id', userId)
