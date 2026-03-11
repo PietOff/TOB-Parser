@@ -1,7 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
+import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
+import UserManagement from './pages/UserManagement';
 import './index.css';
 
 // Protect private routes from unauthenticated users
@@ -47,6 +49,22 @@ export default function App() {
                             <PublicRoute>
                                 <Login />
                             </PublicRoute>
+                        } 
+                    />
+                    <Route 
+                        path="/register" 
+                        element={
+                            <PublicRoute>
+                                <Register />
+                            </PublicRoute>
+                        } 
+                    />
+                    <Route 
+                        path="/beheer" 
+                        element={
+                            <PrivateRoute>
+                                <UserManagement />
+                            </PrivateRoute>
                         } 
                     />
                     <Route 

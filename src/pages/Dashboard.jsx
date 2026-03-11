@@ -7,6 +7,8 @@ import { parseXlsx, xlsxToLocations } from '../utils/xlsxParser';
 import { parseDocx, docxToLocations } from '../utils/docxParser';
 import { enrichAllLocations, triggerDeepScanBatch, detectCityFromText, wgs84ToRd, getGithubToken, fetchZoekregels } from '../utils/apiIntegrations';
 import { assessLocation } from '../utils/smartFill';
+import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import '../index.css';
 
 const STEPS = [
@@ -24,6 +26,8 @@ export default function Dashboard() {
     const [parseStatus, setParseStatus] = useState('');
     const [tesseractReady, setTesseractReady] = useState(false);
     const [zoekregels, setZoekregels] = useState([]);
+    const { isAdmin, user, signOut } = useAuth();
+    const navigate = useNavigate();
 
     // Pre-initialize Tesseract on app load for OCR support
     useEffect(() => {
@@ -299,8 +303,24 @@ export default function Dashboard() {
 
     return (
         <div className="app">
-            <header className="app-header">
-                <h1>TOB Parser</h1>
+            <header className="app-header" style={{ position: 'relative' }}>
+                <div style={{ position: 'absolute', top: '15px', right: '20px', display: 'flex', gap: '10px' }}>
+                    {isAdmin && (
+                        <button 
+                            onClick={() => navigate('/beheer')}
+                            style={{ padding: '6px 12px', background: 'white', color: '#1a365d', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                        >
+                            ⚙️ Beheer Gebruikers
+                        </button>
+                    )}
+                    <button 
+                        onClick={signOut}
+                        style={{ padding: '6px 12px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                    >
+                        Uitloggen
+                    </button>
+                </div>
+                <h1>TOB Backoffice</h1>
                 <p>Upload TOB rapporten → Automatische Geocodering & Protocol Check → Excel Export</p>
             </header>
 
