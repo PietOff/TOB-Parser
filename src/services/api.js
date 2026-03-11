@@ -232,18 +232,19 @@ export function dbRowToLocation(row) {
     _source:           row.source_file,
     rdX:               row.rd_x,
     rdY:               row.rd_y,
+    isComplex:         row.complex ?? false,
     // Herstel genest _enriched object
     _enriched: row.enriched_data
       ? {
           ...row.enriched_data,
-          lat: row.lat ?? row.enriched_data?.lat,
-          lon: row.lon ?? row.enriched_data?.lon,
+          lat: row.lat ?? row.latitude ?? row.enriched_data?.lat,
+          lon: row.lon ?? row.longitude ?? row.enriched_data?.lon,
           rd: row.rd_x
             ? { x: row.rd_x, y: row.rd_y }
             : row.enriched_data?.rd ?? null,
         }
-      : row.lat
-        ? { lat: row.lat, lon: row.lon, rd: row.rd_x ? { x: row.rd_x, y: row.rd_y } : null }
+      : (row.lat ?? row.latitude)
+        ? { lat: row.lat ?? row.latitude, lon: row.lon ?? row.longitude, rd: row.rd_x ? { x: row.rd_x, y: row.rd_y } : null }
         : null,
   };
 }
