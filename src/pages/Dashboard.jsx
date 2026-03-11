@@ -1,7 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
 import FileUpload from '../components/FileUpload';
-import DataPreview from '../components/DataPreview';
-import ExportPanel from '../components/ExportPanel';
 import { extractPdfText, parseTobReport, mergeToLocations } from '../utils/pdfParser';
 import { parseXlsx, xlsxToLocations } from '../utils/xlsxParser';
 import { parseDocx, docxToLocations } from '../utils/docxParser';
@@ -19,29 +17,19 @@ import {
 } from '../services/api';
 import '../index.css';
 
-const STEPS = [
-    { id: 1, label: 'Upload' },
-    { id: 2, label: 'Preview' },
-    { id: 3, label: 'Export' },
-];
+
 
 export default function Dashboard() {
-    const [step, setStep] = useState(1);
-    const [locations, setLocations] = useState([]);
-    const [projectAddress, setProjectAddress] = useState(null);
-    const [projectTrace, setProjectTrace] = useState(null);
     const [parsing, setParsing] = useState(false);
     const [parseStatus, setParseStatus] = useState('');
     const [tesseractReady, setTesseractReady] = useState(false);
     const [zoekregels, setZoekregels] = useState([]);
 
-    // ── Phase 3: project-state ──────────────────────────────────────────
-    const [currentProjectId, setCurrentProjectId] = useState(null);
     const [projects, setProjects] = useState([]);
     const [projectsLoading, setProjectsLoading] = useState(true);
     const [saveError, setSaveError] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
-    // ───────────────────────────────────────────────────────────────────
+    // ───────────────
 
     const { isAdmin, user, signOut } = useAuth();
     const navigate = useNavigate();
@@ -100,22 +88,11 @@ export default function Dashboard() {
         loadProjects();
     }, []);
 
-    // ── Phase 3: laad locaties van geselecteerd project ────────────────
-    const loadProjectLocations = useCallback(async (projectId) => {
+    // ── Phase 3: navigeer naar geselecteerd project ────────────────
+    const loadProjectLocations = useCallback((projectId) => {
         if (!projectId) return;
-        try {
-            setParseStatus('📂 Project laden uit database...');
-            const rows = await fetchLocations(projectId);
-            const locs = rows.map(dbRowToLocation);
-            setLocations(locs);
-            setCurrentProjectId(projectId);
-            setStep(2);
-            setParseStatus('');
-        } catch (err) {
-            console.error('❌ [DB] Fout bij laden locaties:', err);
-            setParseStatus(`❌ Laden mislukt: ${err.message}`);
-        }
-    }, []);
+        navigate(`/project/${projectId}`);
+    }, [navigate]);
 
     const handleFilesReady = useCallback(async (files) => {
         setParsing(true);
@@ -310,47 +287,33 @@ export default function Dashboard() {
                     return savedRow ? { ...loc, _db_id: savedRow.id, project_id: newProjectId } : loc;
                 });
 
-                setCurrentProjectId(newProjectId);
-                setLocations(locationsWithDbIds);
-                setProjectAddress(capturedAddress);
-                setProjectTrace(capturedTrace);
-
-                // Vernieuw de projectenlijst in de sidebar
-                setProjects(prev => [
-                    { id: newProjectId, name: projectName, client: clientName, created_at: new Date().toISOString() },
-                    ...prev,
-                ]);
-
                 setParseStatus('✅ Opgeslagen in database!');
                 console.log(`✅ [DB] Alles opgeslagen voor project ${newProjectId}`);
+                
+                // Deep Scan triggeren
+                const token = getGithubToken();
+                if (token) {
+                    setParseStatus('☁️ Cloud-onderzoek (Bodemloket/Topotijdreis) wordt gestart...');
+                    try {
+                        await triggerDeepScanBatch(finalLocations, token, 'PietOff', 'TOB-Parser');
+                        setParseStatus('✅ Deep Scan succesvol gestart op GitHub!');
+                        await new Promise(r => setTimeout(r, 2000));
+                    } catch (dispatchErr) {
+                        console.warn('⚠️ Batch Deep Scan mislukt:', dispatchErr.message);
+                        setParseStatus(`⚠️ Cloud-scan start mislukt: ${dispatchErr.message}.`);
+                        await new Promise(r => setTimeout(r, 3000));
+                    }
+                }
+
+                // Redirect to GIS Detail page
+                navigate(`/project/${newProjectId}`);
+                
             } catch (dbErr) {
                 console.error('❌ [DB] Opslaan mislukt:', dbErr);
                 setSaveError(dbErr.message);
-                // Toon toch de data in de UI, ook al mislukte de DB-opslag
-                setLocations(finalLocations);
-                setProjectAddress(capturedAddress);
-                setProjectTrace(capturedTrace);
                 setParseStatus(`⚠️ Parsing klaar maar DB-opslag mislukt: ${dbErr.message}`);
             } finally {
                 setIsSaving(false);
-            }
-            // ───────────────────────────────────────────────────────────────
-
-            setStep(2);
-
-            // Deep Scan triggeren
-            const token = getGithubToken();
-            if (token) {
-                setParseStatus('☁️ Cloud-onderzoek (Bodemloket/Topotijdreis) wordt gestart...');
-                try {
-                    await triggerDeepScanBatch(finalLocations, token, 'PietOff', 'TOB-Parser');
-                    setParseStatus('✅ Deep Scan succesvol gestart op GitHub!');
-                    await new Promise(r => setTimeout(r, 2000));
-                } catch (dispatchErr) {
-                    console.warn('⚠️ Batch Deep Scan mislukt:', dispatchErr.message);
-                    setParseStatus(`⚠️ Cloud-scan start mislukt: ${dispatchErr.message}.`);
-                    await new Promise(r => setTimeout(r, 3000));
-                }
             }
 
         } catch (err) {
@@ -367,29 +330,7 @@ export default function Dashboard() {
         }
     }, [zoekregels]);
 
-    // Handle manual marker drag from the map
-    const handleLocationDrag = useCallback((locatiecode, newLat, newLng) => {
-        setLocations(prevLocations =>
-            prevLocations.map(loc => {
-                if (loc.locatiecode === locatiecode || loc.id === locatiecode) {
-                    const newRd = wgs84ToRd(newLat, newLng);
-                    console.log(`🗺️ [Map] Manual correction for ${locatiecode}: Lat ${newLat.toFixed(5)}, Lng ${newLng.toFixed(5)} -> RD X: ${newRd.x}, Y: ${newRd.y}`);
-                    return {
-                        ...loc,
-                        _enriched: {
-                            ...loc._enriched,
-                            lat: newLat,
-                            lon: newLng,
-                            rd: newRd
-                        },
-                        rdX: newRd.x,
-                        rdY: newRd.y
-                    };
-                }
-                return loc;
-            })
-        );
-    }, []);
+
 
     return (
         <div className="app">
@@ -410,97 +351,68 @@ export default function Dashboard() {
                         Uitloggen
                     </button>
                 </div>
-                <h1>TOB Backoffice</h1>
-                <p>Upload TOB rapporten → Automatische Geocodering &amp; Protocol Check → Excel Export</p>
+                <h1>TOB Backoffice Lobby</h1>
+                <p>Kies een bestaand project of upload een nieuw TOB rapport.</p>
             </header>
 
-            {/* ── Phase 3: Bestaande projecten laden ── */}
-            {step === 1 && (
-                <div style={{ maxWidth: '900px', margin: '1rem auto', padding: '0 1rem' }}>
-                    <div style={{
-                        background: 'var(--bg-secondary, #f8fafc)',
-                        border: '1px solid var(--border, #e2e8f0)',
-                        borderRadius: '8px',
-                        padding: '1rem 1.25rem',
-                    }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                            <h3 style={{ margin: 0, fontSize: '1rem' }}>📁 Eerdere Projecten</h3>
-                            {projectsLoading && <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Laden...</span>}
-                        </div>
-
-                        {!projectsLoading && projects.length === 0 && (
-                            <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                                Nog geen projecten. Upload hieronder een bestand om te beginnen.
-                            </p>
-                        )}
-
-                        {projects.length > 0 && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '200px', overflowY: 'auto' }}>
-                                {projects.map(project => (
-                                    <button
-                                        key={project.id}
-                                        onClick={() => loadProjectLocations(project.id)}
-                                        style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            padding: '0.5rem 0.75rem',
-                                            background: 'white',
-                                            border: '1px solid var(--border, #e2e8f0)',
-                                            borderRadius: '6px',
-                                            cursor: 'pointer',
-                                            textAlign: 'left',
-                                            fontSize: '0.875rem',
-                                        }}
-                                    >
-                                        <span>
-                                            <strong>{project.name}</strong>
-                                            {project.client && <span style={{ color: 'var(--text-secondary)', marginLeft: '0.5rem' }}>— {project.client}</span>}
-                                        </span>
-                                        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                                            {new Date(project.created_at).toLocaleDateString('nl-NL')}
-                                        </span>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {/* DB save-fout melding */}
-            {saveError && (
+            {/* Dashboard Upload & Lobby */}
+            <div style={{ maxWidth: '900px', margin: '2rem auto', display: 'flex', flexDirection: 'column', gap: '2rem', padding: '0 1rem' }}>
+                
+                {/* Eerdere Projecten sectie */}
                 <div style={{
-                    maxWidth: '900px', margin: '0.5rem auto', padding: '0.75rem 1rem',
-                    background: '#fff3cd', border: '1px solid #ffc107', borderRadius: '6px',
-                    fontSize: '0.875rem', color: '#856404'
+                    background: 'var(--bg-secondary, #f8fafc)',
+                    border: '1px solid var(--border, #e2e8f0)',
+                    borderRadius: '8px',
+                    padding: '1rem 1.25rem',
                 }}>
-                    ⚠️ <strong>Database-opslag mislukt:</strong> {saveError} — Data is wel zichtbaar maar nog niet opgeslagen.
-                </div>
-            )}
-
-            {/* Steps */}
-            <div className="steps">
-                {STEPS.map(s => (
-                    <div
-                        key={s.id}
-                        className={`step ${step === s.id ? 'active' : ''} ${step > s.id ? 'completed' : ''}`}
-                        onClick={() => {
-                            if (s.id === 1 || (s.id <= step)) setStep(s.id);
-                        }}
-                        style={{ cursor: s.id <= step ? 'pointer' : 'default' }}
-                    >
-                        <span className="step-number">
-                            {step > s.id ? '✓' : s.id}
-                        </span>
-                        {s.label}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                        <h3 style={{ margin: 0, fontSize: '1.1rem' }}>📁 Eerdere Projecten</h3>
+                        {projectsLoading && <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Laden...</span>}
                     </div>
-                ))}
-            </div>
 
-            {/* Step 1: Upload */}
-            {step === 1 && (
+                    {!projectsLoading && projects.length === 0 && (
+                        <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                            Er zijn nog geen projecten. Upload hieronder een TOB rapport om te beginnen.
+                        </p>
+                    )}
+
+                    {projects.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '300px', overflowY: 'auto' }}>
+                            {projects.map(project => (
+                                <button
+                                    key={project.id}
+                                    onClick={() => loadProjectLocations(project.id)}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        padding: '0.75rem 1rem',
+                                        background: 'white',
+                                        border: '1px solid var(--border, #e2e8f0)',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        textAlign: 'left',
+                                        transition: 'background-color 0.2s',
+                                    }}
+                                    onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'}
+                                    onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                                >
+                                    <span>
+                                        <strong style={{ fontSize: '1rem' }}>{project.name}</strong>
+                                        {project.client && <span style={{ color: 'var(--text-secondary)', marginLeft: '0.5rem', fontSize: '0.9rem' }}>— {project.client}</span>}
+                                    </span>
+                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                        {new Date(project.created_at).toLocaleDateString('nl-NL')}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Upload sectie */}
                 <div>
+                    <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem' }}>➕ Nieuw Project Parse & Upload</h3>
                     <FileUpload onFilesReady={handleFilesReady} />
                     {(parsing || isSaving) && (
                         <div className="parsing-overlay">
@@ -510,46 +422,12 @@ export default function Dashboard() {
                                     {isSaving ? 'Opslaan in database...' : 'Bestand verwerken...'}
                                 </div>
                                 <div className="parsing-message">{parseStatus}</div>
-                                <div className="parsing-hint">Dit kan even duren</div>
+                                <div className="parsing-hint">Dit kan even duren. Je wordt hierna automatisch doorgestuurd naar de kaart.</div>
                             </div>
                         </div>
                     )}
                 </div>
-            )}
-
-            {/* Step 2 & 3 */}
-            {(step === 2 || step === 3) && (
-                <div style={step === 3 ? { position: 'absolute', left: '-9999px', top: 0, width: '1200px', opacity: 1, pointerEvents: 'none' } : undefined}>
-                    <DataPreview
-                        locations={locations}
-                        onLocationsUpdate={setLocations}
-                        onLocationDrag={handleLocationDrag}
-                        projectAddress={projectAddress}
-                        projectTrace={projectTrace}
-                        projectId={currentProjectId}
-                    />
-                    <div className="btn-group">
-                        <button className="btn btn-secondary" onClick={() => setStep(1)}>
-                            ← Terug
-                        </button>
-                        <button className="btn btn-primary" onClick={() => setStep(3)}>
-                            Ga naar Export →
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {/* Step 3: Export */}
-            {step === 3 && (
-                <div>
-                    <ExportPanel locations={locations} zoekregels={zoekregels} />
-                    <div className="btn-group">
-                        <button className="btn btn-secondary" onClick={() => setStep(2)}>
-                            ← Terug naar Preview
-                        </button>
-                    </div>
-                </div>
-            )}
+            </div>
         </div>
     );
 }
