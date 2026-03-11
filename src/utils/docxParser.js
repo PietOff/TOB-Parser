@@ -116,6 +116,14 @@ export async function parseDocx(file, onProgress) {
     const sleufDiepte = fullText.match(/(?:Maximale\s+)?sleufdiepte.*?(\d+[\.,]?\d*)/i);
     if (sleufDiepte) data.sleufdiepte = sleufDiepte[1];
 
+    // ── Extract RD coordinates from header ──
+    const rdMatch = fullText.match(/X:\s*(\d{4,6}(?:[.,]\d+)?)\s*Y:\s*(\d{4,6}(?:[.,]\d+)?)/i);
+    if (rdMatch) {
+        data.rdX = parseFloat(rdMatch[1].replace(',', '.'));
+        data.rdY = parseFloat(rdMatch[2].replace(',', '.'));
+        console.log(`📍 [DOCX] RD coördinaten uit header: X=${data.rdX}, Y=${data.rdY}`);
+    }
+
     // ── Extract veiligheidsklasse ──
     const vkMatch = fullText.match(/(?:voorlopige\s+)?veiligheidsklasse\s*(?:CROW\s*400)?\s*(?:is(?:\s+vastgesteld\s+op)?:?\s*)?([^\n.]+)/i);
     if (vkMatch) data.veiligheidsklasse = vkMatch[1].trim();

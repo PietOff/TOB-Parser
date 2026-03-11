@@ -433,6 +433,22 @@ export default function ProjectDetail() {
                             height="100%"
                             highlightedLocationCode={selectedLocation?.locatiecode}
                             onLocationDrag={handleLocationDrag}
+                            projectAddress={(() => {
+                                // Derive project address from first location with address data
+                                const loc = locations.find(l => l.straatnaam || l.locatienaam);
+                                if (!loc) return null;
+                                return {
+                                    straatnaam: loc.straatnaam || loc.locatienaam || '',
+                                    huisnummer: loc.huisnummer || '',
+                                    postcode: loc.postcode || '',
+                                    city: loc.woonplaats || '',
+                                };
+                            })()}
+                            projectTrace={project?.name ? {
+                                description: project.name,
+                                distance: null,
+                                unit: 'm',
+                            } : null}
                         />
                     </Suspense>
                 </main>

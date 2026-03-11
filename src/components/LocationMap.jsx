@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, LayersControl, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, Polyline, LayersControl, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { rdToWgs84 } from '../utils/apiIntegrations';
@@ -280,11 +280,25 @@ export default function LocationMap({
                     />
                 )}
 
+                {/* Trace polyline connecting all locations */}
+                {locationMarkers.length > 1 && (
+                    <Polyline
+                        positions={locationMarkers.map(m => [m._lat, m._lon])}
+                        pathOptions={{
+                            color: '#3b82f6',
+                            weight: 3,
+                            opacity: 0.6,
+                            dashArray: '8, 6',
+                        }}
+                    />
+                )}
+
                 {/* Individual location markers */}
                 {locationMarkers.map(loc => {
                     const isHighlighted = highlightedLocationCode === loc.locatiecode;
-                    const isComplex = loc.complex;
+                    const isComplex = loc.complex || loc.isComplex;
                     const color = isComplex ? '#ef4444' : '#22c55e';
+                    const nazcaDetail = loc._nazcaDetail || loc._enriched?.nazcaDetail;
 
                     return (
                         <CircleMarker
@@ -299,12 +313,28 @@ export default function LocationMap({
                             }}
                         >
                             <Popup>
-                                <div style={{ fontSize: '12px', minWidth: '150px' }}>
+                                <div style={{ fontSize: '12px', minWidth: '180px' }}>
                                     <strong>{loc.locatiecode}</strong>
-                                    {loc.locatienaam && <div>{loc.locatienaam}</div>}
+                                    {loc.locatienaam && <div style={{ color: '#555' }}>{loc.locatienaam}</div>}
                                     {loc.straatnaam && <div>{loc.straatnaam} {loc.huisnummer}</div>}
+                                    {loc.woonplaats && <div>{loc.postcode} {loc.woonplaats}</div>}
+                                    {nazcaDetail?.beoordeling && (
+                                        <div style={{ marginTop: '4px', padding: '3px 6px', background: isComplex ? '#fef2f2' : '#f0fdf4', borderRadius: '4px', fontSize: '11px' }}>
+                                            <strong>Nazca:</strong> {nazcaDetail.beoordeling}
+                                        </div>
+                                    )}
+                                    {nazcaDetail?.vervolgactie && (
+                                        <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>
+                                            Vervolgactie: {nazcaDetail.vervolgactie}
+                                        </div>
+                                    )}
+                                    {nazcaDetail?.rapporten?.length > 0 && (
+                                        <div style={{ fontSize: '10px', color: '#9ca3af', marginTop: '2px' }}>
+                                            📄 {nazcaDetail.rapporten.length} onderzoeksrapport(en)
+                                        </div>
+                                    )}
                                     {loc.conclusie && (
-                                        <div style={{ marginTop: '4px', color: isComplex ? '#ef4444' : '#22c55e' }}>
+                                        <div style={{ marginTop: '4px', color: isComplex ? '#ef4444' : '#22c55e', fontWeight: 500 }}>
                                             {loc.conclusie}
                                         </div>
                                     )}
