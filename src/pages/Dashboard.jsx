@@ -320,6 +320,12 @@ export default function Dashboard() {
                         </button>
                     )}
                     <button
+                        onClick={() => navigate('/projecten')}
+                        style={{ padding: '6px 12px', background: 'white', color: '#1a365d', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                    >
+                        📁 Projectenbeheer
+                    </button>
+                    <button
                         onClick={signOut}
                         style={{ padding: '6px 12px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                     >

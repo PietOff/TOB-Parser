@@ -41,7 +41,7 @@ export async function saveProject(name, client = null) {
 export async function fetchProjects() {
   const { data, error } = await supabase
     .from('projects')
-    .select('*')
+    .select('*, project_folders(id, name, color)')
     .order('created_at', { ascending: false });
 
   if (error) throw new Error(`fetchProjects fout: ${error.message}`);
@@ -320,7 +320,8 @@ export async function saveResearches(locationId, researchesList = []) {
  * @returns {Promise<Array>}
  */
 export async function fetchResearches(locationId) {
-  const { data, error } = await supabase
+  if (!locationId) return [];
+  const { data, error } = await supabaseAdmin
     .from('researches')
     .select('*')
     .eq('location_id', locationId)
@@ -375,4 +376,91 @@ export async function fetchProjectMembers(projectId) {
 
   if (error) throw new Error(`fetchProjectMembers fout: ${error.message}`);
   return data ?? [];
+}
+
+// ─────────────────────────────────────────────
+// FOLDERS
+// ─────────────────────────────────────────────
+
+export async function fetchFolders() {
+  const { data, error } = await supabase
+    .from('project_folders')
+    .select('*')
+    .order('name', { ascending: true });
+
+  if (error) throw new Error(`fetchFolders fout: ${error.message}`);
+  return data ?? [];
+}
+
+export async function createFolder(name, color = '#3b82f6') {
+  const { data, error } = await supabaseAdmin
+    .from('project_folders')
+    .insert({ name, color })
+    .select()
+    .single();
+
+  if (error) throw new Error(`createFolder fout: ${error.message}`);
+  return data;
+}
+
+export async function updateFolder(folderId, updates) {
+  const { error } = await supabaseAdmin
+    .from('project_folders')
+    .update(updates)
+    .eq('id', folderId);
+
+  if (error) throw new Error(`updateFolder fout: ${error.message}`);
+}
+
+export async function deleteFolder(folderId) {
+  // First unset folder_id on all projects in this folder
+  await supabaseAdmin
+    .from('projects')
+    .update({ folder_id: null })
+    .eq('folder_id', folderId);
+
+  const { error } = await supabaseAdmin
+    .from('project_folders')
+    .delete()
+    .eq('id', folderId);
+
+  if (error) throw new Error(`deleteFolder fout: ${error.message}`);
+}
+
+export async function moveProjectToFolder(projectId, folderId) {
+  const { error } = await supabaseAdmin
+    .from('projects')
+    .update({ folder_id: folderId })
+    .eq('id', projectId);
+
+  if (error) throw new Error(`moveProjectToFolder fout: ${error.message}`);
+}
+
+// ─────────────────────────────────────────────
+// USER MANAGEMENT
+// ─────────────────────────────────────────────
+
+export async function fetchAllProfiles() {
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .select('*')
+    .order('full_name', { ascending: true });
+
+  if (error) throw new Error(`fetchAllProfiles fout: ${error.message}`);
+  return data ?? [];
+}
+
+export async function updateUserRole(userId, role) {
+  const { error } = await supabaseAdmin
+    .from('profiles')
+    .update({ role })
+    .eq('id', userId);
+
+  if (error) throw new Error(`updateUserRole fout: ${error.message}`);
+}
+
+export async function inviteUserByEmail(email) {
+  const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email);
+  if (error) throw new Error(`inviteUserByEmail fout: ${error.message}`);
+  return data;
 }
