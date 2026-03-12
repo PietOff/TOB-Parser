@@ -491,8 +491,8 @@ function MembersModal({ project, profiles, onClose, showToast }) {
                                     padding: '8px 0', borderBottom: '1px solid #f1f5f9',
                                 }}>
                                     <div>
-                                        <div style={{ fontWeight: 500, fontSize: '0.85rem' }}>{p?.full_name || p?.email || '—'}</div>
-                                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{p?.email}</div>
+                                        <div style={{ fontWeight: 500, fontSize: '0.85rem' }}>{p?.email || '—'}</div>
+                                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}><RoleBadge role={p?.role} /></div>
                                     </div>
                                     <button onClick={() => handleRemove(m.user_id)} style={btnDanger}>Verwijderen</button>
                                 </div>
@@ -509,11 +509,8 @@ function MembersModal({ project, profiles, onClose, showToast }) {
                                     padding: '6px 0', borderBottom: '1px solid #f1f5f9',
                                 }}>
                                     <div>
-                                        <div style={{ fontWeight: 500, fontSize: '0.85rem' }}>{p.full_name || p.email}</div>
-                                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{p.email}</span>
-                                            <RoleBadge role={p.role} />
-                                        </div>
+                                        <div style={{ fontWeight: 500, fontSize: '0.85rem' }}>{p.email}</div>
+                                        <RoleBadge role={p.role} />
                                     </div>
                                     <button onClick={() => handleAdd(p.id)} style={btnPrimary}>Toevoegen</button>
                                 </div>
@@ -625,11 +622,11 @@ function UsersTab({ profiles, onRoleChange, onInvite }) {
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             fontWeight: 700, fontSize: '0.9rem', flexShrink: 0,
                         }}>
-                            {(profile.full_name || profile.email || '?').charAt(0).toUpperCase()}
+                            {(profile.email || '?').charAt(0).toUpperCase()}
                         </div>
                         <div style={{ flexGrow: 1, minWidth: 0 }}>
-                            <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{profile.full_name || '(geen naam)'}</div>
-                            <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>{profile.email}</div>
+                            <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{profile.email}</div>
+                            <RoleBadge role={profile.role} />
                         </div>
                         <select
                             value={profile.role || 'external'}

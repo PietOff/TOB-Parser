@@ -380,9 +380,9 @@ export async function removeProjectMember(projectId, userId) {
 }
 
 export async function fetchProjectMembers(projectId) {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('project_members')
-    .select('*, profiles(id, full_name, email, role)')
+    .select('*, profiles(id, email, role)')
     .eq('project_id', projectId);
 
   if (error) throw new Error(`fetchProjectMembers fout: ${error.message}`);
@@ -394,7 +394,8 @@ export async function fetchProjectMembers(projectId) {
 // ─────────────────────────────────────────────
 
 export async function fetchFolders() {
-  const { data, error } = await supabase
+  // Use supabaseAdmin to bypass RLS on project_folders
+  const { data, error } = await supabaseAdmin
     .from('project_folders')
     .select('*')
     .order('name', { ascending: true });
@@ -455,7 +456,7 @@ export async function fetchAllProfiles() {
   const { data, error } = await supabaseAdmin
     .from('profiles')
     .select('*')
-    .order('full_name', { ascending: true });
+    .order('email', { ascending: true });
 
   if (error) throw new Error(`fetchAllProfiles fout: ${error.message}`);
   return data ?? [];
