@@ -12,7 +12,10 @@
 const PDOK_LOCATIE_BASE = 'https://api.pdok.nl/bzk/locatieserver/search/v3_1';
 const BAG_API_BASE = 'https://api.bag.kadaster.nl/lvbag/individuelebevragingen/v2';
 const TOPOTIJDREIS_BASE = 'https://www.topotijdreis.nl';
-const GOOGLE_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyPWxnS_RspYHCbozL9WG3h6zWI69bDCBDxH1vJSxllLHYPyl8thuZX8qAMoV0czuig/exec';
+// Proxied via /api/zoekregels (Vercel serverless) to avoid CORS issues.
+// Google Apps Script doesn't send Access-Control-Allow-Origin headers,
+// so the browser blocks direct fetches. The proxy fetches server-to-server.
+const GOOGLE_WEBAPP_URL = '/api/zoekregels';
 
 // Common Dutch cities for context extraction
 const DUTCH_CITIES = [
@@ -54,28 +57,17 @@ export function getGithubToken() {
  */
 export async function fetchZoekregels() {
     try {
-        // Use a timeout so this never blocks startup
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5000);
-        const res = await fetch(GOOGLE_WEBAPP_URL, { signal: controller.signal });
-        clearTimeout(timeout);
-        if (!res.ok) throw new Error(`Google WebApp returned ${res.status}`);
+        const res = await fetch(GOOGLE_WEBAPP_URL);
+        if (!res.ok) throw new Error(`Zoekregels proxy returned ${res.status}`);
         const data = await res.json();
-        
         if (data.success && data.zoekregels) {
             console.log(`✅ [Rules] Loaded ${data.zoekregels.length} dynamic settings.`);
             return data.zoekregels;
-        } else {
-            console.warn('⚠️ [Rules] No search rules found or failed to load.');
-            return [];
         }
+        return [];
     } catch (err) {
-        // CORS or network failure is expected in production — Google Apps Script
-        // doesn't send CORS headers when called from a Vercel domain.
-        // This is non-critical; the app uses built-in default rules as fallback.
-        if (!err.message?.includes('abort')) {
-            console.debug('[Rules] Dynamic rules unavailable (CORS/network) — using defaults.');
-        }
+        // Non-critical — app works fine with built-in defaults
+        console.debug('[Rules] Dynamic rules unavailable:', err.message);
         return [];
     }
 }
