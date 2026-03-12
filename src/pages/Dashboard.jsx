@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import FileUpload from '../components/FileUpload';
 import { extractPdfText, parseTobReport, mergeToLocations } from '../utils/pdfParser';
 import { parseXlsx, xlsxToLocations } from '../utils/xlsxParser';
@@ -11,9 +11,6 @@ import {
     saveProject,
     saveLocations,
     saveResearches,
-    fetchProjects,
-    fetchLocations,
-    dbRowToLocation,
 } from '../services/api';
 import '../index.css';
 
@@ -25,11 +22,8 @@ export default function Dashboard() {
     const [tesseractReady, setTesseractReady] = useState(false);
     const [zoekregels, setZoekregels] = useState([]);
 
-    const [projects, setProjects] = useState([]);
-    const [projectsLoading, setProjectsLoading] = useState(true);
     const [saveError, setSaveError] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
-    // ───────────────
 
     const { isAdmin, user, signOut } = useAuth();
     const navigate = useNavigate();
@@ -71,28 +65,6 @@ export default function Dashboard() {
         initTesseract();
         loadRules();
     }, []);
-
-    // ── Phase 3: laad projecten-lijst bij startup ───────────────────────
-    useEffect(() => {
-        const loadProjects = async () => {
-            try {
-                setProjectsLoading(true);
-                const data = await fetchProjects();
-                setProjects(data);
-            } catch (err) {
-                console.error('❌ [DB] Fout bij laden projecten:', err);
-            } finally {
-                setProjectsLoading(false);
-            }
-        };
-        loadProjects();
-    }, []);
-
-    // ── Phase 3: navigeer naar geselecteerd project ────────────────
-    const loadProjectLocations = useCallback((projectId) => {
-        if (!projectId) return;
-        navigate(`/project/${projectId}`);
-    }, [navigate]);
 
     const handleFilesReady = useCallback(async (files) => {
         setParsing(true);
@@ -339,57 +311,31 @@ export default function Dashboard() {
             {/* Dashboard Upload & Lobby */}
             <div style={{ maxWidth: '900px', margin: '2rem auto', display: 'flex', flexDirection: 'column', gap: '2rem', padding: '0 1rem' }}>
                 
-                {/* Eerdere Projecten sectie */}
-                <div style={{
-                    background: 'var(--bg-secondary, #f8fafc)',
-                    border: '1px solid var(--border, #e2e8f0)',
-                    borderRadius: '8px',
-                    padding: '1rem 1.25rem',
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                        <h3 style={{ margin: 0, fontSize: '1.1rem' }}>📁 Eerdere Projecten</h3>
-                        {projectsLoading && <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Laden...</span>}
-                    </div>
-
-                    {!projectsLoading && projects.length === 0 && (
-                        <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                            Er zijn nog geen projecten. Upload hieronder een TOB rapport om te beginnen.
-                        </p>
-                    )}
-
-                    {projects.length > 0 && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '300px', overflowY: 'auto' }}>
-                            {projects.map(project => (
-                                <button
-                                    key={project.id}
-                                    onClick={() => loadProjectLocations(project.id)}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        padding: '0.75rem 1rem',
-                                        background: 'white',
-                                        border: '1px solid var(--border, #e2e8f0)',
-                                        borderRadius: '6px',
-                                        cursor: 'pointer',
-                                        textAlign: 'left',
-                                        transition: 'background-color 0.2s',
-                                    }}
-                                    onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'}
-                                    onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'white'}
-                                >
-                                    <span>
-                                        <strong style={{ fontSize: '1rem' }}>{project.name}</strong>
-                                        {project.client && <span style={{ color: 'var(--text-secondary)', marginLeft: '0.5rem', fontSize: '0.9rem' }}>— {project.client}</span>}
-                                    </span>
-                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                        {new Date(project.created_at).toLocaleDateString('nl-NL')}
-                                    </span>
-                                </button>
-                            ))}
+                {/* Projectenbeheer link */}
+                <button
+                    onClick={() => navigate('/projecten')}
+                    style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '1rem 1.25rem',
+                        background: 'white',
+                        border: '1px solid var(--border, #e2e8f0)',
+                        borderRadius: '8px',
+                        cursor: 'pointer', textAlign: 'left', width: '100%',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                        transition: 'box-shadow 0.15s',
+                    }}
+                    onMouseOver={e => e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'}
+                    onMouseOut={e => e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)'}
+                >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                        <span style={{ fontSize: '1.8rem' }}>📁</span>
+                        <div>
+                            <div style={{ fontWeight: 700, fontSize: '1rem' }}>Bestaande projecten openen</div>
+                            <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '2px' }}>Bekijk, filter en beheer al je TOB-projecten</div>
                         </div>
-                    )}
-                </div>
+                    </div>
+                    <span style={{ fontSize: '1.2rem', color: '#94a3b8' }}>→</span>
+                </button>
 
                 {/* Upload sectie */}
                 <div>
