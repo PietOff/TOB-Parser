@@ -334,7 +334,7 @@ export default function ProjectDetail() {
                                     <h5 style={{ margin: 0, fontSize: '0.85rem' }}>🔬 Onderzoeken</h5>
                                 </div>
 
-                                {currentResearches.length === 0 && !researchLoading && (
+                                {currentResearches.length === 0 && (
                                     <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: '0 0 8px 0' }}>
                                         Nog geen onderzoeken gekoppeld.
                                     </p>
