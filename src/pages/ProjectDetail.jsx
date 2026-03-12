@@ -270,7 +270,7 @@ export default function ProjectDetail() {
                                             {loc.isComplex && <span style={{ fontSize: '0.65rem', background: '#fef3c7', color: '#92400e', padding: '1px 5px', borderRadius: '3px' }}>Complex</span>}
                                         </div>
                                         <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
-                                            {loc.straatnaam} {loc.huisnummer}
+                                            {[loc.straatnaam, loc.huisnummer, loc.postcode, loc.woonplaats].filter(Boolean).join(' ') || loc.locatienaam || '—'}
                                         </div>
                                         {locResearches.length > 0 && (
                                             <div style={{ marginTop: '4px', display: 'flex', gap: '3px', flexWrap: 'wrap' }}>

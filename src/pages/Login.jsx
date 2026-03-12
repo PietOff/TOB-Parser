@@ -33,8 +33,8 @@ export default function Login() {
                 boxShadow: '0 10px 25px rgba(0,0,0,0.05)', width: '100%', maxWidth: '400px'
             }}>
                 <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-                    <h1 style={{ margin: '0', color: '#1a365d', fontSize: '24px' }}>TOB Backoffice</h1>
-                    <p style={{ margin: '8px 0 0 0', color: '#64748b' }}>Complexe Zaken GIS & Beheer</p>
+                    <h1 style={{ margin: '0', color: '#424CF9', fontSize: '24px', fontFamily: "'Bitter', Georgia, serif" }}>AbelTalent TOB Backoffice</h1>
+                    <p style={{ margin: '8px 0 0 0', color: '#64748b' }}>Wij maken impact in de fysieke leefomgeving</p>
                 </div>
 
                 {error && (

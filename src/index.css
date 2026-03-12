@@ -1,44 +1,52 @@
 :root {
+  /* ── AbelTalent Brand Palette ── */
+  --abel-yellow: #FFB81C;
+  --abel-blue: #424CF9;
+  --abel-blue-light: #6670fb;
+  --abel-dark: #1F261F;
+  --abel-dark2: #212721;
+
   /* Color palette */
-  --bg-primary: #0f1117;
-  --bg-secondary: #1a1d27;
-  --bg-card: #22263a;
-  --bg-card-hover: #2a2f45;
-  --bg-input: #181b26;
-  --accent: #6c63ff;
-  --accent-light: #8b85ff;
-  --accent-glow: rgba(108, 99, 255, 0.15);
+  --bg-primary: #1F261F;
+  --bg-secondary: #252e25;
+  --bg-card: #2c362c;
+  --bg-card-hover: #343f34;
+  --bg-input: #1a211a;
+  --accent: #424CF9;
+  --accent-light: #6670fb;
+  --accent-glow: rgba(66, 76, 249, 0.15);
   --success: #22c55e;
   --success-bg: rgba(34, 197, 94, 0.1);
-  --warning: #f59e0b;
-  --warning-bg: rgba(245, 158, 11, 0.1);
+  --warning: #FFB81C;
+  --warning-bg: rgba(255, 184, 28, 0.12);
   --danger: #ef4444;
   --danger-bg: rgba(239, 68, 68, 0.1);
-  --info: #3b82f6;
-  --info-bg: rgba(59, 130, 246, 0.1);
-  --text-primary: #e8eaed;
-  --text-secondary: #9ca3af;
-  --text-muted: #6b7280;
-  --border: #2d3348;
-  --border-light: #374151;
+  --info: #424CF9;
+  --info-bg: rgba(66, 76, 249, 0.12);
+  --text-primary: #f0f2f0;
+  --text-secondary: #a8b5a8;
+  --text-muted: #6b7a6b;
+  --border: #374437;
+  --border-light: #455245;
 
   /* Source type colors */
-  --source-color: #e8eaed;
+  --source-color: #f0f2f0;
   /* brondata = white */
-  --draft-color: #f59e0b;
-  /* auto-generated = amber */
-  --draft-bg: rgba(245, 158, 11, 0.08);
-  --empty-color: #6b7280;
+  --draft-color: #FFB81C;
+  /* auto-generated = amber/yellow */
+  --draft-bg: rgba(255, 184, 28, 0.08);
+  --empty-color: #6b7a6b;
   /* needs filling = grey */
 
   /* Priority colors */
   --priority-high: #ef4444;
-  --priority-medium: #f59e0b;
+  --priority-medium: #FFB81C;
   --priority-low: #22c55e;
-  --priority-none: #6b7280;
+  --priority-none: #6b7a6b;
 
   /* Typography */
-  --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-heading: 'Bitter', Georgia, serif;
+  --font: 'Source Sans 3', 'Source Sans Pro', -apple-system, BlinkMacSystemFont, sans-serif;
   --radius: 12px;
   --radius-sm: 8px;
   --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -59,6 +67,10 @@ body {
   overflow-x: hidden;
 }
 
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+}
+
 /* ── Layout ── */
 .app {
   max-width: 1200px;
@@ -74,11 +86,13 @@ body {
 .app-header h1 {
   font-size: 2rem;
   font-weight: 700;
-  background: linear-gradient(135deg, var(--accent), var(--accent-light));
+  font-family: var(--font-heading);
+  background: linear-gradient(135deg, var(--abel-yellow), var(--abel-blue));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   margin-bottom: 0.5rem;
+  letter-spacing: -0.02em;
 }
 
 .app-header p {

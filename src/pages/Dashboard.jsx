@@ -3,7 +3,7 @@ import FileUpload from '../components/FileUpload';
 import { extractPdfText, parseTobReport, mergeToLocations } from '../utils/pdfParser';
 import { parseXlsx, xlsxToLocations } from '../utils/xlsxParser';
 import { parseDocx, docxToLocations } from '../utils/docxParser';
-import { detectCityFromText, fetchZoekregels } from '../utils/apiIntegrations';
+import { detectCityFromText, fetchZoekregels, geocodeLocations } from '../utils/apiIntegrations';
 import { assessLocation } from '../utils/smartFill';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -240,9 +240,13 @@ export default function Dashboard() {
                 throw new Error('No locations extracted from files');
             }
 
-            // Apply smartFill assessment — no external API calls
+            // Apply smartFill assessment
             setParseStatus(`🔎 Locaties analyseren (${mergedArr.length})...`);
-            const finalLocations = mergedArr.map(loc => assessLocation(loc));
+            const assessed = mergedArr.map(loc => assessLocation(loc));
+
+            // ── Phase 2b: PDOK geocoding — street names → canonical Dutch addresses + coordinates ──
+            setParseStatus('📍 Straatnamen opzoeken in PDOK adressenregister...');
+            const finalLocations = await geocodeLocations(assessed, (msg) => setParseStatus(msg));
 
             // ── Phase 3: Sla op naar Supabase ──────────────────────────────
             setIsSaving(true);
@@ -322,7 +326,7 @@ export default function Dashboard() {
                         Uitloggen
                     </button>
                 </div>
-                <h1>TOB Backoffice Lobby</h1>
+                <h1>AbelTalent TOB Backoffice</h1>
                 <p>Kies een bestaand project of upload een nieuw TOB rapport.</p>
             </header>
 

@@ -370,9 +370,7 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                             <tr>
                                 <th>Locatiecode</th>
                                 <th>Locatienaam</th>
-                                <th>Straatnaam</th>
-                                <th>Huisnr</th>
-                                <th>Postcode</th>
+                                <th>Volledig adres</th>
                                 <th>Pos</th>
                                 <th>Status</th>
                                 <th>Conclusie</th>
@@ -400,11 +398,11 @@ export default function DataPreview({ locations, onLocationsUpdate, onLocationDr
                                     >
                                         <td>{loc.locatiecode}</td>
                                         <td>{loc.locatienaam}</td>
-                                        <td>{loc.straatnaam}</td>
-                                        <td>{loc.huisnummer}</td>
-                                        <td>{loc.postcode}</td>
-                                        <td title={loc._enriched?.rd ? `X: ${loc._enriched.rd.x}, Y: ${loc._enriched.rd.y}` : 'Geen coördinaten'}>
-                                            {loc._enriched?.rd ? '📍' : '❌'}
+                                        <td style={{ whiteSpace: 'nowrap' }}>
+                                            {[loc.straatnaam, loc.huisnummer, loc.postcode, loc.woonplaats].filter(Boolean).join(' ') || '—'}
+                                        </td>
+                                        <td title={(loc.rdX || loc._enriched?.rd) ? `X: ${loc.rdX ?? loc._enriched?.rd?.x}, Y: ${loc.rdY ?? loc._enriched?.rd?.y}` : 'Geen coördinaten'}>
+                                            {(loc.rdX || loc.lat || loc._enriched?.rd) ? '📍' : '❌'}
                                         </td>
                                         <td>{loc.status}</td>
                                         <td>

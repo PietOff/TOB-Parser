@@ -787,3 +787,132 @@ export async function triggerDeepScanBatch(locations, githubToken, repoOwner, re
 
     return { success: true, message: `Deep Scan gestart voor ${locations.length} locaties.` };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PDOK Street-level Geocoding (type:weg)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Parse a WKT POINT string from PDOK, e.g. "POINT(136132.319 455922.969)"
+ * Returns { x, y } or null.
+ */
+function parsePoint(pointStr) {
+    if (!pointStr) return null;
+    const m = pointStr.match(/POINT\(([0-9.-]+)\s+([0-9.-]+)\)/);
+    if (!m) return null;
+    return { x: parseFloat(m[1]), y: parseFloat(m[2]) };
+}
+
+/**
+ * Geocode a Dutch street name via PDOK Locatieserver (type:weg).
+ * Returns the canonical address and RD + WGS84 coordinates.
+ *
+ * @param {string} straatnaam  - e.g. "Stationsplein"
+ * @param {string} woonplaats  - e.g. "Utrecht"
+ * @returns {{ straatnaam, woonplaats, gemeente, provincie, rdX, rdY, lat, lon, weergavenaam } | null}
+ */
+export async function geocodeStreet(straatnaam, woonplaats) {
+    if (!straatnaam || !woonplaats) return null;
+    try {
+        const query = `${straatnaam} ${woonplaats}`;
+        const woonplaatsEncoded = encodeURIComponent(woonplaats);
+        const url =
+            `${PDOK_LOCATIE_BASE}/free?q=${encodeURIComponent(query)}` +
+            `&fq=type:weg&fq=woonplaatsnaam:${woonplaatsEncoded}&rows=3`;
+
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`PDOK street: ${res.status}`);
+        const data = await res.json();
+
+        const docs = data?.response?.docs ?? [];
+        if (docs.length === 0) return null;
+
+        // Prefer exact street name match (case-insensitive)
+        const lower = straatnaam.toLowerCase();
+        const best =
+            docs.find(d => d.straatnaam?.toLowerCase() === lower) ?? docs[0];
+
+        const rd = parsePoint(best.centroide_rd);
+        const ll = parsePoint(best.centroide_ll); // x=lon, y=lat
+
+        return {
+            straatnaam:   best.straatnaam   ?? straatnaam,
+            woonplaats:   best.woonplaatsnaam ?? woonplaats,
+            gemeente:     best.gemeentenaam  ?? null,
+            provincie:    best.provincienaam ?? null,
+            rdX:          rd ? rd.x : null,
+            rdY:          rd ? rd.y : null,
+            lat:          ll ? ll.y : null,
+            lon:          ll ? ll.x : null,
+            weergavenaam: best.weergavenaam  ?? null,
+        };
+    } catch (err) {
+        console.warn(`[geocodeStreet] Failed for "${straatnaam}, ${woonplaats}":`, err);
+        return null;
+    }
+}
+
+/**
+ * Geocode an array of location objects via PDOK (street-level).
+ * Only processes locations that have straatnaam + woonplaats but no lat/rdX yet.
+ * Deduplicates by "straatnaam|woonplaats" so the same street is only looked up once.
+ * Mutates location objects in-place with PDOK results.
+ *
+ * @param {Array}    locations   - array of location objects
+ * @param {Function} onProgress  - optional callback(message: string)
+ * @returns {Array} same locations array (mutated)
+ */
+export async function geocodeLocations(locations, onProgress) {
+    if (!Array.isArray(locations) || locations.length === 0) return locations;
+
+    // Identify locations that need geocoding
+    const toGeocode = locations.filter(
+        loc => loc.straatnaam && loc.woonplaats && !loc.lat && !loc.rdX
+    );
+    if (toGeocode.length === 0) return locations;
+
+    // Build deduplicated lookup map: "straatnaam|woonplaats" → result
+    const uniqueKeys = [...new Set(
+        toGeocode.map(loc => `${loc.straatnaam}|${loc.woonplaats}`)
+    )];
+
+    onProgress?.(`📍 Adressen opzoeken via PDOK (${uniqueKeys.length} straten)...`);
+
+    const resultMap = {};
+    const BATCH = 3;
+
+    for (let i = 0; i < uniqueKeys.length; i += BATCH) {
+        const batch = uniqueKeys.slice(i, i + BATCH);
+        const results = await Promise.all(
+            batch.map(key => {
+                const [street, city] = key.split('|');
+                return geocodeStreet(street, city);
+            })
+        );
+        batch.forEach((key, idx) => {
+            resultMap[key] = results[idx];
+        });
+        if (i + BATCH < uniqueKeys.length) {
+            onProgress?.(`📍 Adressen opzoeken... (${Math.min(i + BATCH, uniqueKeys.length)}/${uniqueKeys.length})`);
+        }
+    }
+
+    // Apply results back to all matching locations
+    let found = 0;
+    for (const loc of locations) {
+        if (!loc.straatnaam || !loc.woonplaats) continue;
+        const key = `${loc.straatnaam}|${loc.woonplaats}`;
+        const geo = resultMap[key];
+        if (!geo) continue;
+        // Enrich in-place
+        if (geo.straatnaam) loc.straatnaam   = geo.straatnaam;
+        if (geo.woonplaats) loc.woonplaats   = geo.woonplaats;
+        if (geo.gemeente)   loc.gemeente     = geo.gemeente;
+        if (geo.rdX)       { loc.rdX = geo.rdX; loc.rdY = geo.rdY; }
+        if (geo.lat)       { loc.lat = geo.lat; loc.lon = geo.lon; }
+        found++;
+    }
+
+    onProgress?.(`✅ ${found} locaties geocoded via PDOK`);
+    return locations;
+}
