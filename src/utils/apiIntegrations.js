@@ -812,13 +812,13 @@ function parsePoint(pointStr) {
  * @returns {{ straatnaam, woonplaats, gemeente, provincie, rdX, rdY, lat, lon, weergavenaam } | null}
  */
 export async function geocodeStreet(straatnaam, woonplaats) {
-    if (!straatnaam || !woonplaats) return null;
+    if (!straatnaam) return null;
     try {
-        const query = `${straatnaam} ${woonplaats}`;
-        const woonplaatsEncoded = encodeURIComponent(woonplaats);
-        const url =
-            `${PDOK_LOCATIE_BASE}/free?q=${encodeURIComponent(query)}` +
-            `&fq=type:weg&fq=woonplaatsnaam:${woonplaatsEncoded}&rows=3`;
+        const query = woonplaats ? `${straatnaam} ${woonplaats}` : straatnaam;
+        let url = `${PDOK_LOCATIE_BASE}/free?q=${encodeURIComponent(query)}&fq=type:weg&rows=3`;
+        if (woonplaats) {
+            url += `&fq=woonplaatsnaam:${encodeURIComponent(woonplaats)}`;
+        }
 
         const res = await fetch(url);
         if (!res.ok) throw new Error(`PDOK street: ${res.status}`);
@@ -865,15 +865,15 @@ export async function geocodeStreet(straatnaam, woonplaats) {
 export async function geocodeLocations(locations, onProgress) {
     if (!Array.isArray(locations) || locations.length === 0) return locations;
 
-    // Identify locations that need geocoding
+    // Identify locations that need geocoding (only straatnaam required; woonplaats optional)
     const toGeocode = locations.filter(
-        loc => loc.straatnaam && loc.woonplaats && !loc.lat && !loc.rdX
+        loc => loc.straatnaam && !loc.lat && !loc.rdX
     );
     if (toGeocode.length === 0) return locations;
 
     // Build deduplicated lookup map: "straatnaam|woonplaats" → result
     const uniqueKeys = [...new Set(
-        toGeocode.map(loc => `${loc.straatnaam}|${loc.woonplaats}`)
+        toGeocode.map(loc => `${loc.straatnaam}|${loc.woonplaats || ''}`)
     )];
 
     onProgress?.(`📍 Adressen opzoeken via PDOK (${uniqueKeys.length} straten)...`);
@@ -900,8 +900,8 @@ export async function geocodeLocations(locations, onProgress) {
     // Apply results back to all matching locations
     let found = 0;
     for (const loc of locations) {
-        if (!loc.straatnaam || !loc.woonplaats) continue;
-        const key = `${loc.straatnaam}|${loc.woonplaats}`;
+        if (!loc.straatnaam) continue;
+        const key = `${loc.straatnaam}|${loc.woonplaats || ''}`;
         const geo = resultMap[key];
         if (!geo) continue;
         // Enrich in-place
