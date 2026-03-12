@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
+import Navbar from '../components/Navbar';
 import FileUpload from '../components/FileUpload';
 import { extractPdfText, parseTobReport, mergeToLocations } from '../utils/pdfParser';
 import { parseXlsx, xlsxToLocations } from '../utils/xlsxParser';
@@ -31,7 +32,7 @@ export default function Dashboard() {
     const [isSaving, setIsSaving] = useState(false);
     // ───────────────
 
-    const { isAdmin, user, signOut } = useAuth();
+    const { user } = useAuth();
     const navigate = useNavigate();
 
     // Pre-initialize Tesseract on app load for OCR support
@@ -308,41 +309,27 @@ export default function Dashboard() {
 
 
     return (
-        <div className="app">
-            <header className="app-header" style={{ position: 'relative' }}>
-                <div style={{ position: 'absolute', top: '15px', right: '20px', display: 'flex', gap: '10px' }}>
-                    {isAdmin && (
-                        <button
-                            onClick={() => navigate('/beheer')}
-                            style={{ padding: '6px 12px', background: 'white', color: '#1a365d', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                        >
-                            ⚙️ Beheer Gebruikers
-                        </button>
-                    )}
-                    <button
-                        onClick={signOut}
-                        style={{ padding: '6px 12px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                    >
-                        Uitloggen
-                    </button>
-                </div>
-                <h1>AbelTalent TOB Backoffice</h1>
-                <p>Kies een bestaand project of upload een nieuw TOB rapport.</p>
-            </header>
+        <div className="page-shell">
+            <Navbar />
 
-            {/* Dashboard Upload & Lobby */}
-            <div style={{ maxWidth: '900px', margin: '2rem auto', display: 'flex', flexDirection: 'column', gap: '2rem', padding: '0 1rem' }}>
-                
-                {/* Eerdere Projecten sectie */}
+            <div className="page-content">
+                {/* Hero */}
+                <div className="dash-hero">
+                    <h2>Welkom, <span>{user?.email?.split('@')[0]}</span></h2>
+                    <p>Kies een bestaand project of upload een nieuw TOB rapport.</p>
+                </div>
+
+                {/* Eerdere Projecten */}
                 <div style={{
-                    background: 'var(--bg-secondary, #f8fafc)',
-                    border: '1px solid var(--border, #e2e8f0)',
-                    borderRadius: '8px',
-                    padding: '1rem 1.25rem',
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius)',
+                    padding: '1.25rem',
+                    marginBottom: '1.5rem',
                 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                        <h3 style={{ margin: 0, fontSize: '1.1rem' }}>📁 Eerdere Projecten</h3>
-                        {projectsLoading && <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Laden...</span>}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                        <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-primary)' }}>📁 Eerdere Projecten</h3>
+                        {projectsLoading && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Laden...</span>}
                     </div>
 
                     {!projectsLoading && projects.length === 0 && (
@@ -352,7 +339,7 @@ export default function Dashboard() {
                     )}
 
                     {projects.length > 0 && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '300px', overflowY: 'auto' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '320px', overflowY: 'auto' }}>
                             {projects.map(project => (
                                 <button
                                     key={project.id}
@@ -362,21 +349,22 @@ export default function Dashboard() {
                                         alignItems: 'center',
                                         justifyContent: 'space-between',
                                         padding: '0.75rem 1rem',
-                                        background: 'white',
-                                        border: '1px solid var(--border, #e2e8f0)',
-                                        borderRadius: '6px',
+                                        background: 'var(--bg-secondary)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: 'var(--radius-sm)',
                                         cursor: 'pointer',
                                         textAlign: 'left',
-                                        transition: 'background-color 0.2s',
+                                        transition: 'background var(--transition)',
+                                        color: 'var(--text-primary)',
                                     }}
-                                    onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'}
-                                    onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                                    onMouseOver={(e) => e.currentTarget.style.background = 'var(--bg-card-hover)'}
+                                    onMouseOut={(e) => e.currentTarget.style.background = 'var(--bg-secondary)'}
                                 >
                                     <span>
-                                        <strong style={{ fontSize: '1rem' }}>{project.name}</strong>
-                                        {project.client && <span style={{ color: 'var(--text-secondary)', marginLeft: '0.5rem', fontSize: '0.9rem' }}>— {project.client}</span>}
+                                        <strong style={{ fontSize: '0.95rem' }}>{project.name}</strong>
+                                        {project.client && <span style={{ color: 'var(--text-secondary)', marginLeft: '0.5rem', fontSize: '0.875rem' }}>— {project.client}</span>}
                                     </span>
-                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', flexShrink: 0 }}>
                                         {new Date(project.created_at).toLocaleDateString('nl-NL')}
                                     </span>
                                 </button>
@@ -386,8 +374,13 @@ export default function Dashboard() {
                 </div>
 
                 {/* Upload sectie */}
-                <div>
-                    <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem' }}>➕ Nieuw Project Parse & Upload</h3>
+                <div style={{
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius)',
+                    padding: '1.25rem',
+                }}>
+                    <h3 style={{ margin: '0 0 1rem 0', fontSize: '1rem', color: 'var(--text-primary)' }}>➕ Nieuw Project Uploaden</h3>
                     <FileUpload onFilesReady={handleFilesReady} />
                     {(parsing || isSaving) && (
                         <div className="parsing-overlay">
