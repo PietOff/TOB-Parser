@@ -103,7 +103,7 @@ export async function parseDocx(file, onProgress) {
         { key: 'aanvrager', regex: /Aanvrager\/opsteller\s+(.+?)(?:\s{2,}|$)/m },
         { key: 'opdrachtgever', regex: /Opdrachtgever\s+(.+?)(?:\s{2,}|$)/m },
         { key: 'bodemadviseur', regex: /Bodemadviseur(?:\s+TAUW)?\s+(.+?)(?:\s{2,}|$)/m },
-        { key: 'rapportDatum', regex: /Rapport aangemaakt\s+(.+?)(?:\s{2,}|$)/m },
+        { key: 'rapportDatum', regex: /Rapport aangemaakt\s*\n\s*([^\n]+)/m },
         { key: 'rapportId', regex: /Rapport ID\s+(\d+)/m },
         { key: 'aanvraagnummer', regex: /Aanvraagnummer:\s*(.+?)(?:\n|$)/m },
         { key: 'omschrijving', regex: /Omschrijving werkzaamheden:\s*(.+?)(?:\n|$)/m },
@@ -190,7 +190,7 @@ export async function parseDocx(file, onProgress) {
         const nextSectionIdx = fullText.indexOf('Gegevens Bodemlocaties', overviewIdx + overviewMarker.length);
         const overviewBlock = fullText.substring(
             overviewIdx + overviewMarker.length,
-            nextSectionIdx > -1 ? nextSectionIdx : overviewIdx + 3000
+            nextSectionIdx > -1 ? nextSectionIdx : overviewIdx + 8000
         );
 
         // Find each locatiecode in this block and extract the table row data after it
@@ -202,23 +202,51 @@ export async function parseDocx(file, onProgress) {
             const afterCode = overviewBlock.substring(codeIdx + code.length);
             const lines = afterCode.split('\n').map(l => l.trim()).filter(l => l.length > 0);
 
-            // Table row pattern: locatienaam, straatnaam, huisnummer (or empty), postcode (or empty), plaatsnaam
+            // Table columns (each on its own line in mammoth output):
+            // locatienaam, straatnaam, huisnummer (may be absent), postcode (may be absent), plaatsnaam
             if (lines.length >= 1) {
                 const entry = { locatienaam: '', straatnaam: '', huisnummer: '', postcode: '', plaatsnaam: '' };
-                entry.locatienaam = lines[0] || '';
-                if (lines[1] && !/^[A-Z]{2}\d{9,12}$/.test(lines[1])) entry.straatnaam = lines[1];
+                // Skip if this code was already found in an earlier overview block
+                if (overviewMap[code]) { continue; }
 
-                // Scan remaining lines for postcode, plaatsnaam, huisnummer
-                for (let i = 2; i < Math.min(lines.length, 6); i++) {
-                    const line = lines[i];
+                // Line 0 = locatienaam
+                entry.locatienaam = lines[0] || '';
+
+                // Lines 1..N = straatnaam, optional huisnummer, optional postcode, plaatsnaam
+                // Stop at next locatiecode
+                for (let i = 1; i < Math.min(lines.length, 8); i++) {
+                    const line = lines[i].trim();
+                    if (!line) continue;
                     if (/^[A-Z]{2}\d{9,12}$/.test(line)) break; // next locatiecode
                     if (/^[1-9]\d{3}\s?[A-Za-z]{2}$/.test(line)) {
                         entry.postcode = line.replace(/\s/g, '').toUpperCase();
                     } else if (/^\d{1,5}[a-zA-Z]?$/.test(line)) {
                         entry.huisnummer = line;
-                    } else if (/^[A-Z][a-z]/.test(line) && line.length < 50 && !entry.plaatsnaam) {
-                        entry.plaatsnaam = line;
+                    } else if (!entry.straatnaam) {
+                        // First non-code non-number non-postcode line = straatnaam
+                        entry.straatnaam = line
+                            .split(/\s+/)
+                            .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+                            .join(' ');
+                    } else if (!entry.plaatsnaam && /^[A-Z]/.test(line) && !/\d/.test(line) && line.length < 40) {
+                        // Capitalized word(s) with no digits = city
+                        entry.plaatsnaam = line.charAt(0).toUpperCase() + line.slice(1).toLowerCase();
                     }
+                }
+
+                // Post-process: if no plaatsnaam was found but straatnaam looks like a city
+                // name (no digits, short, capitalized), it was likely misclassified because
+                // mammoth deduplicates identical adjacent cells (locatienaam == straatnaam).
+                if (
+                    !entry.plaatsnaam &&
+                    !entry.postcode &&
+                    !entry.huisnummer &&
+                    entry.straatnaam &&
+                    /^[A-Za-z][a-z\s-]*$/.test(entry.straatnaam) &&
+                    entry.straatnaam.length < 40
+                ) {
+                    entry.plaatsnaam = entry.straatnaam;
+                    entry.straatnaam = entry.locatienaam; // location name doubles as street ref
                 }
 
                 overviewMap[code] = entry;
@@ -286,43 +314,44 @@ export async function parseDocx(file, onProgress) {
         };
 
         // Extract beoordeling verontreiniging
-        const beoordelingMatch = sectionText.match(/Beoordeling verontreiniging\s*\n\s*(.+?)(?:\n|$)/i);
+        // The label is on one line, the VALUE on the NEXT line
+        const beoordelingMatch = sectionText.match(/Beoordeling verontreiniging\s*\n([^\n]+)/i);
         if (beoordelingMatch) detail.beoordeling = beoordelingMatch[1].trim();
 
-        // Extract vervolgactie (Nazca follow-up)
-        const vervolgMatch = sectionText.match(/Vervolgactie i\.h\.k\.v.*?Nazca\s*\n\s*(.+?)(?:\n|$)/i);
+        // Extract vervolgactie (Nazca follow-up) — value is on the NEXT line after the label
+        const vervolgMatch = sectionText.match(/Vervolgactie i\.h\.k\.v[^\n]*\n[\s\n]*([^\n]+)/i);
         if (vervolgMatch) detail.vervolgactie = vervolgMatch[1].trim();
 
-        // Extract adres
-        const adresMatch = sectionText.match(/Adres\s*\n\s*(.+?)(?:\n|$)/i);
+        // Extract adres — value is on next line after 'Adres'
+        const adresMatch = sectionText.match(/(?:^|\n)Adres\s*\n([^\n]+)/i);
         if (adresMatch) detail.adres = adresMatch[1].trim();
 
         // Extract locatienaam from detail
-        const namaMatch = sectionText.match(/Locatienaam\s*\n\s*(.+?)(?:\n|$)/i);
+        const namaMatch = sectionText.match(/Locatienaam\s*\n([^\n]+)/i);
 
         // Extract research reports (Rapportinformatie)
+        // Structure per row (each field on its own newline):
+        // {datum}\n{type}\n{bureau}\n{rapportnummer}\n{grond}\n{grondwater}\n{crow_grond}\n{crow_grondwater}\n...
         const rapportIdx = sectionText.indexOf('Rapportinformatie');
         if (rapportIdx > -1) {
-            // After the header row (Rapportdatum, Bodemonderzoek, Onderzoeksbureau, Rapportnummer, etc.)
             const rapportBlock = sectionText.substring(rapportIdx);
-            // Find date patterns: dd-mm-yyyy
-            const dateRegex = /(\d{2}-\d{2}-\d{4})\s*\n\s*(.+?)\s*\n\s*(.+?)\s*\n\s*(.+?)(?:\s*\n)/g;
+            // Skip past the header labels
+            const headerEnd = rapportBlock.indexOf('Opmerking');
+            const dataBlock = headerEnd > -1 ? rapportBlock.substring(headerEnd + 9) : rapportBlock;
+            
+            // Each report starts with a date dd-mm-yyyy
+            const dateRegex = /(\d{2}-\d{2}-\d{4})\n([^\n]+)\n([^\n]+)\n([^\n]+)/g;
             let rapMatch;
-            while ((rapMatch = dateRegex.exec(rapportBlock)) !== null) {
+            while ((rapMatch = dateRegex.exec(dataBlock)) !== null) {
                 const datumStr = rapMatch[1];
                 const type = rapMatch[2].trim();
                 const bureau = rapMatch[3].trim();
                 const rapportnummer = rapMatch[4].trim();
-
-                // Skip header rows
-                if (type === 'Bodemonderzoek' || type === 'Rapportdatum') continue;
-
-                detail.rapporten.push({
-                    datum: datumStr,
-                    type,
-                    bureau,
-                    rapportnummer,
-                });
+                // Skip if these look like header labels
+                if (/^(Bodemonderzoek|Rapportdatum|Onderzoeksbureau)$/i.test(type)) continue;
+                // Skip if rapportnummer looks like a WBB classification (Onb., >I, >S, etc.)
+                if (/^(Onb\.|>|Rood|Oranje|Groen|Blauw)/.test(rapportnummer)) continue;
+                detail.rapporten.push({ datum: datumStr, type, bureau, rapportnummer });
             }
         }
 
