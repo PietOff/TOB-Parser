@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Navbar from '../components/Navbar';
 import FileUpload from '../components/FileUpload';
 import { extractPdfText, parseTobReport, mergeToLocations } from '../utils/pdfParser';
@@ -12,9 +12,6 @@ import {
     saveProject,
     saveLocations,
     saveResearches,
-    fetchProjects,
-    fetchLocations,
-    dbRowToLocation,
 } from '../services/api';
 import '../index.css';
 
@@ -23,14 +20,8 @@ import '../index.css';
 export default function Dashboard() {
     const [parsing, setParsing] = useState(false);
     const [parseStatus, setParseStatus] = useState('');
-    const [tesseractReady, setTesseractReady] = useState(false);
     const [zoekregels, setZoekregels] = useState([]);
-
-    const [projects, setProjects] = useState([]);
-    const [projectsLoading, setProjectsLoading] = useState(true);
-    const [saveError, setSaveError] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
-    // ───────────────
 
     const { user } = useAuth();
     const navigate = useNavigate();
@@ -54,12 +45,10 @@ export default function Dashboard() {
                 ]);
 
                 console.log('✅ [App] Tesseract ready for use');
-                setTesseractReady(true);
                 setParseStatus('');
                 window.__tesseractWorker = worker;
             } catch (err) {
                 console.warn('⚠️ [App] Tesseract pre-init failed (will try on demand):', err.message);
-                setTesseractReady(false);
                 setParseStatus('');
             }
         };
@@ -73,31 +62,8 @@ export default function Dashboard() {
         loadRules();
     }, []);
 
-    // ── Phase 3: laad projecten-lijst bij startup ───────────────────────
-    useEffect(() => {
-        const loadProjects = async () => {
-            try {
-                setProjectsLoading(true);
-                const data = await fetchProjects();
-                setProjects(data);
-            } catch (err) {
-                console.error('❌ [DB] Fout bij laden projecten:', err);
-            } finally {
-                setProjectsLoading(false);
-            }
-        };
-        loadProjects();
-    }, []);
-
-    // ── Phase 3: navigeer naar geselecteerd project ────────────────
-    const loadProjectLocations = useCallback((projectId) => {
-        if (!projectId) return;
-        navigate(`/project/${projectId}`);
-    }, [navigate]);
-
     const handleFilesReady = useCallback(async (files) => {
         setParsing(true);
-        setSaveError(null);
         setParseStatus('Bestanden verwerken...');
         const allLocations = [];
         let capturedAddress = null;
@@ -286,7 +252,6 @@ export default function Dashboard() {
                 
             } catch (dbErr) {
                 console.error('❌ [DB] Opslaan mislukt:', dbErr);
-                setSaveError(dbErr.message);
                 setParseStatus(`⚠️ Parsing klaar maar DB-opslag mislukt: ${dbErr.message}`);
             } finally {
                 setIsSaving(false);
@@ -319,59 +284,45 @@ export default function Dashboard() {
                     <p>Kies een bestaand project of upload een nieuw TOB rapport.</p>
                 </div>
 
-                {/* Eerdere Projecten */}
-                <div style={{
-                    background: 'var(--bg-card)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 'var(--radius)',
-                    padding: '1.25rem',
-                    marginBottom: '1.5rem',
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                        <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-primary)' }}>📁 Eerdere Projecten</h3>
-                        {projectsLoading && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Laden...</span>}
-                    </div>
-
-                    {!projectsLoading && projects.length === 0 && (
-                        <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                            Er zijn nog geen projecten. Upload hieronder een TOB rapport om te beginnen.
-                        </p>
-                    )}
-
-                    {projects.length > 0 && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '320px', overflowY: 'auto' }}>
-                            {projects.map(project => (
-                                <button
-                                    key={project.id}
-                                    onClick={() => loadProjectLocations(project.id)}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        padding: '0.75rem 1rem',
-                                        background: 'var(--bg-secondary)',
-                                        border: '1px solid var(--border)',
-                                        borderRadius: 'var(--radius-sm)',
-                                        cursor: 'pointer',
-                                        textAlign: 'left',
-                                        transition: 'background var(--transition)',
-                                        color: 'var(--text-primary)',
-                                    }}
-                                    onMouseOver={(e) => e.currentTarget.style.background = 'var(--bg-card-hover)'}
-                                    onMouseOut={(e) => e.currentTarget.style.background = 'var(--bg-secondary)'}
-                                >
-                                    <span>
-                                        <strong style={{ fontSize: '0.95rem' }}>{project.name}</strong>
-                                        {project.client && <span style={{ color: 'var(--text-secondary)', marginLeft: '0.5rem', fontSize: '0.875rem' }}>— {project.client}</span>}
-                                    </span>
-                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', flexShrink: 0 }}>
-                                        {new Date(project.created_at).toLocaleDateString('nl-NL')}
-                                    </span>
-                                </button>
-                            ))}
+                {/* Bestaande projecten */}
+                <button
+                    onClick={() => navigate('/projecten')}
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '1rem 1.25rem',
+                        background: 'var(--bg-card)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius)',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        width: '100%',
+                        marginBottom: '1.5rem',
+                        transition: 'background var(--transition), border-color var(--transition)',
+                    }}
+                    onMouseOver={e => {
+                        e.currentTarget.style.background = 'var(--bg-card-hover)';
+                        e.currentTarget.style.borderColor = 'var(--border-light)';
+                    }}
+                    onMouseOut={e => {
+                        e.currentTarget.style.background = 'var(--bg-card)';
+                        e.currentTarget.style.borderColor = 'var(--border)';
+                    }}
+                >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                        <span style={{ fontSize: '1.6rem' }}>📁</span>
+                        <div style={{ textAlign: 'left' }}>
+                            <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>
+                                Bestaande projecten openen
+                            </div>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                Bekijk, filter en beheer al je TOB-projecten
+                            </div>
                         </div>
-                    )}
-                </div>
+                    </div>
+                    <span style={{ fontSize: '1.1rem', color: 'var(--text-muted)' }}>→</span>
+                </button>
 
                 {/* Upload sectie */}
                 <div style={{

@@ -4,21 +4,35 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { rdToWgs84 } from '../utils/apiIntegrations';
 
+/**
+ * Unified coordinate resolver — tries all possible coordinate sources in order:
+ * 1. loc.lat/lon   (written directly by PDOK geocodeLocations)
+ * 2. loc.rdX/rdY   (RD coordinates written directly by parsers/geocoder)
+ * 3. loc._enriched?.lat/lon
+ * 4. loc._enriched?.rd.x/y  (fallback via enrichLocation)
+ */
+function getLocCoords(loc) {
+    let lat = loc.lat ?? loc._enriched?.lat ?? null;
+    let lon = loc.lon ?? loc._enriched?.lon ?? null;
+    if (!lat || !lon) {
+        const rdX = loc.rdX ?? loc._enriched?.rd?.x ?? null;
+        const rdY = loc.rdY ?? loc._enriched?.rd?.y ?? null;
+        if (rdX && rdY) {
+            const wgs = rdToWgs84(rdX, rdY);
+            if (wgs && !isNaN(wgs.lat) && !isNaN(wgs.lng)) { lat = wgs.lat; lon = wgs.lng; }
+        }
+    }
+    lat = parseFloat(lat); lon = parseFloat(lon);
+    if (isNaN(lat) || isNaN(lon)) return null;
+    return [lat, lon];
+}
+
 // Component to auto-fit map bounds to all locations
 function FitBounds({ locations, center, radius }) {
     const map = useMap();
     useEffect(() => {
         const validCoords = (locations || [])
-            .map(loc => {
-                const lat = loc._enriched?.lat ?? null;
-                const lon = loc._enriched?.lon ?? null;
-                if (lat && lon && !isNaN(lat) && !isNaN(lon)) return [lat, lon];
-                if (loc._enriched?.rd?.x && loc._enriched?.rd?.y) {
-                    const wgs = rdToWgs84(loc._enriched.rd.x, loc._enriched.rd.y);
-                    if (wgs && !isNaN(wgs.lat) && !isNaN(wgs.lng)) return [wgs.lat, wgs.lng];
-                }
-                return null;
-            })
+            .map(loc => getLocCoords(loc))
             .filter(Boolean);
 
         if (validCoords.length > 1) {
@@ -61,23 +75,9 @@ export default function LocationMap({
     const locationMarkers = useMemo(() => {
         return locations
             .map(loc => {
-                let lat = loc._enriched?.lat;
-                let lon = loc._enriched?.lon;
-
-                if ((!lat || !lon) && loc._enriched?.rd?.x && loc._enriched?.rd?.y) {
-                    const wgs = rdToWgs84(loc._enriched.rd.x, loc._enriched.rd.y);
-                    if (wgs && !isNaN(wgs.lat) && !isNaN(wgs.lng)) {
-                        lat = wgs.lat;
-                        lon = wgs.lng;
-                    }
-                }
-
-                lat = parseFloat(lat);
-                lon = parseFloat(lon);
-
-                if (isNaN(lat) || isNaN(lon)) return null;
-
-                return { ...loc, _lat: lat, _lon: lon };
+                const coords = getLocCoords(loc);
+                if (!coords) return null;
+                return { ...loc, _lat: coords[0], _lon: coords[1] };
             })
             .filter(Boolean);
     }, [locations]);
@@ -264,8 +264,8 @@ export default function LocationMap({
                     </LayersControl.Overlay>
                 </LayersControl>
 
-                {/* Project area buffer circle */}
-                {hasValidCenter && (
+                {/* Project area buffer circle — only when a real trace distance was detected */}
+                {hasValidCenter && safeBufferRadius !== 500 && (
                     <Circle
                         center={mapCenter}
                         radius={safeBufferRadius}
@@ -280,18 +280,23 @@ export default function LocationMap({
                     />
                 )}
 
-                {/* Trace polyline connecting all locations */}
-                {locationMarkers.length > 1 && (
-                    <Polyline
-                        positions={locationMarkers.map(m => [m._lat, m._lon])}
-                        pathOptions={{
-                            color: '#3b82f6',
-                            weight: 3,
-                            opacity: 0.6,
-                            dashArray: '8, 6',
-                        }}
-                    />
-                )}
+                {/* Trace polyline — only connect markers that have afstandTrace, sorted by distance */}
+                {(() => {
+                    const traceMarkers = locationMarkers.filter(m => m.afstandTrace != null && !isNaN(parseFloat(m.afstandTrace)));
+                    const sorted = [...traceMarkers].sort((a, b) => parseFloat(a.afstandTrace) - parseFloat(b.afstandTrace));
+                    if (sorted.length < 2) return null;
+                    return (
+                        <Polyline
+                            positions={sorted.map(m => [m._lat, m._lon])}
+                            pathOptions={{
+                                color: '#3b82f6',
+                                weight: 3,
+                                opacity: 0.6,
+                                dashArray: '8, 6',
+                            }}
+                        />
+                    );
+                })()}
 
                 {/* Individual location markers */}
                 {locationMarkers.map(loc => {

@@ -38,7 +38,7 @@ export const AuthProvider = ({ children }) => {
             // skips RLS so we can safely read the user's own row.
             const { data, error } = await supabaseAdmin
                 .from('profiles')
-                .select('*')
+                .select('id, email, role, created_at')
                 .eq('id', userId)
                 .single();
             

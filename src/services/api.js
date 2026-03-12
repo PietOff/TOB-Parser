@@ -39,10 +39,20 @@ export async function saveProject(name, client = null) {
  * @returns {Promise<Array>}
  */
 export async function fetchProjects() {
-  const { data, error } = await supabase
+  // Use supabaseAdmin so RLS never blocks project listing
+  let { data, error } = await supabaseAdmin
     .from('projects')
-    .select('*')
+    .select('*, project_folders(id, name, color)')
     .order('created_at', { ascending: false });
+
+  if (error && (error.message.includes('project_folders') || error.message.includes('column') || error.message.includes('PGRST'))) {
+    const fallback = await supabaseAdmin
+      .from('projects')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (fallback.error) throw new Error(`fetchProjects fout: ${fallback.error.message}`);
+    return fallback.data ?? [];
+  }
 
   if (error) throw new Error(`fetchProjects fout: ${error.message}`);
   return data ?? [];
@@ -54,7 +64,7 @@ export async function fetchProjects() {
  * @returns {Promise<Object>}
  */
 export async function fetchProject(projectId) {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('projects')
     .select('*')
     .eq('id', projectId)
@@ -195,7 +205,7 @@ export async function saveLocations(projectId, locationsArray) {
  * @returns {Promise<Array>}
  */
 export async function fetchLocations(projectId) {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('locations')
     .select('*')
     .eq('project_id', projectId)
@@ -320,7 +330,8 @@ export async function saveResearches(locationId, researchesList = []) {
  * @returns {Promise<Array>}
  */
 export async function fetchResearches(locationId) {
-  const { data, error } = await supabase
+  if (!locationId) return [];
+  const { data, error } = await supabaseAdmin
     .from('researches')
     .select('*')
     .eq('location_id', locationId)
@@ -368,11 +379,99 @@ export async function removeProjectMember(projectId, userId) {
 }
 
 export async function fetchProjectMembers(projectId) {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('project_members')
-    .select('*, profiles(id, full_name, email, role)')
+    .select('*, profiles(id, email, role)')
     .eq('project_id', projectId);
 
   if (error) throw new Error(`fetchProjectMembers fout: ${error.message}`);
   return data ?? [];
+}
+
+// ─────────────────────────────────────────────
+// FOLDERS
+// ─────────────────────────────────────────────
+
+export async function fetchFolders() {
+  // Use supabaseAdmin to bypass RLS on project_folders
+  const { data, error } = await supabaseAdmin
+    .from('project_folders')
+    .select('*')
+    .order('name', { ascending: true });
+
+  if (error) throw new Error(`fetchFolders fout: ${error.message}`);
+  return data ?? [];
+}
+
+export async function createFolder(name, color = '#3b82f6') {
+  const { data, error } = await supabaseAdmin
+    .from('project_folders')
+    .insert({ name, color })
+    .select()
+    .single();
+
+  if (error) throw new Error(`createFolder fout: ${error.message}`);
+  return data;
+}
+
+export async function updateFolder(folderId, updates) {
+  const { error } = await supabaseAdmin
+    .from('project_folders')
+    .update(updates)
+    .eq('id', folderId);
+
+  if (error) throw new Error(`updateFolder fout: ${error.message}`);
+}
+
+export async function deleteFolder(folderId) {
+  // First unset folder_id on all projects in this folder
+  await supabaseAdmin
+    .from('projects')
+    .update({ folder_id: null })
+    .eq('folder_id', folderId);
+
+  const { error } = await supabaseAdmin
+    .from('project_folders')
+    .delete()
+    .eq('id', folderId);
+
+  if (error) throw new Error(`deleteFolder fout: ${error.message}`);
+}
+
+export async function moveProjectToFolder(projectId, folderId) {
+  const { error } = await supabaseAdmin
+    .from('projects')
+    .update({ folder_id: folderId })
+    .eq('id', projectId);
+
+  if (error) throw new Error(`moveProjectToFolder fout: ${error.message}`);
+}
+
+// ─────────────────────────────────────────────
+// USER MANAGEMENT
+// ─────────────────────────────────────────────
+
+export async function fetchAllProfiles() {
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .select('*')
+    .order('email', { ascending: true });
+
+  if (error) throw new Error(`fetchAllProfiles fout: ${error.message}`);
+  return data ?? [];
+}
+
+export async function updateUserRole(userId, role) {
+  const { error } = await supabaseAdmin
+    .from('profiles')
+    .update({ role })
+    .eq('id', userId);
+
+  if (error) throw new Error(`updateUserRole fout: ${error.message}`);
+}
+
+export async function inviteUserByEmail(email) {
+  const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email);
+  if (error) throw new Error(`inviteUserByEmail fout: ${error.message}`);
+  return data;
 }
