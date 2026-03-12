@@ -108,6 +108,13 @@ export async function deleteProject(projectId) {
 export async function saveLocations(projectId, locationsArray) {
   if (!locationsArray || locationsArray.length === 0) return [];
 
+  // Convert empty strings / NaN to null for double precision columns
+  const toNum = (v) => {
+    if (v === '' || v === undefined || v === null) return null;
+    const n = Number(v);
+    return isNaN(n) ? null : n;
+  };
+
   // Full row with all extended columns (after migration 001)
   const rows = locationsArray.map((loc) => {
     const enriched = loc._enriched ?? {};
@@ -127,11 +134,11 @@ export async function saveLocations(projectId, locationsArray) {
       brl7000:           loc.brl7000           ?? null,
       opmerking:         loc.opmerking         ?? null,
       complex:           loc.complex           ?? false,
-      // Coördinaten — lat/lon columns (post-migration rename from latitude/longitude)
-      lat:               enriched.lat          ?? loc.lat ?? null,
-      lon:               enriched.lon          ?? loc.lon ?? null,
-      rd_x:              enriched.rd?.x        ?? loc.rdX ?? null,
-      rd_y:              enriched.rd?.y        ?? loc.rdY ?? null,
+      // Coördinaten — must be null (not "") for double precision columns
+      lat:               toNum(enriched.lat  ?? loc.lat),
+      lon:               toNum(enriched.lon  ?? loc.lon),
+      rd_x:              toNum(enriched.rd?.x ?? loc.rdX),
+      rd_y:              toNum(enriched.rd?.y ?? loc.rdY),
       // Verrijkte externe data als JSON-blob
       enriched_data: {
         ...(enriched ?? {}),
@@ -140,9 +147,9 @@ export async function saveLocations(projectId, locationsArray) {
       stoffen:           loc.stoffen           ?? null,
       status_abel:       loc.statusAbel        ?? 'Nog te doen',
       opmerkingen_abel:  loc.opmerkingenAbel   ?? null,
-      afstand_trace:     loc.afstandTrace      ?? null,
+      afstand_trace:     toNum(loc.afstandTrace),
       source_file:       loc._source           ?? null,
-      rapport_jaar:      loc.rapportJaar       ?? null,
+      rapport_jaar:      toNum(loc.rapportJaar),
     };
   });
 

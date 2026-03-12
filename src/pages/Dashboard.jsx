@@ -3,7 +3,7 @@ import FileUpload from '../components/FileUpload';
 import { extractPdfText, parseTobReport, mergeToLocations } from '../utils/pdfParser';
 import { parseXlsx, xlsxToLocations } from '../utils/xlsxParser';
 import { parseDocx, docxToLocations } from '../utils/docxParser';
-import { enrichAllLocations, triggerDeepScanBatch, detectCityFromText, wgs84ToRd, getGithubToken, fetchZoekregels } from '../utils/apiIntegrations';
+import { detectCityFromText, fetchZoekregels } from '../utils/apiIntegrations';
 import { assessLocation } from '../utils/smartFill';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -240,16 +240,9 @@ export default function Dashboard() {
                 throw new Error('No locations extracted from files');
             }
 
-            setParseStatus(`🔍 Diepgaand onderzoek start voor ${mergedArr.length} locatie(s)...`);
-            const enriched = await withTimeout(
-                enrichAllLocations(mergedArr, (i, total) => {
-                    setParseStatus(`🔍 Locatie ${i}/${total} onderzoeken (BAG, HBB, PDOK)...`);
-                }, detectedCity),
-                300000,
-                'Location enrichment'
-            );
-
-            const finalLocations = enriched.map(loc => assessLocation(loc));
+            // Apply smartFill assessment — no external API calls
+            setParseStatus(`🔎 Locaties analyseren (${mergedArr.length})...`);
+            const finalLocations = mergedArr.map(loc => assessLocation(loc));
 
             // ── Phase 3: Sla op naar Supabase ──────────────────────────────
             setIsSaving(true);
@@ -267,49 +260,21 @@ export default function Dashboard() {
                 const savedRows = await saveLocations(newProjectId, finalLocations);
                 console.log(`✅ [DB] ${savedRows.length} locaties opgeslagen`);
 
-                // Standaard research-records aanmaken per locatie
+                // Standaard research-record aanmaken per locatie
                 for (const row of savedRows) {
                     try {
-                        const locData = finalLocations.find(l => l.locatiecode === row.locatiecode);
-                        const researchesToCreate = [
+                        await saveResearches(row.id, [
                             { type: 'Nazca (Bodemonderzoek)', status: 'Nog op te vragen', notes: '' }
-                        ];
-                        if (locData?._enriched?.bag) researchesToCreate.push({ type: 'BAG Check', status: 'Afgerond' });
-                        if (locData?._enriched?.bodemkwaliteit) researchesToCreate.push({ type: 'Bodemloket (PDOK)', status: 'Afgerond' });
-                        if (locData?._enriched?.hbb) researchesToCreate.push({ type: 'Historisch Bodembestand', status: 'Afgerond' });
-
-                        await saveResearches(row.id, researchesToCreate);
+                        ]);
                     } catch (resErr) {
-                        // Niet kritiek — log en ga door
                         console.warn(`⚠️ [DB] Research insert mislukt voor ${row.locatiecode}:`, resErr.message);
                     }
                 }
 
-                // Zet DB-IDs in de React state zodat latere updates weten welke rij ze moeten patchen
-                const locationsWithDbIds = finalLocations.map((loc) => {
-                    const savedRow = savedRows.find(r => r.locatiecode === loc.locatiecode);
-                    return savedRow ? { ...loc, _db_id: savedRow.id, project_id: newProjectId } : loc;
-                });
-
                 setParseStatus('✅ Opgeslagen in database!');
                 console.log(`✅ [DB] Alles opgeslagen voor project ${newProjectId}`);
-                
-                // Deep Scan triggeren
-                const token = getGithubToken();
-                if (token) {
-                    setParseStatus('☁️ Cloud-onderzoek (Bodemloket/Topotijdreis) wordt gestart...');
-                    try {
-                        await triggerDeepScanBatch(finalLocations, token, 'PietOff', 'TOB-Parser');
-                        setParseStatus('✅ Deep Scan succesvol gestart op GitHub!');
-                        await new Promise(r => setTimeout(r, 2000));
-                    } catch (dispatchErr) {
-                        console.warn('⚠️ Batch Deep Scan mislukt:', dispatchErr.message);
-                        setParseStatus(`⚠️ Cloud-scan start mislukt: ${dispatchErr.message}.`);
-                        await new Promise(r => setTimeout(r, 3000));
-                    }
-                }
 
-                // Redirect to GIS Detail page — clear overlays first
+                // Redirect to project detail page
                 setParsing(false);
                 setIsSaving(false);
                 navigate(`/project/${newProjectId}`);
