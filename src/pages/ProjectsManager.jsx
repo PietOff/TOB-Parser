@@ -24,8 +24,8 @@ function RoleBadge({ role }) {
     const style = {
         fontSize: '0.65rem', fontWeight: 700, padding: '2px 7px',
         borderRadius: '999px', display: 'inline-block',
-        background: role === 'admin' ? '#dbeafe' : '#f3f4f6',
-        color: role === 'admin' ? '#1d4ed8' : '#374151',
+        background: role === 'admin' ? 'var(--accent-glow)' : 'var(--bg-secondary)',
+        color: role === 'admin' ? 'var(--abel-yellow)' : 'var(--text-secondary)',
     };
     return <span style={style}>{role}</span>;
 }
@@ -318,7 +318,7 @@ function ProjectsTab({ projects, allProjects, folders, profiles, searchQuery, se
                         <button
                             onClick={() => onDeleteFolder(folder)}
                             title="Map verwijderen"
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', fontSize: '0.9rem', padding: '2px 4px' }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '0.9rem', padding: '2px 4px' }}
                         >×</button>
                     </div>
                 ))}
@@ -326,7 +326,7 @@ function ProjectsTab({ projects, allProjects, folders, profiles, searchQuery, se
                 <button onClick={() => setModal({ type: 'newFolder' })} style={{
                     marginTop: '12px', padding: '7px 10px', background: '#f1f5f9',
                     border: '1px dashed #cbd5e1', borderRadius: '6px', cursor: 'pointer',
-                    fontSize: '0.78rem', color: '#64748b', textAlign: 'left',
+                    fontSize: '0.78rem', color: 'var(--text-secondary)', textAlign: 'left',
                 }}>+ Nieuwe map</button>
             </aside>
 
@@ -344,7 +344,7 @@ function ProjectsTab({ projects, allProjects, folders, profiles, searchQuery, se
                 </div>
 
                 {projects.length === 0 ? (
-                    <div style={{ color: '#94a3b8', textAlign: 'center', padding: '60px 0', fontSize: '0.95rem' }}>
+                    <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '60px 0', fontSize: '0.95rem' }}>
                         Geen projecten gevonden.
                     </div>
                 ) : (
@@ -382,7 +382,7 @@ function FolderItem({ label, icon, color, count, active, onClick }) {
                 {color ? <span style={{ color, marginRight: '6px' }}>●</span> : `${icon} `}
                 {label}
             </span>
-            <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{count}</span>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{count}</span>
         </button>
     );
 }
@@ -473,7 +473,7 @@ function ProjectCard({ project, folders, onOpen, onDelete, onMove, onManageMembe
             {/* Folder color stripe */}
             <div style={{
                 width: '4px', height: '48px', borderRadius: '2px', flexShrink: 0,
-                background: folder?.color ?? '#e2e8f0',
+                background: folder?.color ?? 'var(--border)',
             }} />
 
             {/* Info */}
@@ -481,7 +481,7 @@ function ProjectCard({ project, folders, onOpen, onDelete, onMove, onManageMembe
                 <div style={{ fontWeight: 600, fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {project.name}
                 </div>
-                <div style={{ fontSize: '0.78rem', color: '#64748b', display: 'flex', gap: '12px', marginTop: '3px' }}>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', gap: '12px', marginTop: '3px' }}>
                     {project.client && <span>👤 {project.client}</span>}
                     {folder && <span style={{ color: folder.color }}>📁 {folder.name}</span>}
                     <span>🗓 {new Date(project.created_at).toLocaleDateString('nl-NL')}</span>
@@ -503,7 +503,7 @@ function ProjectCard({ project, folders, onOpen, onDelete, onMove, onManageMembe
                             padding: '6px', minWidth: '180px',
                             boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
                         }}>
-                            <div style={{ fontSize: '0.7rem', color: '#94a3b8', padding: '4px 8px' }}>Verplaats naar</div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', padding: '4px 8px' }}>Verplaats naar</div>
                             <FolderOption label="Geen map" onClick={() => { onMove(null); setShowMove(false); }} />
                             {folders.map(f => (
                                 <FolderOption key={f.id} label={f.name} color={f.color}
@@ -534,7 +534,7 @@ function FolderOption({ label, color, onClick }) {
             display: 'block', width: '100%', textAlign: 'left',
             padding: '6px 10px', fontSize: '0.82rem',
             background: 'none', border: 'none', cursor: 'pointer', borderRadius: '4px',
-            color: '#374151',
+            color: 'var(--text-primary)',
         }}
             onMouseOver={e => e.currentTarget.style.background = '#f1f5f9'}
             onMouseOut={e => e.currentTarget.style.background = 'none'}
@@ -584,8 +584,8 @@ function MembersModal({ project, profiles, onClose, showToast }) {
             {loading ? <div className="spinner" /> : (
                 <>
                     <div style={{ marginBottom: '16px' }}>
-                        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#94a3b8', marginBottom: '8px' }}>HUIDIGE LEDEN</div>
-                        {members.length === 0 && <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Nog geen leden.</div>}
+                        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px' }}>HUIDIGE LEDEN</div>
+                        {members.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Nog geen leden.</div>}
                         {members.map(m => {
                             const p = m.profiles;
                             return (
@@ -595,7 +595,7 @@ function MembersModal({ project, profiles, onClose, showToast }) {
                                 }}>
                                     <div>
                                         <div style={{ fontWeight: 500, fontSize: '0.85rem' }}>{p?.email || '—'}</div>
-                                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}><RoleBadge role={p?.role} /></div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}><RoleBadge role={p?.role} /></div>
                                     </div>
                                     <button onClick={() => handleRemove(m.user_id)} style={btnDanger}>Verwijderen</button>
                                 </div>
@@ -605,7 +605,7 @@ function MembersModal({ project, profiles, onClose, showToast }) {
 
                     {nonMembers.length > 0 && (
                         <div>
-                            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#94a3b8', marginBottom: '8px' }}>TOEVOEGEN</div>
+                            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px' }}>TOEVOEGEN</div>
                             {nonMembers.map(p => (
                                 <div key={p.id} style={{
                                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -703,7 +703,7 @@ function UsersTab({ profiles, onRoleChange, onInvite }) {
                         {inviting ? 'Versturen...' : 'Uitnodiging sturen'}
                     </button>
                 </div>
-                <p style={{ margin: '10px 0 0 0', fontSize: '0.78rem', color: '#94a3b8' }}>
+                <p style={{ margin: '10px 0 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                     De gebruiker ontvangt een e-mail van Supabase om een wachtwoord in te stellen.
                 </p>
             </div>
@@ -736,7 +736,7 @@ function UsersTab({ profiles, onRoleChange, onInvite }) {
                             onChange={e => onRoleChange(profile.id, e.target.value)}
                             style={{
                                 padding: '5px 8px', fontSize: '0.8rem',
-                                border: '1px solid #e2e8f0', borderRadius: '6px',
+                                border: '1px solid var(--border)', borderRadius: '6px',
                                 background: profile.role === 'admin' ? '#eff6ff' : '#f9fafb',
                                 color: profile.role === 'admin' ? '#1d4ed8' : '#374151',
                                 fontWeight: 600, cursor: 'pointer',
