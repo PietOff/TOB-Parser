@@ -39,15 +39,14 @@ export async function saveProject(name, client = null) {
  * @returns {Promise<Array>}
  */
 export async function fetchProjects() {
-  // Try with folder join first; fall back to plain select if the column doesn't exist yet
-  let { data, error } = await supabase
+  // Use supabaseAdmin so RLS never blocks project listing
+  let { data, error } = await supabaseAdmin
     .from('projects')
     .select('*, project_folders(id, name, color)')
     .order('created_at', { ascending: false });
 
   if (error && (error.message.includes('project_folders') || error.message.includes('column') || error.message.includes('PGRST'))) {
-    // Migration not yet run — fall back to simple query
-    const fallback = await supabase
+    const fallback = await supabaseAdmin
       .from('projects')
       .select('*')
       .order('created_at', { ascending: false });
@@ -65,7 +64,7 @@ export async function fetchProjects() {
  * @returns {Promise<Object>}
  */
 export async function fetchProject(projectId) {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('projects')
     .select('*')
     .eq('id', projectId)
@@ -206,7 +205,7 @@ export async function saveLocations(projectId, locationsArray) {
  * @returns {Promise<Array>}
  */
 export async function fetchLocations(projectId) {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('locations')
     .select('*')
     .eq('project_id', projectId)

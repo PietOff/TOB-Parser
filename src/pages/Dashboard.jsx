@@ -19,10 +19,7 @@ import '../index.css';
 export default function Dashboard() {
     const [parsing, setParsing] = useState(false);
     const [parseStatus, setParseStatus] = useState('');
-    const [tesseractReady, setTesseractReady] = useState(false);
     const [zoekregels, setZoekregels] = useState([]);
-
-    const [saveError, setSaveError] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
 
     const { isAdmin, user, signOut } = useAuth();
@@ -47,12 +44,10 @@ export default function Dashboard() {
                 ]);
 
                 console.log('✅ [App] Tesseract ready for use');
-                setTesseractReady(true);
                 setParseStatus('');
                 window.__tesseractWorker = worker;
             } catch (err) {
                 console.warn('⚠️ [App] Tesseract pre-init failed (will try on demand):', err.message);
-                setTesseractReady(false);
                 setParseStatus('');
             }
         };
@@ -68,7 +63,6 @@ export default function Dashboard() {
 
     const handleFilesReady = useCallback(async (files) => {
         setParsing(true);
-        setSaveError(null);
         setParseStatus('Bestanden verwerken...');
         const allLocations = [];
         let capturedAddress = null;
@@ -257,7 +251,6 @@ export default function Dashboard() {
                 
             } catch (dbErr) {
                 console.error('❌ [DB] Opslaan mislukt:', dbErr);
-                setSaveError(dbErr.message);
                 setParseStatus(`⚠️ Parsing klaar maar DB-opslag mislukt: ${dbErr.message}`);
             } finally {
                 setIsSaving(false);

@@ -46,11 +46,10 @@ export default function ProjectDetail() {
     const [error, setError] = useState(null);
     const [selectedLocation, setSelectedLocation] = useState(null);
     const [researches, setResearches] = useState({}); // { locationDbId: [research1, research2, ...] }
-    const [researchLoading, setResearchLoading] = useState(false);
     const [addingResearch, setAddingResearch] = useState(false);
     const [filterStatus, setFilterStatus] = useState('Alle');
 
-    // ── Load project + locations ──────────────────────────
+    // ── Load project + locations + ALL researches upfront ──────────────────────────
     useEffect(() => {
         const loadData = async () => {
             try {
@@ -61,6 +60,22 @@ export default function ProjectDetail() {
                 const rows = await fetchLocations(id);
                 const locs = rows.map(dbRowToLocation);
                 setLocations(locs);
+
+                // Load ALL researches for all locations in parallel so sidebar badges show immediately
+                const resMap = {};
+                await Promise.all(
+                    locs.map(async (loc) => {
+                        if (!loc._db_id) return;
+                        try {
+                            const data = await fetchResearches(loc._db_id);
+                            resMap[loc._db_id] = data;
+                        } catch (e) {
+                            console.warn('Research laden mislukt voor', loc.locatiecode, e.message);
+                            resMap[loc._db_id] = [];
+                        }
+                    })
+                );
+                setResearches(resMap);
             } catch (err) {
                 console.error("Fout bij laden project details:", err);
                 setError(err.message);
@@ -72,27 +87,9 @@ export default function ProjectDetail() {
         if (id) loadData();
     }, [id]);
 
-    // ── Load researches when a location is selected ──────
-    const loadResearches = useCallback(async (loc) => {
-        if (!loc?._db_id) return;
-        setResearchLoading(true);
-        try {
-            const data = await fetchResearches(loc._db_id);
-            setResearches(prev => ({ ...prev, [loc._db_id]: data }));
-        } catch (err) {
-            console.error('Fout bij laden onderzoeken:', err);
-        } finally {
-            setResearchLoading(false);
-        }
-    }, []);
-
     const handleSelectLocation = useCallback((loc) => {
         setSelectedLocation(loc);
-        // Load researches if not cached
-        if (loc._db_id && !researches[loc._db_id]) {
-            loadResearches(loc);
-        }
-    }, [researches, loadResearches]);
+    }, []);
 
     // ── Update research status ──────────────────────────
     const handleResearchStatusChange = useCallback(async (researchId, newStatus, locationDbId) => {
@@ -145,20 +142,18 @@ export default function ProjectDetail() {
 
     // ── Sync location-level fields to Supabase ──────────
     const handleLocationFieldUpdate = useCallback(async (locatiecode, field, value) => {
-        setLocations(prev => prev.map(l =>
-            l.locatiecode === locatiecode ? { ...l, [field]: value } : l
-        ));
-        setSelectedLocation(prev => prev ? { ...prev, [field]: value } : prev);
-
-        const loc = locations.find(l => l.locatiecode === locatiecode);
-        if (loc?._db_id) {
-            try {
-                await updateLocation(loc._db_id, { [field]: value });
-            } catch (err) {
-                console.error(`Update ${field} mislukt:`, err);
-            }
+        // Capture dbId inside the functional updater to avoid stale closure
+        let dbId = null;
+        setLocations(prev => prev.map(l => {
+            if (l.locatiecode === locatiecode) { dbId = l._db_id; return { ...l, [field]: value }; }
+            return l;
+        }));
+        setSelectedLocation(prev => prev?.locatiecode === locatiecode ? { ...prev, [field]: value } : prev);
+        if (dbId) {
+            try { await updateLocation(dbId, { [field]: value }); }
+            catch (err) { console.error(`Update ${field} mislukt:`, err); }
         }
-    }, [locations]);
+    }, []);
 
     const handleLocationDrag = useCallback((locatiecode, newLat, newLng) => {
         console.log("Marker dragged", locatiecode, newLat, newLng);
@@ -191,7 +186,7 @@ export default function ProjectDetail() {
                 color: 'white',
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <button onClick={() => navigate('/')} style={{
+                    <button onClick={() => navigate('/projecten')} style={{
                         padding: '4px 10px',
                         background: 'rgba(255,255,255,0.15)',
                         color: 'white',
@@ -337,7 +332,6 @@ export default function ProjectDetail() {
                             <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                                     <h5 style={{ margin: 0, fontSize: '0.85rem' }}>🔬 Onderzoeken</h5>
-                                    {researchLoading && <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Laden...</span>}
                                 </div>
 
                                 {currentResearches.length === 0 && !researchLoading && (
