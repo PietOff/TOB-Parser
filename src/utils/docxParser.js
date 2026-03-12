@@ -89,6 +89,14 @@ export async function parseDocx(file, onProgress) {
     const adresMatch = fullText.match(/PD\d{6}\s+(.+?)(?:\n|$)/);
     if (adresMatch) data.adres = adresMatch[1].trim();
 
+    // Extract project-level postcode + city from header line, e.g. "Stationsplein 80, 3511 ED, Utrecht"
+    const headerPcMatch = fullText.match(/PD\d{6}.+?([1-9]\d{3}\s?[A-Za-z]{2})[,\s]+([A-Z][a-z]+(?:[\s-][A-Z][a-z]+)*)/);
+    if (headerPcMatch) {
+        data.projectPostcode = headerPcMatch[1].replace(/\s/g, '').toUpperCase();
+        data.projectCity    = headerPcMatch[2].trim();
+        console.log(`🏙️ [DOCX] Project postcode: ${data.projectPostcode}, city: ${data.projectCity}`);
+    }
+
     // ── Extract metadata from tables ──
     // Parse key-value pairs from text
     const kvPatterns = [
@@ -125,13 +133,18 @@ export async function parseDocx(file, onProgress) {
     }
 
     // ── Extract veiligheidsklasse ──
+    const WORD_PLACEHOLDER = /^kies een item|^click to|^selecteer|^<.*>$/i;
     const vkMatch = fullText.match(/(?:voorlopige\s+)?veiligheidsklasse\s*(?:CROW\s*400)?\s*(?:is(?:\s+vastgesteld\s+op)?:?\s*)?([^\n.]+)/i);
-    if (vkMatch) data.veiligheidsklasse = vkMatch[1].trim();
+    if (vkMatch) {
+        const raw = vkMatch[1].trim();
+        data.veiligheidsklasse = WORD_PLACEHOLDER.test(raw) ? '' : raw;
+    }
 
     // Also check table format
     const vkTableMatch = fullText.match(/Voorlopige veiligheidsklasse\s*\n?\s*CROW\s*400\s*:?\s*([^\n]+)/i);
     if (vkTableMatch && !data.veiligheidsklasse) {
-        data.veiligheidsklasse = vkTableMatch[1].trim();
+        const raw = vkTableMatch[1].trim();
+        data.veiligheidsklasse = WORD_PLACEHOLDER.test(raw) ? '' : raw;
     }
 
     // ── Conclusie analysis ──
@@ -374,10 +387,20 @@ export async function parseDocx(file, onProgress) {
         // Enrich from detail section
         if (detail.beoordeling) {
             loc.opmerking = `Beoordeling: ${detail.beoordeling}`;
-            if (/ernstig|sterk verontreinigd/i.test(detail.beoordeling)) {
+            // Map beoordeling text to conclusie:
+            // "ernstig, geen spoed" | "Potentieel Ernstig" | "sterk verontreinigd" → verdacht
+            // "niet ernstig, plaatselijk sterk verontreinigd" → verdacht (sterk is the dominant signal)
+            // "niet ernstig, licht tot matig verontreinigd" → licht verontreinigd
+            if (/potentieel\s+ernstig/i.test(detail.beoordeling)) {
+                // "Potentieel Ernstig" — suspected serious, mark verdacht
                 loc.conclusie = 'verdacht';
                 loc.complex = true;
-            } else if (/niet ernstig/i.test(detail.beoordeling)) {
+            } else if (/^ernstig/i.test(detail.beoordeling)) {
+                // "ernstig, geen spoed" — serious contamination, verdacht
+                loc.conclusie = 'verdacht';
+                loc.complex = true;
+            } else if (/niet\s+ernstig/i.test(detail.beoordeling)) {
+                // "niet ernstig, ..." — not serious regardless of local severity
                 loc.conclusie = 'licht verontreinigd';
             }
         }
@@ -388,18 +411,34 @@ export async function parseDocx(file, onProgress) {
         }
 
         // Parse adres for straatnaam/woonplaats if not from overview
-        if (detail.adres && !loc.straatnaam) {
-            const adresParts = detail.adres.split(/\s+/);
+        if (detail.adres) {
+            // Format: "STRAATNAAM [HUISNUMMER] PLAATSNAAM"
+            // Last token that starts with uppercase letter and has no digits = city
+            const adresParts = detail.adres.trim().split(/\s+/);
             if (adresParts.length >= 2) {
-                loc.woonplaats = adresParts[adresParts.length - 1];
-                loc.straatnaam = adresParts.slice(0, -1).join(' ');
+                const lastPart = adresParts[adresParts.length - 1];
+                const isCityLike = /^[A-Z]/.test(lastPart) && !/\d/.test(lastPart);
+                const city = isCityLike ? lastPart : null;
+                const streetParts = city ? adresParts.slice(0, -1) : adresParts;
+
+                if (!loc.straatnaam) {
+                    // Capitalize each word of street name
+                    loc.straatnaam = streetParts
+                        .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+                        .join(' ');
+                }
+                if (!loc.woonplaats && city) {
+                    loc.woonplaats = city.charAt(0).toUpperCase() + city.slice(1).toLowerCase();
+                }
             }
-        } else if (detail.adres && !loc.woonplaats) {
-            // Extract plaatsnaam from adres if missing
-            const adresParts = detail.adres.split(/\s+/);
-            if (adresParts.length >= 2) {
-                loc.woonplaats = adresParts[adresParts.length - 1];
-            }
+        }
+
+        // Fallback: use project-level postcode + city from header
+        if (!loc.postcode && data.projectPostcode) {
+            loc.postcode = data.projectPostcode;
+        }
+        if (!loc.woonplaats && data.projectCity) {
+            loc.woonplaats = data.projectCity;
         }
 
         // CROW 400 veiligheidsklasse from detail
@@ -441,16 +480,20 @@ export async function parseDocx(file, onProgress) {
             }
         }
 
-        // Fallback: context-based postcode extraction
+        // Fallback: context-based postcode extraction (only look within detail section, not rapport numbers)
         if (!loc.postcode) {
-            const contextRegex = new RegExp(`.{0,200}${code}.{0,200}`, 's');
-            const context = fullText.match(contextRegex);
-            if (context) {
-                const afterCode = context[0].substring(context[0].indexOf(code));
-                const pMatch = afterCode.match(/\b([1-9][0-9]{3}\s?[A-Za-z]{2})\b/);
-                if (pMatch) loc.postcode = pMatch[1].replace(/\s/g, '').toUpperCase();
-            }
+            const detailSection = detailMap[code] ? fullText.substring(
+                fullText.search(new RegExp(`Locatiecode\\s*\\n\\s*${code}\\s*\\n`, 's')),
+                fullText.search(new RegExp(`Locatiecode\\s*\\n\\s*${code}\\s*\\n`, 's')) + 800
+            ) : '';
+            // Match a postcode that appears near an address keyword, not embedded in a report number
+            const pMatch = detailSection.match(/(?:Adres|adres|postcode)[^\n]*\n[^\n]*?([1-9]\d{3}\s?[A-Za-z]{2})\b/i);
+            if (pMatch) loc.postcode = pMatch[1].replace(/\s/g, '').toUpperCase();
         }
+
+        // Fallback: project-level RD coordinates as centroid (only if location has none)
+        if (!loc.rdX && data.rdX) loc.rdX = data.rdX;
+        if (!loc.rdY && data.rdY) loc.rdY = data.rdY;
 
         data.locatiecodes.push(loc);
     }
