@@ -33,7 +33,7 @@ export async function extractPdfText(file, onProgress) {
 /**
  * Parse TOB report text and extract structured data
  */
-export function parseTobReport(fullText) {
+export function parseTobReport(fullText, zoekregels = []) {
     const data = {
         locatiecodes: [],
         stoffen: [],
