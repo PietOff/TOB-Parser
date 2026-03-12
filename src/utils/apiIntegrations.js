@@ -54,8 +54,11 @@ export function getGithubToken() {
  */
 export async function fetchZoekregels() {
     try {
-        console.log('📡 [Rules] Fetching dynamic rules from Google Sheets...');
-        const res = await fetch(GOOGLE_WEBAPP_URL);
+        // Use a timeout so this never blocks startup
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch(GOOGLE_WEBAPP_URL, { signal: controller.signal });
+        clearTimeout(timeout);
         if (!res.ok) throw new Error(`Google WebApp returned ${res.status}`);
         const data = await res.json();
         
@@ -67,7 +70,12 @@ export async function fetchZoekregels() {
             return [];
         }
     } catch (err) {
-        console.warn('❌ [Rules] Fetch rules failed:', err.message);
+        // CORS or network failure is expected in production — Google Apps Script
+        // doesn't send CORS headers when called from a Vercel domain.
+        // This is non-critical; the app uses built-in default rules as fallback.
+        if (!err.message?.includes('abort')) {
+            console.debug('[Rules] Dynamic rules unavailable (CORS/network) — using defaults.');
+        }
         return [];
     }
 }
