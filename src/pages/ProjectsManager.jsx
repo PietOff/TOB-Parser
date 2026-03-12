@@ -103,7 +103,7 @@ export default function ProjectsManager() {
             .then(([p, f, u]) => { setProjects(p); setFolders(f); setProfiles(u); })
             .catch(err => showToast('Laden mislukt: ' + err.message, 'err'))
             .finally(() => setLoading(false));
-    }, []);
+    }, [showToast]);
 
     // ── Filtered projects ─────────────────────────────
     const filteredProjects = projects.filter(p => {
@@ -539,7 +539,7 @@ function MembersModal({ project, profiles, onClose, showToast }) {
             .then(setMembers)
             .catch(err => showToast(err.message, 'err'))
             .finally(() => setLoading(false));
-    }, [project.id]);
+    }, [project.id, showToast]);
 
     const memberIds = new Set(members.map(m => m.user_id));
     const nonMembers = profiles.filter(p => !memberIds.has(p.id));
