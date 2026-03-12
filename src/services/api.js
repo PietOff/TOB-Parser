@@ -115,6 +115,7 @@ export async function saveLocations(projectId, locationsArray) {
     return isNaN(n) ? null : n;
   };
 
+
   // Full row with all extended columns (after migration 001)
   const rows = locationsArray.map((loc) => {
     const enriched = loc._enriched ?? {};
