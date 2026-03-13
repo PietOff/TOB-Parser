@@ -204,17 +204,22 @@ export async function parseDocx(file, onProgress) {
 
             // Table columns (each on its own line in mammoth output):
             // locatienaam, straatnaam, huisnummer (may be absent), postcode (may be absent), plaatsnaam
+            // Large TOBs may have a "Deellocatie X" column before the real locatienaam — skip it.
             if (lines.length >= 1) {
                 const entry = { locatienaam: '', straatnaam: '', huisnummer: '', postcode: '', plaatsnaam: '' };
                 // Skip if this code was already found in an earlier overview block
                 if (overviewMap[code]) { continue; }
 
-                // Line 0 = locatienaam
-                entry.locatienaam = lines[0] || '';
+                // Skip "Deellocatie X" section-header lines that appear as a column in large TOBs
+                let lineStart = 0;
+                while (lineStart < Math.min(lines.length, 3) && /^Deellocatie\s*\d*$/i.test(lines[lineStart])) {
+                    lineStart++;
+                }
+                entry.locatienaam = lines[lineStart] || '';
 
-                // Lines 1..N = straatnaam, optional huisnummer, optional postcode, plaatsnaam
+                // Lines after locatienaam = straatnaam, optional huisnummer, optional postcode, plaatsnaam
                 // Stop at next locatiecode
-                for (let i = 1; i < Math.min(lines.length, 8); i++) {
+                for (let i = lineStart + 1; i < Math.min(lines.length, lineStart + 8); i++) {
                     const line = lines[i].trim();
                     if (!line) continue;
                     if (/^[A-Z]{2}\d{9,12}$/.test(line)) break; // next locatiecode
@@ -322,8 +327,12 @@ export async function parseDocx(file, onProgress) {
         const vervolgMatch = sectionText.match(/Vervolgactie i\.h\.k\.v[^\n]*\n[\s\n]*([^\n]+)/i);
         if (vervolgMatch) detail.vervolgactie = vervolgMatch[1].trim();
 
-        // Extract adres — value is on next line after 'Adres'
-        const adresMatch = sectionText.match(/(?:^|\n)Adres\s*\n([^\n]+)/i);
+        // Extract adres — try multiple label formats
+        const adresMatch =
+            sectionText.match(/(?:^|\n)Adres\s*\n([^\n]+)/i) ||
+            sectionText.match(/(?:^|\n)Adres\s*:\s*([^\n]+)/i) ||
+            sectionText.match(/(?:^|\n)Locatieadres\s*\n([^\n]+)/i) ||
+            sectionText.match(/(?:^|\n)Straatnaam\s*\n([^\n]+)/i);
         if (adresMatch) detail.adres = adresMatch[1].trim();
 
         // Extract locatienaam from detail
@@ -436,7 +445,9 @@ export async function parseDocx(file, onProgress) {
 
         if (detail.vervolgactie) {
             loc.status = detail.vervolgactie;
-            if (/uitvoeren/i.test(detail.vervolgactie)) loc.complex = true;
+            // Only mark complex for serious follow-up actions (sanering, afperkend, spoedeisend).
+            // "Verkennend/nader bodemonderzoek uitvoeren" is routine — not automatically complex.
+            if (/sanering|afperkend|spoedeisend/i.test(detail.vervolgactie)) loc.complex = true;
         }
 
         // Parse adres for straatnaam/woonplaats if not from overview
@@ -450,8 +461,8 @@ export async function parseDocx(file, onProgress) {
                 const city = isCityLike ? lastPart : null;
                 const streetParts = city ? adresParts.slice(0, -1) : adresParts;
 
-                if (!loc.straatnaam) {
-                    // Capitalize each word of street name
+                // Also override if straatnaam is a "Deellocatie X" placeholder from overview
+                if (!loc.straatnaam || /^Deellocatie\s*\d*$/i.test(loc.straatnaam)) {
                     loc.straatnaam = streetParts
                         .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
                         .join(' ');
