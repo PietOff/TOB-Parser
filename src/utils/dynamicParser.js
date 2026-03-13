@@ -56,7 +56,7 @@ export function applyDynamicRules(fullText, rules) {
                 let value = match[1].trim();
                 
                 // Clean up any lingering internal excessive whitespace and newlines
-                value = value.replace(/\\s{2,}/g, ' ').replace(/\\r?\\n/g, ' ');
+                value = value.replace(/\s{2,}/g, ' ').replace(/\r?\n/g, ' ');
                 
                 extractedData[key] = value;
                 console.log(`✨ [Dynamic Parser] Found expected value for "${key}":`, value.substring(0, 50));

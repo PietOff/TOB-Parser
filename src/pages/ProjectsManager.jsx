@@ -1,12 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import Navbar from '../components/Navbar';
 import {
     fetchProjects, deleteProject, updateProject, moveProjectToFolder,
     fetchFolders, createFolder, updateFolder, deleteFolder,
     fetchProjectMembers, addProjectMember, removeProjectMember,
     fetchAllProfiles, updateUserRole, inviteUserByEmail,
+    fetchLocations,
 } from '../services/api';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 import '../index.css';
 
 // ── Colour palette for folders ────────────────────────
@@ -20,9 +24,8 @@ function RoleBadge({ role }) {
     const style = {
         fontSize: '0.65rem', fontWeight: 700, padding: '2px 7px',
         borderRadius: '999px', display: 'inline-block',
-        background: role === 'admin' ? 'var(--info-bg)' : 'var(--bg-card)',
-        color: role === 'admin' ? 'var(--accent-light)' : 'var(--text-secondary)',
-        border: '1px solid var(--border)',
+        background: role === 'admin' ? 'var(--accent-glow)' : 'var(--bg-secondary)',
+        color: role === 'admin' ? 'var(--abel-yellow)' : 'var(--text-secondary)',
     };
     return <span style={style}>{role}</span>;
 }
@@ -36,11 +39,10 @@ function Modal({ title, onClose, children, width = 480 }) {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
         }} onClick={onClose}>
             <div style={{
-                background: 'var(--bg-secondary)', borderRadius: '10px', padding: '24px',
+                background: 'var(--bg-card)', borderRadius: '10px', padding: '24px',
                 width, maxWidth: '95vw', maxHeight: '85vh', overflowY: 'auto',
-                boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
+                boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
                 border: '1px solid var(--border)',
-                color: 'var(--text-primary)',
             }} onClick={e => e.stopPropagation()}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
                     <h3 style={{ margin: 0, fontSize: '1.05rem', color: 'var(--text-primary)' }}>{title}</h3>
@@ -60,12 +62,12 @@ const inputStyle = {
     background: 'var(--bg-input)', color: 'var(--text-primary)',
 };
 const btnPrimary = {
-    padding: '8px 16px', background: 'var(--warning)', color: '#1a1a1a',
+    padding: '8px 16px', background: 'var(--abel-yellow)', color: 'var(--bg-primary)',
     border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem',
 };
 const btnDanger = {
-    padding: '6px 12px', background: 'var(--danger-bg)', color: 'var(--danger)',
-    border: '1px solid var(--danger)', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem',
+    padding: '6px 12px', background: 'rgba(220,38,38,0.12)', color: '#f87171',
+    border: '1px solid rgba(220,38,38,0.3)', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem',
 };
 const btnGhost = {
     padding: '6px 12px', background: 'transparent', color: 'var(--text-secondary)',
@@ -77,7 +79,7 @@ const btnGhost = {
 // ════════════════════════════════════════════════════
 export default function ProjectsManager() {
     const navigate = useNavigate();
-    const { isAdmin, signOut } = useAuth();
+    const { isAdmin } = useAuth();
 
     // ── Data state ────────────────────────────────────
     const [projects, setProjects]     = useState([]);
@@ -104,7 +106,7 @@ export default function ProjectsManager() {
             .then(([p, f, u]) => { setProjects(p); setFolders(f); setProfiles(u); })
             .catch(err => showToast('Laden mislukt: ' + err.message, 'err'))
             .finally(() => setLoading(false));
-    }, []);
+    }, [showToast]);
 
     // ── Filtered projects ─────────────────────────────
     const filteredProjects = projects.filter(p => {
@@ -174,32 +176,48 @@ export default function ProjectsManager() {
     // ── Render ────────────────────────────────────────
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg-primary)' }}>
-            {/* Header */}
-            <header style={{
+            <Navbar />
+            {/* Tab sub-header */}
+            <div style={{
+                display: 'flex', alignItems: 'center', gap: '8px',
+                padding: '0 1.5rem',
                 background: 'var(--bg-card)',
                 borderBottom: '1px solid var(--border)',
-                color: 'var(--text-primary)', padding: '10px 24px',
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 flexShrink: 0,
             }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <button onClick={() => navigate('/')} style={btnGhost}>← Lobby</button>
-                    <h2 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)' }}>Projectenbeheer</h2>
-                </div>
-                <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                    onClick={() => setActiveTab('projects')}
+                    style={{
+                        padding: '10px 14px',
+                        background: 'none',
+                        border: 'none',
+                        borderBottom: activeTab === 'projects' ? '2px solid var(--abel-yellow)' : '2px solid transparent',
+                        color: activeTab === 'projects' ? 'var(--text-primary)' : 'var(--text-muted)',
+                        cursor: 'pointer',
+                        fontWeight: activeTab === 'projects' ? 600 : 400,
+                        fontSize: '0.875rem',
+                        transition: 'color var(--transition)',
+                        marginBottom: '-1px',
+                    }}
+                >📁 Projecten</button>
+                {isAdmin && (
                     <button
-                        onClick={() => setActiveTab('projects')}
-                        style={{ ...btnGhost, borderColor: activeTab === 'projects' ? 'var(--warning)' : 'var(--border)', color: activeTab === 'projects' ? 'var(--warning)' : 'var(--text-secondary)', fontWeight: activeTab === 'projects' ? 700 : 400 }}
-                    >📁 Projecten</button>
-                    {isAdmin && (
-                        <button
-                            onClick={() => setActiveTab('users')}
-                            style={{ ...btnGhost, borderColor: activeTab === 'users' ? 'var(--warning)' : 'var(--border)', color: activeTab === 'users' ? 'var(--warning)' : 'var(--text-secondary)', fontWeight: activeTab === 'users' ? 700 : 400 }}
-                        >👥 Gebruikers</button>
-                    )}
-                    <button onClick={signOut} style={{ ...btnGhost, color: 'var(--danger)', borderColor: 'var(--danger)' }}>Uitloggen</button>
-                </div>
-            </header>
+                        onClick={() => setActiveTab('users')}
+                        style={{
+                            padding: '10px 14px',
+                            background: 'none',
+                            border: 'none',
+                            borderBottom: activeTab === 'users' ? '2px solid var(--abel-yellow)' : '2px solid transparent',
+                            color: activeTab === 'users' ? 'var(--text-primary)' : 'var(--text-muted)',
+                            cursor: 'pointer',
+                            fontWeight: activeTab === 'users' ? 600 : 400,
+                            fontSize: '0.875rem',
+                            transition: 'color var(--transition)',
+                            marginBottom: '-1px',
+                        }}
+                    >👥 Gebruikers</button>
+                )}
+            </div>
 
             {/* Toast */}
             {toast && (
@@ -275,7 +293,7 @@ function ProjectsTab({ projects, allProjects, folders, profiles, searchQuery, se
             {/* Folder sidebar */}
             <aside style={{
                 width: '220px', flexShrink: 0,
-                background: 'var(--bg-secondary)', borderRight: '1px solid var(--border)',
+                background: 'var(--bg-card)', borderRight: '1px solid var(--border)',
                 display: 'flex', flexDirection: 'column', padding: '16px 12px', gap: '4px',
             }}>
                 <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em', marginBottom: '8px', paddingLeft: '6px' }}>MAPPEN</div>
@@ -306,8 +324,8 @@ function ProjectsTab({ projects, allProjects, folders, profiles, searchQuery, se
                 ))}
 
                 <button onClick={() => setModal({ type: 'newFolder' })} style={{
-                    marginTop: '12px', padding: '7px 10px', background: 'var(--bg-card)',
-                    border: '1px dashed var(--border-light)', borderRadius: '6px', cursor: 'pointer',
+                    marginTop: '12px', padding: '7px 10px', background: '#f1f5f9',
+                    border: '1px dashed #cbd5e1', borderRadius: '6px', cursor: 'pointer',
                     fontSize: '0.78rem', color: 'var(--text-secondary)', textAlign: 'left',
                 }}>+ Nieuwe map</button>
             </aside>
@@ -369,9 +387,82 @@ function FolderItem({ label, icon, color, count, active, onClick }) {
     );
 }
 
+const EXPORT_COLUMNS = [
+    { header: 'Locatiecode',                    key: 'locatiecode',       width: 15 },
+    { header: 'Locatienaam',                    key: 'locatienaam',       width: 25 },
+    { header: 'Straatnaam',                     key: 'straatnaam',        width: 25 },
+    { header: 'Huisnummer',                     key: 'huisnummer',        width: 12 },
+    { header: 'Postcode',                       key: 'postcode',          width: 12 },
+    { header: 'Woonplaats',                     key: 'woonplaats',        width: 18 },
+    { header: 'Status',                         key: 'status',            width: 20 },
+    { header: 'Conclusie',                      key: 'conclusie',         width: 20 },
+    { header: 'Veiligheidsklasse',              key: 'veiligheidsklasse', width: 20 },
+    { header: 'Melding',                        key: 'melding',           width: 20 },
+    { header: 'MKB',                            key: 'mkb',               width: 12 },
+    { header: 'BRL 7000',                       key: 'brl7000',           width: 12 },
+    { header: 'Opmerking',                      key: 'opmerking',         width: 30 },
+    { header: 'Informatie uit Tekeningen (PPTX)', key: 'tekeningInfo',   width: 35 },
+];
+
+async function exportProjectExcel(project) {
+    const locations = await fetchLocations(project.id);
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'TOB Parser';
+    wb.created = new Date();
+
+    const ws = wb.addWorksheet('Locaties', { properties: { tabColor: { argb: 'FF2196F3' } } });
+    ws.columns = EXPORT_COLUMNS;
+
+    const headerRow = ws.getRow(1);
+    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4285F4' } };
+    headerRow.alignment = { vertical: 'middle' };
+
+    for (const loc of locations) {
+        const enriched = loc.enriched_data ?? {};
+        ws.addRow({
+            locatiecode:      loc.locatiecode       ?? '',
+            locatienaam:      loc.locatienaam       ?? '',
+            straatnaam:       loc.straatnaam        ?? '',
+            huisnummer:       loc.huisnummer        ?? '',
+            postcode:         loc.postcode          ?? '',
+            woonplaats:       loc.woonplaats        ?? '',
+            status:           loc.status            ?? '',
+            conclusie:        loc.conclusie         ?? '',
+            veiligheidsklasse: loc.veiligheidsklasse ?? '',
+            melding:          loc.melding           ?? '',
+            mkb:              loc.mkb               ?? '',
+            brl7000:          loc.brl7000           ?? '',
+            opmerking:        loc.opmerking         ?? '',
+            tekeningInfo:     enriched.tekeningInfo ?? enriched.pptxInfo ?? '',
+        });
+    }
+
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const safeName = project.name.replace(/[\\/?*[\]:]/g, '').substring(0, 40).trim();
+    saveAs(blob, `${safeName}-${new Date().toISOString().split('T')[0]}.xlsx`);
+}
+
 function ProjectCard({ project, folders, onOpen, onDelete, onMove, onManageMembers }) {
     const [showMove, setShowMove] = useState(false);
+    const [exporting, setExporting] = useState(false);
     const folder = folders.find(f => f.id === project.folder_id);
+
+    const handleExport = async () => {
+        setExporting(true);
+        try {
+            await exportProjectExcel(project);
+        } catch (err) {
+            console.error(err);
+            alert('Export mislukt: ' + err.message);
+        } finally {
+            setExporting(false);
+        }
+    };
 
     return (
         <div style={{
@@ -407,7 +498,7 @@ function ProjectCard({ project, folders, onOpen, onDelete, onMove, onManageMembe
                     {showMove && (
                         <div style={{
                             position: 'absolute', right: 0, top: '110%', zIndex: 100,
-                            background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '8px',
+                            background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px',
                             padding: '6px', minWidth: '180px',
                             boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
                         }}>
@@ -420,6 +511,15 @@ function ProjectCard({ project, folders, onOpen, onDelete, onMove, onManageMembe
                         </div>
                     )}
                 </div>
+
+                <button
+                    onClick={handleExport}
+                    disabled={exporting}
+                    style={{ ...btnGhost, minWidth: '36px' }}
+                    title="Exporteer naar Excel"
+                >
+                    {exporting ? <span style={{ fontSize: '0.7rem' }}>...</span> : '📥'}
+                </button>
 
                 <button onClick={onDelete} style={btnDanger} title="Verwijderen">🗑</button>
             </div>
@@ -456,7 +556,7 @@ function MembersModal({ project, profiles, onClose, showToast }) {
             .then(setMembers)
             .catch(err => showToast(err.message, 'err'))
             .finally(() => setLoading(false));
-    }, [project.id]);
+    }, [project.id, showToast]);
 
     const memberIds = new Set(members.map(m => m.user_id));
     const nonMembers = profiles.filter(p => !memberIds.has(p.id));
@@ -493,7 +593,7 @@ function MembersModal({ project, profiles, onClose, showToast }) {
                                     padding: '8px 0', borderBottom: '1px solid var(--border)',
                                 }}>
                                     <div>
-                                        <div style={{ fontWeight: 500, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{p?.email || '—'}</div>
+                                        <div style={{ fontWeight: 500, fontSize: '0.85rem' }}>{p?.email || '—'}</div>
                                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}><RoleBadge role={p?.role} /></div>
                                     </div>
                                     <button onClick={() => handleRemove(m.user_id)} style={btnDanger}>Verwijderen</button>
@@ -609,7 +709,7 @@ function UsersTab({ profiles, onRoleChange, onInvite }) {
 
             {/* Users list */}
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden' }}>
-                <div style={{ padding: '14px 24px', borderBottom: '1px solid var(--border)', fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>
+                <div style={{ padding: '14px 24px', borderBottom: '1px solid var(--border)', fontWeight: 600, fontSize: '0.9rem' }}>
                     👥 Alle gebruikers ({profiles.length})
                 </div>
                 {profiles.map((profile, i) => (
@@ -636,8 +736,8 @@ function UsersTab({ profiles, onRoleChange, onInvite }) {
                             style={{
                                 padding: '5px 8px', fontSize: '0.8rem',
                                 border: '1px solid var(--border)', borderRadius: '6px',
-                                background: profile.role === 'admin' ? 'var(--info-bg)' : 'var(--bg-input)',
-                                color: profile.role === 'admin' ? 'var(--accent-light)' : 'var(--text-secondary)',
+                                background: profile.role === 'admin' ? '#eff6ff' : '#f9fafb',
+                                color: profile.role === 'admin' ? '#1d4ed8' : '#374151',
                                 fontWeight: 600, cursor: 'pointer',
                             }}
                         >

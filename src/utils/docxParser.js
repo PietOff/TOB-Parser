@@ -204,17 +204,22 @@ export async function parseDocx(file, onProgress) {
 
             // Table columns (each on its own line in mammoth output):
             // locatienaam, straatnaam, huisnummer (may be absent), postcode (may be absent), plaatsnaam
+            // Large TOBs may have a "Deellocatie X" column before the real locatienaam — skip it.
             if (lines.length >= 1) {
                 const entry = { locatienaam: '', straatnaam: '', huisnummer: '', postcode: '', plaatsnaam: '' };
                 // Skip if this code was already found in an earlier overview block
                 if (overviewMap[code]) { continue; }
 
-                // Line 0 = locatienaam
-                entry.locatienaam = lines[0] || '';
+                // Skip "Deellocatie X" section-header lines that appear as a column in large TOBs
+                let lineStart = 0;
+                while (lineStart < Math.min(lines.length, 3) && /^Deellocatie\s*\d*$/i.test(lines[lineStart])) {
+                    lineStart++;
+                }
+                entry.locatienaam = lines[lineStart] || '';
 
-                // Lines 1..N = straatnaam, optional huisnummer, optional postcode, plaatsnaam
+                // Lines after locatienaam = straatnaam, optional huisnummer, optional postcode, plaatsnaam
                 // Stop at next locatiecode
-                for (let i = 1; i < Math.min(lines.length, 8); i++) {
+                for (let i = lineStart + 1; i < Math.min(lines.length, lineStart + 8); i++) {
                     const line = lines[i].trim();
                     if (!line) continue;
                     if (/^[A-Z]{2}\d{9,12}$/.test(line)) break; // next locatiecode
@@ -258,6 +263,10 @@ export async function parseDocx(file, onProgress) {
     }
 
     console.log(`📋 [DOCX] Overzicht tabel: ${Object.keys(overviewMap).length} locaties gevonden`);
+    // Debug: show first 3 overview entries so we can verify column extraction
+    Object.entries(overviewMap).slice(0, 3).forEach(([code, e]) => {
+        console.log(`  📋 ${code} → naam="${e.locatienaam}" straat="${e.straatnaam}" nr="${e.huisnummer}" pc="${e.postcode}" stad="${e.plaatsnaam}"`);
+    });
 
     // ── STEP 2: Parse detailed "Gegevens Bodemlocaties" sections ────────
     // Each section starts with: "{locatienaam} {locatiecode}" and contains:
@@ -314,16 +323,25 @@ export async function parseDocx(file, onProgress) {
         };
 
         // Extract beoordeling verontreiniging
-        // The label is on one line, the VALUE on the NEXT line
+        // The label is on one line, the VALUE on the NEXT line.
+        // Guard: reject captured value if it looks like the label of the next field
+        // (happens when the beoordeling cell is blank in the document).
+        const FIELD_LABEL = /^(Vervolgactie|Rapportinformatie|Locatiecode|Locatienaam|Adres|CROW|Mogelijk onderzochte|Bodembedreigende|Kadastrale|Bijlage)/i;
         const beoordelingMatch = sectionText.match(/Beoordeling verontreiniging\s*\n([^\n]+)/i);
-        if (beoordelingMatch) detail.beoordeling = beoordelingMatch[1].trim();
+        if (beoordelingMatch && !FIELD_LABEL.test(beoordelingMatch[1].trim())) {
+            detail.beoordeling = beoordelingMatch[1].trim();
+        }
 
         // Extract vervolgactie (Nazca follow-up) — value is on the NEXT line after the label
         const vervolgMatch = sectionText.match(/Vervolgactie i\.h\.k\.v[^\n]*\n[\s\n]*([^\n]+)/i);
         if (vervolgMatch) detail.vervolgactie = vervolgMatch[1].trim();
 
-        // Extract adres — value is on next line after 'Adres'
-        const adresMatch = sectionText.match(/(?:^|\n)Adres\s*\n([^\n]+)/i);
+        // Extract adres — try multiple label formats
+        const adresMatch =
+            sectionText.match(/(?:^|\n)Adres\s*\n([^\n]+)/i) ||
+            sectionText.match(/(?:^|\n)Adres\s*:\s*([^\n]+)/i) ||
+            sectionText.match(/(?:^|\n)Locatieadres\s*\n([^\n]+)/i) ||
+            sectionText.match(/(?:^|\n)Straatnaam\s*\n([^\n]+)/i);
         if (adresMatch) detail.adres = adresMatch[1].trim();
 
         // Extract locatienaam from detail
@@ -384,6 +402,10 @@ export async function parseDocx(file, onProgress) {
     }
 
     console.log(`🔬 [DOCX] Detail secties: ${Object.keys(detailMap).length} locaties met Nazca/rapport data`);
+    // Debug: show first 3 detail entries
+    Object.entries(detailMap).slice(0, 3).forEach(([code, d]) => {
+        console.log(`  🔬 ${code} → adres="${d.adres}" beoordeling="${d.beoordeling}" vervolgactie="${d.vervolgactie?.substring(0,50)}"`);
+    });
 
     // ── STEP 3: Build final location objects by merging overview + detail ─
     for (const code of locCodes) {
@@ -436,7 +458,9 @@ export async function parseDocx(file, onProgress) {
 
         if (detail.vervolgactie) {
             loc.status = detail.vervolgactie;
-            if (/uitvoeren/i.test(detail.vervolgactie)) loc.complex = true;
+            // Only mark complex for serious follow-up actions (sanering, afperkend, spoedeisend).
+            // "Verkennend/nader bodemonderzoek uitvoeren" is routine — not automatically complex.
+            if (/sanering|afperkend|spoedeisend/i.test(detail.vervolgactie)) loc.complex = true;
         }
 
         // Parse adres for straatnaam/woonplaats if not from overview
@@ -450,8 +474,8 @@ export async function parseDocx(file, onProgress) {
                 const city = isCityLike ? lastPart : null;
                 const streetParts = city ? adresParts.slice(0, -1) : adresParts;
 
-                if (!loc.straatnaam) {
-                    // Capitalize each word of street name
+                // Also override if straatnaam is a "Deellocatie X" placeholder from overview
+                if (!loc.straatnaam || /^Deellocatie\s*\d*$/i.test(loc.straatnaam)) {
                     loc.straatnaam = streetParts
                         .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
                         .join(' ');
@@ -476,7 +500,7 @@ export async function parseDocx(file, onProgress) {
         }
 
         // Set rapport year from most recent report
-        if (detail.rapporten.length > 0) {
+        if ((detail.rapporten ?? []).length > 0) {
             const mostRecent = detail.rapporten.sort((a, b) => {
                 const [da, ma, ya] = a.datum.split('-').map(Number);
                 const [db, mb, yb] = b.datum.split('-').map(Number);
@@ -525,6 +549,15 @@ export async function parseDocx(file, onProgress) {
         if (!loc.rdY && data.rdY) loc.rdY = data.rdY;
 
         data.locatiecodes.push(loc);
+    }
+
+    // Debug summary: how many locations have usable addresses
+    const withStraat = data.locatiecodes.filter(l => l.straatnaam).length;
+    const withCoords = data.locatiecodes.filter(l => l.rdX || l.lat).length;
+    console.log(`✅ [DOCX] Merge klaar: ${data.locatiecodes.length} locaties, ${withStraat} met straatnaam, ${withCoords} met coördinaten`);
+    if (withStraat < data.locatiecodes.length) {
+        const missing = data.locatiecodes.filter(l => !l.straatnaam).slice(0, 3);
+        console.warn(`⚠️ [DOCX] Locaties zonder straatnaam (eerste 3):`, missing.map(l => `${l.locatiecode} naam="${l.locatienaam}"`));
     }
 
     // ── Extract conclusion text ──
@@ -674,8 +707,8 @@ export async function parseDocx(file, onProgress) {
             console.warn('⚠️ [DOCX] Skipping image OCR:', err.message);
             // Non-critical - don't break parsing
         }
-    } else if (skipOcr) {
-        console.log('ℹ️ [DOCX] Skipping OCR (file too small or trace already found)');
+    } else {
+        console.log('ℹ️ [DOCX] Skipping OCR (trace already found)');
     }
 
     return data;

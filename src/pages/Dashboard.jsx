@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import Navbar from '../components/Navbar';
 import FileUpload from '../components/FileUpload';
 import { extractPdfText, parseTobReport, mergeToLocations } from '../utils/pdfParser';
 import { parseXlsx, xlsxToLocations } from '../utils/xlsxParser';
@@ -22,7 +23,7 @@ export default function Dashboard() {
     const [zoekregels, setZoekregels] = useState([]);
     const [isSaving, setIsSaving] = useState(false);
 
-    const { isAdmin, user, signOut } = useAuth();
+    const { user } = useAuth();
     const navigate = useNavigate();
 
     // Pre-initialize Tesseract on app load for OCR support
@@ -221,7 +222,7 @@ export default function Dashboard() {
                 // Projectnaam: gebruik eerste bestandsnaam zonder extensie
                 const projectName = files[0]?.name.replace(/\.[^/.]+$/, '') ?? 'Nieuw Project';
                 // Opdrachtgever: afgeleid van capturedAddress of leeglaten
-                const clientName = capturedAddress?.woonplaats ?? null;
+                const clientName = null; // Client name not available from TOB report parsing
 
                 const newProjectId = await saveProject(projectName, clientName);
                 console.log(`✅ [DB] Project aangemaakt: ${newProjectId}`);
@@ -230,12 +231,48 @@ export default function Dashboard() {
                 const savedRows = await saveLocations(newProjectId, finalLocations);
                 console.log(`✅ [DB] ${savedRows.length} locaties opgeslagen`);
 
-                // Standaard research-record aanmaken per locatie
+                // Research-records aanmaken per locatie op basis van gevonden TOB-data
+                // savedRows heeft geen _nazcaDetail meer (alleen DB-kolommen), dus match
+                // terug op locatiecode naar de originele finalLocations.
+                const locByCode = new Map(finalLocations.map(l => [l.locatiecode, l]));
+
                 for (const row of savedRows) {
                     try {
-                        await saveResearches(row.id, [
-                            { type: 'Nazca (Bodemonderzoek)', status: 'Nog op te vragen', notes: '' }
-                        ]);
+                        const origLoc = locByCode.get(row.locatiecode);
+                        const nazcaDetail = origLoc?._nazcaDetail;
+                        const rapporten = nazcaDetail?.rapporten ?? [];
+
+                        // Nazca entry: status "Ontvangen" als we data vonden, anders "Nog op te vragen"
+                        const nazcaStatus = nazcaDetail?.beoordeling ? 'Ontvangen' : 'Nog op te vragen';
+                        const nazcaNotes = [
+                            nazcaDetail?.beoordeling ? `Beoordeling: ${nazcaDetail.beoordeling}` : '',
+                            nazcaDetail?.vervolgactie ? `Vervolgactie: ${nazcaDetail.vervolgactie}` : '',
+                        ].filter(Boolean).join('\n') || '';
+
+                        const researchList = [
+                            { type: 'Nazca (Bodemonderzoek)', status: nazcaStatus, notes: nazcaNotes },
+                        ];
+
+                        // Voeg elk uniek rapport-type uit de TOB toe als apart research-record
+                        const TOB_TYPE_MAP = {
+                            'verkennend': 'Nader Onderzoek',
+                            'nader': 'Nader Onderzoek',
+                            'sanering': 'Saneringsonderzoek',
+                            'asbest': 'BRL SIKB 2000',
+                            'historisch': 'Historisch Bodembestand',
+                        };
+                        const addedTypes = new Set(['Nazca (Bodemonderzoek)']);
+                        for (const rap of rapporten) {
+                            const rapTypeLower = (rap.type || '').toLowerCase();
+                            const researchType = Object.entries(TOB_TYPE_MAP).find(([k]) => rapTypeLower.includes(k))?.[1] ?? 'Overig';
+                            if (!addedTypes.has(researchType)) {
+                                addedTypes.add(researchType);
+                                const notes = [rap.bureau, rap.rapportnummer, rap.datum].filter(Boolean).join(' — ');
+                                researchList.push({ type: researchType, status: 'Ontvangen', notes });
+                            }
+                        }
+
+                        await saveResearches(row.id, researchList);
                     } catch (resErr) {
                         console.warn(`⚠️ [DB] Research insert mislukt voor ${row.locatiecode}:`, resErr.message);
                     }
@@ -273,66 +310,64 @@ export default function Dashboard() {
 
 
     return (
-        <div className="app">
-            <header className="app-header" style={{ position: 'relative' }}>
-                <div style={{ position: 'absolute', top: '15px', right: '20px', display: 'flex', gap: '10px' }}>
-                    {isAdmin && (
-                        <button
-                            onClick={() => navigate('/beheer')}
-                            style={{ padding: '6px 12px', background: 'white', color: '#1a365d', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                        >
-                            ⚙️ Beheer Gebruikers
-                        </button>
-                    )}
-                    <button
-                        onClick={() => navigate('/projecten')}
-                        style={{ padding: '6px 12px', background: 'white', color: '#1a365d', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                    >
-                        📁 Projectenbeheer
-                    </button>
-                    <button
-                        onClick={signOut}
-                        style={{ padding: '6px 12px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                    >
-                        Uitloggen
-                    </button>
-                </div>
-                <h1>AbelTalent TOB Backoffice</h1>
-                <p>Kies een bestaand project of upload een nieuw TOB rapport.</p>
-            </header>
+        <div className="page-shell">
+            <Navbar />
 
-            {/* Dashboard Upload & Lobby */}
-            <div style={{ maxWidth: '900px', margin: '2rem auto', display: 'flex', flexDirection: 'column', gap: '2rem', padding: '0 1rem' }}>
-                
-                {/* Projectenbeheer link */}
+            <div className="page-content">
+                {/* Hero */}
+                <div className="dash-hero">
+                    <h2>Welkom, <span>{user?.email?.split('@')[0]}</span></h2>
+                    <p>Kies een bestaand project of upload een nieuw TOB rapport.</p>
+                </div>
+
+                {/* Bestaande projecten */}
                 <button
                     onClick={() => navigate('/projecten')}
                     style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
                         padding: '1rem 1.25rem',
-                        background: 'white',
-                        border: '1px solid var(--border, #e2e8f0)',
-                        borderRadius: '8px',
-                        cursor: 'pointer', textAlign: 'left', width: '100%',
-                        boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-                        transition: 'box-shadow 0.15s',
+                        background: 'var(--bg-card)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius)',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        width: '100%',
+                        marginBottom: '1.5rem',
+                        transition: 'background var(--transition), border-color var(--transition)',
                     }}
-                    onMouseOver={e => e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'}
-                    onMouseOut={e => e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)'}
+                    onMouseOver={e => {
+                        e.currentTarget.style.background = 'var(--bg-card-hover)';
+                        e.currentTarget.style.borderColor = 'var(--border-light)';
+                    }}
+                    onMouseOut={e => {
+                        e.currentTarget.style.background = 'var(--bg-card)';
+                        e.currentTarget.style.borderColor = 'var(--border)';
+                    }}
                 >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                        <span style={{ fontSize: '1.8rem' }}>📁</span>
-                        <div>
-                            <div style={{ fontWeight: 700, fontSize: '1rem' }}>Bestaande projecten openen</div>
-                            <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '2px' }}>Bekijk, filter en beheer al je TOB-projecten</div>
+                        <span style={{ fontSize: '1.6rem' }}>📁</span>
+                        <div style={{ textAlign: 'left' }}>
+                            <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>
+                                Bestaande projecten openen
+                            </div>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                Bekijk, filter en beheer al je TOB-projecten
+                            </div>
                         </div>
                     </div>
-                    <span style={{ fontSize: '1.2rem', color: '#94a3b8' }}>→</span>
+                    <span style={{ fontSize: '1.1rem', color: 'var(--text-muted)' }}>→</span>
                 </button>
 
                 {/* Upload sectie */}
-                <div>
-                    <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem' }}>➕ Nieuw Project Parse & Upload</h3>
+                <div style={{
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius)',
+                    padding: '1.25rem',
+                }}>
+                    <h3 style={{ margin: '0 0 1rem 0', fontSize: '1rem', color: 'var(--text-primary)' }}>➕ Nieuw Project Uploaden</h3>
                     <FileUpload onFilesReady={handleFilesReady} />
                     {(parsing || isSaving) && (
                         <div className="parsing-overlay">

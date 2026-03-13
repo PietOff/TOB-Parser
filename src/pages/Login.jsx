@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '../utils/supabaseClient';
+import '../index.css';
 
 export default function Login() {
     const [loading, setLoading] = useState(false);
@@ -12,10 +13,7 @@ export default function Login() {
         setLoading(true);
         setError(null);
 
-        const { error } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-        });
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
 
         if (error) {
             setError(error.message);
@@ -24,69 +22,40 @@ export default function Login() {
     };
 
     return (
-        <div className="login-container" style={{ 
-            display: 'flex', justifyContent: 'center', alignItems: 'center', 
-            height: '100vh', backgroundColor: '#f0f4f8' 
-        }}>
-            <div className="login-card" style={{
-                background: 'white', padding: '40px', borderRadius: '12px',
-                boxShadow: '0 10px 25px rgba(0,0,0,0.05)', width: '100%', maxWidth: '400px'
-            }}>
-                <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-                    <h1 style={{ margin: '0', color: '#424CF9', fontSize: '24px', fontFamily: "'Bitter', Georgia, serif" }}>AbelTalent TOB Backoffice</h1>
-                    <p style={{ margin: '8px 0 0 0', color: '#64748b' }}>Wij maken impact in de fysieke leefomgeving</p>
+        <div className="login-page">
+            <div className="login-box">
+                <div className="login-logo">
+                    <div>
+                        <span className="brand-abel">Abel</span>
+                        <span className="brand-talent">Talent</span>
+                    </div>
+                    <p className="login-tagline">TOB Backoffice</p>
                 </div>
 
-                {error && (
-                    <div style={{
-                        background: '#fee2e2', color: '#b91c1c', padding: '12px',
-                        borderRadius: '6px', marginBottom: '20px', fontSize: '14px'
-                    }}>
-                        {error}
-                    </div>
-                )}
+                {error && <div className="login-error">{error}</div>}
 
-                <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <div>
-                        <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#475569' }}>
-                            E-mailadres
-                        </label>
+                <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <div className="login-field">
+                        <label>E-mailadres</label>
                         <input
                             type="email"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             required
-                            style={{
-                                width: '100%', padding: '10px 12px', borderRadius: '6px',
-                                border: '1px solid #cbd5e1', fontSize: '15px'
-                            }}
+                            autoComplete="email"
                         />
                     </div>
-                    <div>
-                        <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#475569' }}>
-                            Wachtwoord
-                        </label>
+                    <div className="login-field">
+                        <label>Wachtwoord</label>
                         <input
                             type="password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             required
-                            style={{
-                                width: '100%', padding: '10px 12px', borderRadius: '6px',
-                                border: '1px solid #cbd5e1', fontSize: '15px'
-                            }}
+                            autoComplete="current-password"
                         />
                     </div>
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        style={{
-                            background: '#2563eb', color: 'white', padding: '12px',
-                            border: 'none', borderRadius: '6px', fontSize: '15px', fontWeight: '600',
-                            cursor: loading ? 'not-allowed' : 'pointer',
-                            opacity: loading ? 0.7 : 1, marginTop: '8px'
-                        }}
-                    >
+                    <button type="submit" disabled={loading} className="btn-login">
                         {loading ? 'Bezig met inloggen...' : 'Inloggen'}
                     </button>
                 </form>

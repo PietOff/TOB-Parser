@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import { supabaseAdmin } from '../utils/supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import Navbar from '../components/Navbar';
+import '../index.css';
 
 export default function UserManagement() {
-    const { isAdmin, user, signOut } = useAuth();
+    const { isAdmin, user } = useAuth();
     const navigate = useNavigate();
     const [profiles, setProfiles] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -56,93 +58,132 @@ export default function UserManagement() {
     if (!isAdmin) return null;
 
     return (
-        <div style={{ maxWidth: '1000px', margin: '40px auto', padding: '0 20px', fontFamily: 'system-ui, sans-serif' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <h1 style={{ color: '#1a365d' }}>Beheer Gebruikers</h1>
-                <div>
-                    <button 
-                        onClick={() => navigate('/')} 
-                        style={{ marginRight: '10px', padding: '8px 16px', borderRadius: '6px', background: '#e2e8f0', border: 'none', cursor: 'pointer' }}
-                    >
-                        ← Terug naar Dashboard
-                    </button>
-                    <button 
-                        onClick={signOut} 
-                        style={{ padding: '8px 16px', borderRadius: '6px', background: '#fee2e2', color: '#b91c1c', border: 'none', cursor: 'pointer' }}
-                    >
-                        Uitloggen
-                    </button>
+        <div className="page-shell">
+            <Navbar />
+
+            <div className="page-content">
+                {/* Page title */}
+                <div className="dash-hero">
+                    <h2>Gebruikersbeheer</h2>
+                    <p>Beheer rollen en toegang van alle TOB Backoffice gebruikers.</p>
                 </div>
-            </div>
 
-            <p style={{ color: '#64748b' }}>
-                Dit is het overzicht van alle gebruikers (zowel jullie team als externen). 
-                Jij als admin kunt hun rechten hier direct aanpassen in plaats van via Supabase.
-            </p>
-
-            <div style={{ background: '#e0f2fe', color: '#0369a1', padding: '12px', borderRadius: '6px', marginBottom: '30px' }}>
-                <strong>Hoe maak je een nieuwe gebruiker aan voor een externe klant?</strong><br/>
-                Omdat wachtwoorden strikt beveiligd zijn, kan jij dit niet zomaar voor ze invullen. 
-                De externe partij moet simpelweg zelf naar <b>{window.location.origin}/register</b> gaan en zich inschrijven. 
-                Zij verschijnen dan automatisch hieronder met de rol <i>external</i>, waarna jij ze aan hun specifieke project kunt koppelen!
-            </div>
-
-            {statusText && (
-                <div style={{ padding: '10px', background: '#dcfce7', color: '#166534', marginBottom: '20px', borderRadius: '6px' }}>
-                    {statusText}
+                {/* Info banner */}
+                <div style={{
+                    background: 'var(--info-bg)',
+                    border: '1px solid var(--info)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '0.875rem 1rem',
+                    marginBottom: '1.5rem',
+                    fontSize: '0.875rem',
+                    color: 'var(--text-secondary)',
+                    lineHeight: '1.6',
+                }}>
+                    <strong style={{ color: 'var(--text-primary)' }}>Nieuwe externe gebruiker aanmaken?</strong>
+                    {' '}De externe partij gaat zelf naar{' '}
+                    <code style={{ background: 'var(--bg-input)', padding: '1px 5px', borderRadius: '3px', fontSize: '0.8rem', color: 'var(--abel-yellow)' }}>
+                        {window.location.origin}/register
+                    </code>
+                    {' '}en schrijft zich in. Ze verschijnen dan automatisch hieronder als <em>external</em>.
                 </div>
-            )}
 
-            {loading ? (
-                <div>Gebruikers laden...</div>
-            ) : (
-                <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', overflow: 'hidden' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                        <thead style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                            <tr>
-                                <th style={{ padding: '12px 16px', fontWeight: '600', color: '#475569' }}>E-mail</th>
-                                <th style={{ padding: '12px 16px', fontWeight: '600', color: '#475569' }}>Lid Sinds</th>
-                                <th style={{ padding: '12px 16px', fontWeight: '600', color: '#475569' }}>Rol</th>
-                                <th style={{ padding: '12px 16px', fontWeight: '600', color: '#475569' }}>Beheer</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {profiles.map(p => (
-                                <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                    <td style={{ padding: '14px 16px' }}>{p.email}</td>
-                                    <td style={{ padding: '14px 16px', color: '#64748b' }}>{new Date(p.created_at).toLocaleDateString()}</td>
-                                    <td style={{ padding: '14px 16px' }}>
-                                        <span style={{ 
-                                            display: 'inline-block', padding: '4px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: '600',
-                                            background: p.role === 'admin' ? '#dbeafe' : '#f1f5f9',
-                                            color: p.role === 'admin' ? '#1d4ed8' : '#475569'
-                                        }}>
-                                            {p.role.toUpperCase()}
-                                        </span>
-                                    </td>
-                                    <td style={{ padding: '14px 16px' }}>
-                                        {p.id !== user.id && (
-                                            <button 
-                                                onClick={() => toggleRole(p.id, p.role)}
-                                                style={{
-                                                    padding: '6px 12px', borderRadius: '4px', border: '1px solid #cbd5e1',
-                                                    background: 'white', cursor: 'pointer', fontSize: '13px'
-                                                }}
-                                            >
-                                                Maak {p.role === 'admin' ? 'External' : 'Admin'}
-                                            </button>
-                                        )}
-                                        {p.id === user.id && <span style={{ color: '#94a3b8', fontSize: '13px' }}>(Jijzelf)</span>}
-                                    </td>
+                {/* Status feedback */}
+                {statusText && (
+                    <div style={{
+                        padding: '0.65rem 1rem',
+                        background: 'var(--success-bg)',
+                        border: '1px solid var(--success)',
+                        color: 'var(--success)',
+                        borderRadius: 'var(--radius-sm)',
+                        fontSize: '0.875rem',
+                        marginBottom: '1rem',
+                    }}>
+                        {statusText}
+                    </div>
+                )}
+
+                {/* Users table */}
+                {loading ? (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                        <div className="spinner" style={{ margin: '0 auto 0.75rem' }} />
+                        Gebruikers laden...
+                    </div>
+                ) : (
+                    <div style={{
+                        background: 'var(--bg-card)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius)',
+                        overflow: 'hidden',
+                    }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                            <thead>
+                                <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                                    <th style={{ padding: '0.75rem 1rem', fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>E-mail</th>
+                                    <th style={{ padding: '0.75rem 1rem', fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Lid Sinds</th>
+                                    <th style={{ padding: '0.75rem 1rem', fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Rol</th>
+                                    <th style={{ padding: '0.75rem 1rem', fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Beheer</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                    {profiles.length === 0 && (
-                        <div style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>Geen gebruikers gevonden.</div>
-                    )}
-                </div>
-            )}
+                            </thead>
+                            <tbody>
+                                {profiles.map(p => (
+                                    <tr key={p.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background var(--transition)' }}
+                                        onMouseOver={(e) => e.currentTarget.style.background = 'var(--bg-card-hover)'}
+                                        onMouseOut={(e) => e.currentTarget.style.background = ''}
+                                    >
+                                        <td style={{ padding: '0.875rem 1rem', color: 'var(--text-primary)', fontSize: '0.9rem' }}>{p.email}</td>
+                                        <td style={{ padding: '0.875rem 1rem', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+                                            {new Date(p.created_at).toLocaleDateString('nl-NL')}
+                                        </td>
+                                        <td style={{ padding: '0.875rem 1rem' }}>
+                                            <span style={{
+                                                display: 'inline-block',
+                                                padding: '3px 10px',
+                                                borderRadius: '20px',
+                                                fontSize: '0.75rem',
+                                                fontWeight: '600',
+                                                letterSpacing: '0.04em',
+                                                background: p.role === 'admin' ? 'var(--accent-glow)' : 'var(--bg-secondary)',
+                                                color: p.role === 'admin' ? 'var(--abel-yellow)' : 'var(--text-secondary)',
+                                                border: `1px solid ${p.role === 'admin' ? 'var(--accent)' : 'var(--border)'}`,
+                                            }}>
+                                                {p.role.toUpperCase()}
+                                            </span>
+                                        </td>
+                                        <td style={{ padding: '0.875rem 1rem' }}>
+                                            {p.id !== user.id ? (
+                                                <button
+                                                    onClick={() => toggleRole(p.id, p.role)}
+                                                    style={{
+                                                        padding: '5px 12px',
+                                                        borderRadius: 'var(--radius-sm)',
+                                                        border: '1px solid var(--border-light)',
+                                                        background: 'var(--bg-secondary)',
+                                                        color: 'var(--text-secondary)',
+                                                        cursor: 'pointer',
+                                                        fontSize: '0.8rem',
+                                                        transition: 'background var(--transition), color var(--transition)',
+                                                    }}
+                                                    onMouseOver={(e) => { e.currentTarget.style.background = 'var(--bg-card-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+                                                    onMouseOut={(e) => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                                                >
+                                                    → {p.role === 'admin' ? 'External' : 'Admin'}
+                                                </button>
+                                            ) : (
+                                                <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>(Jijzelf)</span>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                        {profiles.length === 0 && (
+                            <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                                Geen gebruikers gevonden.
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

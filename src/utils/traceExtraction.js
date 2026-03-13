@@ -5,6 +5,9 @@
 /**
  * Extract all addresses found in the document
  */
+// Words that look like street names but are section headers or document structure words
+const NON_STREET_WORDS = /^(Deellocatie|Locatiecode|Locatienaam|Bijlage|Pagina|Versie|Paragraaf|Hoofdstuk|Tabel|Figuur|Aanhangsel|Opmerking|Rapport|Datum|Inleiding|Conclusie|Samenvatting|Beschrijving|Straatnaam|Plaatsnaam|Woonplaats|Huisnummer|Postcode|Status|Beoordeling|Vervolgactie|Rapportinformatie|Activiteiten|Gebruik|Bodemonderzoek|Onderzoeksbureau|Rapportdatum|Bodeminformatie|Utrecht|Amsterdam|Rotterdam|Den\s+Haag|Schiedam|Delft|Leiden)$/i;
+
 export function extractAllAddresses(text) {
     const addresses = [];
     // Pattern: more flexible - "Straatnaam 123, 1234 AB City" or just "Straatnaam 123"
@@ -18,6 +21,13 @@ export function extractAllAddresses(text) {
         const huisnummer = match[2].trim();
         const postcode = match[3]?.trim() || '';
         const city = match[4]?.trim() || '';
+
+        // Filter out section headers and document structure words that match the address pattern
+        if (NON_STREET_WORDS.test(straatnaam)) continue;
+        // Also filter out very short "street names" (1-2 chars) and pure numbers
+        if (straatnaam.length < 4 || /^\d+$/.test(straatnaam)) continue;
+        // Filter out house numbers that are too large to be real (>9999)
+        if (parseInt(huisnummer) > 9999) continue;
 
         // Avoid duplicates
         const key = `${straatnaam}|${huisnummer}`;
