@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, Polyline, LayersControl, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, Polyline, FeatureGroup, LayersControl, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { rdToWgs84 } from '../utils/apiIntegrations';
@@ -280,74 +280,109 @@ export default function LocationMap({
                     />
                 )}
 
-                {/* Trace polyline — only connect markers that have afstandTrace, sorted by distance */}
+                {/* Trace polyline — connect markers with afstandTrace, sorted by distance */}
                 {(() => {
                     const traceMarkers = locationMarkers.filter(m => m.afstandTrace != null && !isNaN(parseFloat(m.afstandTrace)));
                     const sorted = [...traceMarkers].sort((a, b) => parseFloat(a.afstandTrace) - parseFloat(b.afstandTrace));
                     if (sorted.length < 2) return null;
                     return (
-                        <Polyline
-                            positions={sorted.map(m => [m._lat, m._lon])}
-                            pathOptions={{
-                                color: '#3b82f6',
-                                weight: 3,
-                                opacity: 0.6,
-                                dashArray: '8, 6',
-                            }}
-                        />
+                        <LayersControl.Overlay checked name="Tracé lijn">
+                            <FeatureGroup>
+                                <Polyline
+                                    positions={sorted.map(m => [m._lat, m._lon])}
+                                    pathOptions={{
+                                        color: '#f59e0b',
+                                        weight: 3,
+                                        opacity: 0.85,
+                                        dashArray: '10, 6',
+                                    }}
+                                />
+                            </FeatureGroup>
+                        </LayersControl.Overlay>
                     );
                 })()}
 
-                {/* Individual location markers */}
-                {locationMarkers.map(loc => {
-                    const isHighlighted = highlightedLocationCode === loc.locatiecode;
-                    const isComplex = loc.complex || loc.isComplex;
-                    const color = isComplex ? '#ef4444' : '#22c55e';
-                    const nazcaDetail = loc._nazcaDetail || loc._enriched?.nazcaDetail;
+                {/* Per-location 25m contour circles (onderzoeksgebied) */}
+                {locationMarkers.length > 0 && (
+                    <LayersControl.Overlay checked name="Onderzoeksgebied contouren (25m)">
+                        <FeatureGroup>
+                            {locationMarkers.map(loc => {
+                                const isComplex = loc.complex || loc.isComplex;
+                                const color = isComplex ? '#ef4444' : '#3b82f6';
+                                return (
+                                    <Circle
+                                        key={`contour-${loc.locatiecode}`}
+                                        center={[loc._lat, loc._lon]}
+                                        radius={25}
+                                        pathOptions={{
+                                            color,
+                                            weight: 2,
+                                            opacity: 0.7,
+                                            fillColor: color,
+                                            fillOpacity: 0.06,
+                                            dashArray: '6, 4',
+                                        }}
+                                    />
+                                );
+                            })}
+                        </FeatureGroup>
+                    </LayersControl.Overlay>
+                )}
 
-                    return (
-                        <CircleMarker
-                            key={loc.locatiecode}
-                            center={[loc._lat, loc._lon]}
-                            radius={isHighlighted ? 10 : 7}
-                            pathOptions={{
-                                color: isHighlighted ? '#fff' : color,
-                                weight: isHighlighted ? 3 : 2,
-                                fillColor: color,
-                                fillOpacity: 0.8,
-                            }}
-                        >
-                            <Popup>
-                                <div style={{ fontSize: '12px', minWidth: '180px' }}>
-                                    <strong>{loc.locatiecode}</strong>
-                                    {loc.locatienaam && <div style={{ color: '#555' }}>{loc.locatienaam}</div>}
-                                    {loc.straatnaam && <div>{loc.straatnaam} {loc.huisnummer}</div>}
-                                    {loc.woonplaats && <div>{loc.postcode} {loc.woonplaats}</div>}
-                                    {nazcaDetail?.beoordeling && (
-                                        <div style={{ marginTop: '4px', padding: '3px 6px', background: isComplex ? '#fef2f2' : '#f0fdf4', borderRadius: '4px', fontSize: '11px' }}>
-                                            <strong>Nazca:</strong> {nazcaDetail.beoordeling}
+                {/* Individual location markers */}
+                <LayersControl.Overlay checked name="Locatiemarkers">
+                    <FeatureGroup>
+                        {locationMarkers.map(loc => {
+                            const isHighlighted = highlightedLocationCode === loc.locatiecode;
+                            const isComplex = loc.complex || loc.isComplex;
+                            const color = isComplex ? '#ef4444' : '#22c55e';
+                            const nazcaDetail = loc._nazcaDetail || loc._enriched?.nazcaDetail;
+
+                            return (
+                                <CircleMarker
+                                    key={loc.locatiecode}
+                                    center={[loc._lat, loc._lon]}
+                                    radius={isHighlighted ? 10 : 7}
+                                    pathOptions={{
+                                        color: isHighlighted ? '#fff' : color,
+                                        weight: isHighlighted ? 3 : 2,
+                                        fillColor: color,
+                                        fillOpacity: 0.8,
+                                    }}
+                                >
+                                    <Popup>
+                                        <div style={{ fontSize: '12px', minWidth: '180px' }}>
+                                            <strong>{loc.locatiecode}</strong>
+                                            {loc.locatienaam && <div style={{ color: '#555' }}>{loc.locatienaam}</div>}
+                                            {loc.straatnaam && <div>{loc.straatnaam} {loc.huisnummer}</div>}
+                                            {loc.woonplaats && <div>{loc.postcode} {loc.woonplaats}</div>}
+                                            {nazcaDetail?.beoordeling && (
+                                                <div style={{ marginTop: '4px', padding: '3px 6px', background: isComplex ? '#fef2f2' : '#f0fdf4', borderRadius: '4px', fontSize: '11px' }}>
+                                                    <strong>Nazca:</strong> {nazcaDetail.beoordeling}
+                                                </div>
+                                            )}
+                                            {nazcaDetail?.vervolgactie && (
+                                                <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>
+                                                    Vervolgactie: {nazcaDetail.vervolgactie}
+                                                </div>
+                                            )}
+                                            {nazcaDetail?.rapporten?.length > 0 && (
+                                                <div style={{ fontSize: '10px', color: '#9ca3af', marginTop: '2px' }}>
+                                                    📄 {nazcaDetail.rapporten.length} onderzoeksrapport(en)
+                                                </div>
+                                            )}
+                                            {loc.conclusie && (
+                                                <div style={{ marginTop: '4px', color: isComplex ? '#ef4444' : '#22c55e', fontWeight: 500 }}>
+                                                    {loc.conclusie}
+                                                </div>
+                                            )}
                                         </div>
-                                    )}
-                                    {nazcaDetail?.vervolgactie && (
-                                        <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>
-                                            Vervolgactie: {nazcaDetail.vervolgactie}
-                                        </div>
-                                    )}
-                                    {nazcaDetail?.rapporten?.length > 0 && (
-                                        <div style={{ fontSize: '10px', color: '#9ca3af', marginTop: '2px' }}>
-                                            📄 {nazcaDetail.rapporten.length} onderzoeksrapport(en)
-                                        </div>
-                                    )}
-                                    {loc.conclusie && (
-                                        <div style={{ marginTop: '4px', color: isComplex ? '#ef4444' : '#22c55e', fontWeight: 500 }}>
-                                            {loc.conclusie}
-                                        </div>
-                                    )}
-                                </div>
-                            </Popup>
-                        </CircleMarker>
-                    );
-                })}
+                                    </Popup>
+                                </CircleMarker>
+                            );
+                        })}
+                    </FeatureGroup>
+                </LayersControl.Overlay>
             </MapContainer>
 
             {/* Map legend and info overlay */}
@@ -383,7 +418,9 @@ export default function LocationMap({
                 )}
                 <div style={{ fontSize: '10px', opacity: 0.8, borderTop: '1px solid #555', paddingTop: '6px', marginTop: '6px' }}>
                     <span style={{ color: '#22c55e' }}>●</span> Onverdacht &nbsp;
-                    <span style={{ color: '#ef4444' }}>●</span> Complex/Verdacht
+                    <span style={{ color: '#ef4444' }}>●</span> Complex/Verdacht<br />
+                    <span style={{ color: '#3b82f6' }}>○</span> Contour 25m &nbsp;
+                    <span style={{ color: '#f59e0b' }}>─ ─</span> Tracé
                 </div>
             </div>
         </div>
