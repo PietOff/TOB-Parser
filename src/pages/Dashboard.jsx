@@ -222,7 +222,7 @@ export default function Dashboard() {
                 // Projectnaam: gebruik eerste bestandsnaam zonder extensie
                 const projectName = files[0]?.name.replace(/\.[^/.]+$/, '') ?? 'Nieuw Project';
                 // Opdrachtgever: afgeleid van capturedAddress of leeglaten
-                const clientName = capturedAddress?.woonplaats ?? null;
+                const clientName = null; // Client name not available from TOB report parsing
 
                 const newProjectId = await saveProject(projectName, clientName);
                 console.log(`✅ [DB] Project aangemaakt: ${newProjectId}`);
