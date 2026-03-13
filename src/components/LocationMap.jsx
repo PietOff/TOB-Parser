@@ -55,6 +55,7 @@ export default function LocationMap({
     locations = [],
     height = '400px',
     highlightedLocationCode,
+    onLocationClick,
     projectAddress,
     projectTrace,
 }) {
@@ -188,7 +189,8 @@ export default function LocationMap({
                     return (
                         <CircleMarker key={loc.locatiecode} center={[loc._lat, loc._lon]}
                             radius={isHighlighted ? 10 : 7}
-                            pathOptions={{ color: isHighlighted ? '#fff' : color, weight: isHighlighted ? 3 : 2, fillColor: color, fillOpacity: 0.8 }}>
+                            pathOptions={{ color: isHighlighted ? '#fff' : color, weight: isHighlighted ? 3 : 2, fillColor: color, fillOpacity: 0.8 }}
+                            eventHandlers={{ click: () => onLocationClick?.(loc) }}>
                             <Popup>
                                 <div style={{ fontSize: '12px', minWidth: '180px' }}>
                                     <strong>{loc.locatiecode}</strong>

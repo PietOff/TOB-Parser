@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Suspense, lazy } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { fetchProject, fetchLocations, dbRowToLocation, updateLocation, fetchResearches, updateResearch, saveResearches } from '../services/api';
 import { exportProjectExcel } from '../utils/excelExport';
@@ -47,6 +47,17 @@ export default function ProjectDetail() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [selectedLocation, setSelectedLocation] = useState(null);
+    const sidebarListRef = useRef(null);
+
+    // Scroll sidebar to the selected location card (e.g. when map marker is clicked)
+    useEffect(() => {
+        if (!selectedLocation || !sidebarListRef.current) return;
+        const card = sidebarListRef.current.querySelector(
+            `[data-locatiecode="${CSS.escape(selectedLocation.locatiecode)}"]`
+        );
+        card?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, [selectedLocation]);
+
     const [researches, setResearches] = useState({}); // { locationDbId: [research1, research2, ...] }
     const [addingResearch, setAddingResearch] = useState(false);
     const [filterStatus, setFilterStatus] = useState('Alle');
@@ -260,7 +271,7 @@ export default function ProjectDetail() {
                     </div>
 
                     {/* Location list */}
-                    <div style={{ flexGrow: 1, overflowY: 'auto' }}>
+                    <div ref={sidebarListRef} style={{ flexGrow: 1, overflowY: 'auto' }}>
                         {locations
                             .filter(loc => {
                                 if (filterStatus === 'Complex') return loc.isComplex;
@@ -275,6 +286,7 @@ export default function ProjectDetail() {
                                 return (
                                     <div
                                         key={loc.locatiecode}
+                                        data-locatiecode={loc.locatiecode}
                                         onClick={() => handleSelectLocation(loc)}
                                         style={{
                                             padding: '10px 15px',
@@ -451,6 +463,7 @@ export default function ProjectDetail() {
                             locations={locations}
                             height="100%"
                             highlightedLocationCode={selectedLocation?.locatiecode}
+                            onLocationClick={handleSelectLocation}
                             onLocationDrag={handleLocationDrag}
                             projectAddress={(() => {
                                 // Derive project address from first location with address data
