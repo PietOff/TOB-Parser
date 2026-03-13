@@ -23,7 +23,6 @@ export async function parseXlsx(file, onProgress) {
         // Try to detect TOB-like columns
         const headers = Object.keys(rows[0]).map(h => h.toLowerCase().trim());
         const hasLocatiecode = headers.some(h => h.includes('locatiecode'));
-        const hasConclusie = headers.some(h => h.includes('conclusie'));
 
         if (!hasLocatiecode) continue; // Skip non-TOB sheets
 
