@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, Suspense, lazy } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { fetchProject, fetchLocations, dbRowToLocation, updateLocation, fetchResearches, updateResearch, saveResearches } from '../services/api';
-import { exportProjectExcel } from '../utils/excelExport';
+import Navbar from '../components/Navbar';
 import '../index.css';
 
 // Lazy load map
@@ -177,55 +177,36 @@ export default function ProjectDetail() {
 
     return (
         <div style={{ display: 'flex', height: '100vh', flexDirection: 'column' }}>
-            {/* ── Header ── */}
-            <header style={{
-                padding: '8px 20px',
+            {/* ── Navbar ── */}
+            <Navbar />
+
+            {/* ── Project sub-header ── */}
+            <div style={{
+                padding: '6px 1.5rem',
                 flexShrink: 0,
                 display: 'flex',
-                justifyContent: 'space-between',
                 alignItems: 'center',
-                background: 'linear-gradient(135deg, #1a365d 0%, #2d3748 100%)',
-                color: 'white',
+                gap: '0.75rem',
+                background: 'var(--bg-card)',
+                borderBottom: '1px solid var(--border)',
+                fontSize: '0.875rem',
             }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <button onClick={() => navigate('/projecten')} style={{
-                        padding: '4px 10px',
-                        background: 'rgba(255,255,255,0.15)',
-                        color: 'white',
-                        border: '1px solid rgba(255,255,255,0.3)',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '0.85rem'
-                    }}>
-                        ← Lobby
-                    </button>
-                    <h2 style={{ margin: 0, fontSize: '1.1rem' }}>{project.name}</h2>
-                    {project.client && <span style={{ opacity: 0.7, fontSize: '0.9rem' }}>— {project.client}</span>}
-                </div>
-                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', fontSize: '0.85rem', opacity: 0.9 }}>
-                    <span>📍 {locations.length} locaties</span>
-                    <button
-                        onClick={async () => {
-                            setExporting(true);
-                            try { await exportProjectExcel(project); }
-                            finally { setExporting(false); }
-                        }}
-                        disabled={exporting || locations.length === 0}
-                        style={{
-                            padding: '4px 12px',
-                            background: exporting ? 'rgba(255,255,255,0.1)' : 'rgba(34,197,94,0.8)',
-                            color: 'white',
-                            border: '1px solid rgba(255,255,255,0.3)',
-                            borderRadius: '4px',
-                            cursor: exporting || locations.length === 0 ? 'not-allowed' : 'pointer',
-                            fontSize: '0.82rem',
-                            fontWeight: 500,
-                        }}
-                    >
-                        {exporting ? '⏳ Exporteren...' : '📥 Export Excel'}
-                    </button>
-                </div>
-            </header>
+                <button onClick={() => navigate('/projecten')} style={{
+                    padding: '3px 10px',
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--text-secondary)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: 'pointer',
+                    fontSize: '0.8rem',
+                    transition: 'background var(--transition)',
+                }}>
+                    ← Projecten
+                </button>
+                <span style={{ color: 'var(--text-primary)', fontWeight: '600' }}>{project.name}</span>
+                {project.client && <span style={{ color: 'var(--text-muted)' }}>— {project.client}</span>}
+                <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>📍 {locations.length} locaties</span>
+            </div>
 
             {/* ── Split View ── */}
             <div style={{ display: 'flex', flexGrow: 1, overflow: 'hidden' }}>
