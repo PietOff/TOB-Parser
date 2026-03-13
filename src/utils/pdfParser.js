@@ -196,13 +196,26 @@ export function mergeToLocations(parsedData, zoekregels = []) {
     const locations = [];
     const fullText = parsedData.fullText || '';
 
-    // Pre-index locatiecode positions in fullText for per-location context lookup
+    // Pre-index locatiecode positions, preferring the occurrence where address data follows
     const codePositions = {};
-    if (fullText) {
+    {
+        const allOccurrences = {};
         const posRegex = /\b([A-Z]{2}\d{9,12})\b/g;
         let pm;
         while ((pm = posRegex.exec(fullText)) !== null) {
-            if (!codePositions[pm[1]]) codePositions[pm[1]] = pm.index;
+            if (!allOccurrences[pm[1]]) allOccurrences[pm[1]] = [];
+            allOccurrences[pm[1]].push(pm.index);
+        }
+        for (const [codeKey, positions] of Object.entries(allOccurrences)) {
+            // Pick the first occurrence whose following segment contains a postcode
+            let chosen = positions[0];
+            for (const pos of positions) {
+                const after = fullText.substring(pos + codeKey.length, pos + codeKey.length + 600);
+                const nextCode = after.search(/\b[A-Z]{2}\d{9,12}\b/);
+                const seg = nextCode > 0 ? after.substring(0, nextCode) : after.substring(0, 400);
+                if (/\b[1-9]\d{3}\s?[A-Z]{2}\b/.test(seg)) { chosen = pos; break; }
+            }
+            codePositions[codeKey] = chosen;
         }
     }
 
@@ -216,42 +229,70 @@ export function mergeToLocations(parsedData, zoekregels = []) {
             let locCity = '';
 
             if (fullText && codePositions[code] !== undefined) {
-                const ctxStart = Math.max(0, codePositions[code] - 100);
-                // Clip context at the NEXT locatiecode so we never read into another location's row
-                const textAfterCode = fullText.substring(codePositions[code] + code.length);
+                // Address data is in the segment AFTER this code
+                // PDF table row: [code] [locatienaam] [straatnaam] [nr] [postcode] [city]
+                const codeEnd = codePositions[code] + code.length;
+                const textAfterCode = fullText.substring(codeEnd);
                 const nextCodeIdx = textAfterCode.search(/\b[A-Z]{2}\d{9,12}\b/);
-                const ctxEnd = nextCodeIdx > 0 && nextCodeIdx < 500
-                    ? codePositions[code] + code.length + nextCodeIdx
-                    : Math.min(fullText.length, codePositions[code] + 500);
-                const ctx = fullText.substring(ctxStart, ctxEnd);
+                const segment = (nextCodeIdx > 0 && nextCodeIdx < 600
+                    ? textAfterCode.substring(0, nextCodeIdx)
+                    : textAfterCode.substring(0, 500)).trim();
 
-                // Look for a postcode in context: 4 digits + 2 letters
-                const pcMatch = ctx.match(/\b([1-9]\d{3}\s?[A-Z]{2})\b/);
-                if (pcMatch) locPostcode = pcMatch[1].replace(/\s/g, '').toUpperCase();
-
-                // Look for explicit address label in context
-                const adresMatch =
-                    ctx.match(/(?:Adres|Straatnaam|Locatieadres)\s*[:\n]\s*([^\n,]+?)(?:\s+(\d{1,4}[a-z]?))?(?:\s+[1-9]\d{3})?/i);
+                // Try explicit address label first
+                const adresMatch = segment.match(
+                    /(?:Adres|Straatnaam|Locatieadres)\s*[:\n]\s*([^\n,]{3,50}?)(?:\s+(\d{1,4}[a-z]?))?/i
+                );
                 if (adresMatch) {
                     locStraatnaam = adresMatch[1].trim();
                     locHuisnummer = adresMatch[2]?.trim() || '';
                 }
 
-                // If no explicit label, check if a postcode was found: grab the line before it
-                if (!locStraatnaam && locPostcode) {
-                    const beforePc = ctx.substring(0, ctx.indexOf(pcMatch[0]));
-                    const lines = beforePc.split('\n').map(l => l.trim()).filter(l => l);
-                    const lastLine = lines[lines.length - 1] || '';
-                    // Parse "Straatnaam Huisnummer" from last line
-                    const streetNrMatch = lastLine.match(/^([A-Za-z][A-Za-z\s\-\.]+?)\s+(\d{1,4}[a-zA-Z]?)$/);
-                    if (streetNrMatch) {
-                        locStraatnaam = streetNrMatch[1].trim();
-                        locHuisnummer = streetNrMatch[2].trim();
-                    } else if (lastLine
-                            && !/^\d+$/.test(lastLine)
-                            && !/[A-Z]{2}\d{9,12}/.test(lastLine)  // no embedded locatiecodes
-                            && lastLine.length < 60) {              // not a run-on multi-row string
-                        locStraatnaam = lastLine;
+                // Split by 2+ spaces to separate PDF table columns
+                const cells = segment.split(/\s{2,}/).map(c => c.trim()).filter(c => c);
+
+                // Find the postcode cell
+                const pcIdx = cells.findIndex(c => /^[1-9]\d{3}\s?[A-Z]{2}$/.test(c));
+                if (pcIdx >= 0) {
+                    locPostcode = cells[pcIdx].replace(/\s/, '').toUpperCase();
+                    // City = cell after postcode (if it looks like a city name)
+                    const cityCell = cells[pcIdx + 1] || '';
+                    if (cityCell && /^[A-Z]/.test(cityCell) && !/\d/.test(cityCell)) {
+                        locCity = cityCell.trim();
+                    }
+
+                    if (!locStraatnaam) {
+                        // Street cells are those before the postcode cell
+                        const streetCells = cells.slice(0, pcIdx);
+                        for (const cell of streetCells) {
+                            // Skip all-uppercase abbreviated names (e.g. "PROF DR MAGNUSLN 18 A")
+                            if (/^[A-Z0-9\s\-\.]+$/.test(cell)) continue;
+                            // Skip known document-structure words
+                            if (/^(Inhoudsopgave|Bijlage|Paragraaf|Hoofdstuk|Tabel|Figuur|Deellocatie)/i.test(cell)) continue;
+                            // Try "StreetName HouseNumber" at end of cell
+                            const snMatch = cell.match(/^([A-Za-z][A-Za-z\s\-\.]{2,}?)\s+(\d{1,4}\s*[a-zA-Z]?)$/);
+                            if (snMatch) {
+                                locStraatnaam = snMatch[1].trim();
+                                locHuisnummer = snMatch[2].replace(/\s/, '').trim();
+                                break;
+                            }
+                            // Accept as street-only if it starts with proper-case and is reasonable length
+                            if (/^[A-Z][a-z]/.test(cell) && cell.length >= 4 && cell.length < 60) {
+                                locStraatnaam = cell;
+                            }
+                        }
+                    }
+                } else if (!locStraatnaam) {
+                    // No postcode — fall back to looking for a postcode anywhere in the segment
+                    const pcMatch = segment.match(/\b([1-9]\d{3}\s?[A-Z]{2})\b/);
+                    if (pcMatch) {
+                        locPostcode = pcMatch[1].replace(/\s/, '').toUpperCase();
+                        const beforePc = segment.substring(0, segment.indexOf(pcMatch[0])).trim();
+                        // Take the last proper-case word group before the postcode as street
+                        const snMatch = beforePc.match(/([A-Z][a-z][A-Za-z\s\-\.]{1,40}?)\s+(\d{1,4}[a-zA-Z]?)\s*$/);
+                        if (snMatch) {
+                            locStraatnaam = snMatch[1].trim();
+                            locHuisnummer = snMatch[2].trim();
+                        }
                     }
                 }
             }

@@ -6,7 +6,7 @@
  * Extract all addresses found in the document
  */
 // Words that look like street names but are section headers or document structure words
-const NON_STREET_WORDS = /^(Deellocatie|Locatiecode|Locatienaam|Bijlage|Pagina|Versie|Paragraaf|Hoofdstuk|Tabel|Figuur|Aanhangsel|Opmerking|Rapport|Datum|Inleiding|Conclusie|Samenvatting|Beschrijving|Straatnaam|Plaatsnaam|Woonplaats|Huisnummer|Postcode|Status|Beoordeling|Vervolgactie|Rapportinformatie|Activiteiten|Gebruik|Bodemonderzoek|Onderzoeksbureau|Rapportdatum|Bodeminformatie|Utrecht|Amsterdam|Rotterdam|Den\s+Haag|Schiedam|Delft|Leiden)$/i;
+const NON_STREET_WORDS = /^(Deellocatie|Locatiecode|Locatienaam|Bijlage|Pagina|Versie|Paragraaf|Hoofdstuk|Tabel|Figuur|Aanhangsel|Opmerking|Rapport|Datum|Inleiding|Conclusie|Samenvatting|Beschrijving|Straatnaam|Plaatsnaam|Woonplaats|Huisnummer|Postcode|Status|Beoordeling|Vervolgactie|Rapportinformatie|Activiteiten|Gebruik|Bodemonderzoek|Onderzoeksbureau|Rapportdatum|Bodeminformatie|Inhoudsopgave|Utrecht|Amsterdam|Rotterdam|Den\s+Haag|Schiedam|Delft|Leiden)$/i;
 
 export function extractAllAddresses(text) {
     const addresses = [];
