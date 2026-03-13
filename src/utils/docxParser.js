@@ -263,6 +263,10 @@ export async function parseDocx(file, onProgress) {
     }
 
     console.log(`📋 [DOCX] Overzicht tabel: ${Object.keys(overviewMap).length} locaties gevonden`);
+    // Debug: show first 3 overview entries so we can verify column extraction
+    Object.entries(overviewMap).slice(0, 3).forEach(([code, e]) => {
+        console.log(`  📋 ${code} → naam="${e.locatienaam}" straat="${e.straatnaam}" nr="${e.huisnummer}" pc="${e.postcode}" stad="${e.plaatsnaam}"`);
+    });
 
     // ── STEP 2: Parse detailed "Gegevens Bodemlocaties" sections ────────
     // Each section starts with: "{locatienaam} {locatiecode}" and contains:
@@ -393,6 +397,10 @@ export async function parseDocx(file, onProgress) {
     }
 
     console.log(`🔬 [DOCX] Detail secties: ${Object.keys(detailMap).length} locaties met Nazca/rapport data`);
+    // Debug: show first 3 detail entries
+    Object.entries(detailMap).slice(0, 3).forEach(([code, d]) => {
+        console.log(`  🔬 ${code} → adres="${d.adres}" beoordeling="${d.beoordeling}" vervolgactie="${d.vervolgactie?.substring(0,50)}"`);
+    });
 
     // ── STEP 3: Build final location objects by merging overview + detail ─
     for (const code of locCodes) {
@@ -536,6 +544,15 @@ export async function parseDocx(file, onProgress) {
         if (!loc.rdY && data.rdY) loc.rdY = data.rdY;
 
         data.locatiecodes.push(loc);
+    }
+
+    // Debug summary: how many locations have usable addresses
+    const withStraat = data.locatiecodes.filter(l => l.straatnaam).length;
+    const withCoords = data.locatiecodes.filter(l => l.rdX || l.lat).length;
+    console.log(`✅ [DOCX] Merge klaar: ${data.locatiecodes.length} locaties, ${withStraat} met straatnaam, ${withCoords} met coördinaten`);
+    if (withStraat < data.locatiecodes.length) {
+        const missing = data.locatiecodes.filter(l => !l.straatnaam).slice(0, 3);
+        console.warn(`⚠️ [DOCX] Locaties zonder straatnaam (eerste 3):`, missing.map(l => `${l.locatiecode} naam="${l.locatienaam}"`));
     }
 
     // ── Extract conclusion text ──
