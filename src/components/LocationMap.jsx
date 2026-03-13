@@ -302,18 +302,19 @@ export default function LocationMap({
                     );
                 })()}
 
-                {/* Per-location 25m contour circles (onderzoeksgebied) */}
+                {/* Per-location contour circles (onderzoeksgebied) — radius from parsed "straal van X m" or fallback 25m */}
                 {locationMarkers.length > 0 && (
-                    <LayersControl.Overlay checked name="Onderzoeksgebied contouren (25m)">
+                    <LayersControl.Overlay checked name="Onderzoeksgebied contouren">
                         <FeatureGroup>
                             {locationMarkers.map(loc => {
                                 const isComplex = loc.complex || loc.isComplex;
                                 const color = isComplex ? '#ef4444' : '#3b82f6';
+                                const radius = loc.straalRadius || 25;
                                 return (
                                     <Circle
                                         key={`contour-${loc.locatiecode}`}
                                         center={[loc._lat, loc._lon]}
-                                        radius={25}
+                                        radius={radius}
                                         pathOptions={{
                                             color,
                                             weight: 2,
@@ -322,7 +323,14 @@ export default function LocationMap({
                                             fillOpacity: 0.06,
                                             dashArray: '6, 4',
                                         }}
-                                    />
+                                    >
+                                        <Popup>
+                                            <div style={{ fontSize: '11px' }}>
+                                                <strong>{loc.locatiecode}</strong><br />
+                                                Onderzoeksgebied: {radius}m straal
+                                            </div>
+                                        </Popup>
+                                    </Circle>
                                 );
                             })}
                         </FeatureGroup>
@@ -419,7 +427,7 @@ export default function LocationMap({
                 <div style={{ fontSize: '10px', opacity: 0.8, borderTop: '1px solid #555', paddingTop: '6px', marginTop: '6px' }}>
                     <span style={{ color: '#22c55e' }}>●</span> Onverdacht &nbsp;
                     <span style={{ color: '#ef4444' }}>●</span> Complex/Verdacht<br />
-                    <span style={{ color: '#3b82f6' }}>○</span> Contour 25m &nbsp;
+                    <span style={{ color: '#3b82f6' }}>○</span> Contour (straal) &nbsp;
                     <span style={{ color: '#f59e0b' }}>─ ─</span> Tracé
                 </div>
             </div>
