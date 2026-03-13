@@ -230,12 +230,48 @@ export default function Dashboard() {
                 const savedRows = await saveLocations(newProjectId, finalLocations);
                 console.log(`✅ [DB] ${savedRows.length} locaties opgeslagen`);
 
-                // Standaard research-record aanmaken per locatie
+                // Research-records aanmaken per locatie op basis van gevonden TOB-data
+                // savedRows heeft geen _nazcaDetail meer (alleen DB-kolommen), dus match
+                // terug op locatiecode naar de originele finalLocations.
+                const locByCode = new Map(finalLocations.map(l => [l.locatiecode, l]));
+
                 for (const row of savedRows) {
                     try {
-                        await saveResearches(row.id, [
-                            { type: 'Nazca (Bodemonderzoek)', status: 'Nog op te vragen', notes: '' }
-                        ]);
+                        const origLoc = locByCode.get(row.locatiecode);
+                        const nazcaDetail = origLoc?._nazcaDetail;
+                        const rapporten = nazcaDetail?.rapporten ?? [];
+
+                        // Nazca entry: status "Ontvangen" als we data vonden, anders "Nog op te vragen"
+                        const nazcaStatus = nazcaDetail?.beoordeling ? 'Ontvangen' : 'Nog op te vragen';
+                        const nazcaNotes = [
+                            nazcaDetail?.beoordeling ? `Beoordeling: ${nazcaDetail.beoordeling}` : '',
+                            nazcaDetail?.vervolgactie ? `Vervolgactie: ${nazcaDetail.vervolgactie}` : '',
+                        ].filter(Boolean).join('\n') || '';
+
+                        const researchList = [
+                            { type: 'Nazca (Bodemonderzoek)', status: nazcaStatus, notes: nazcaNotes },
+                        ];
+
+                        // Voeg elk uniek rapport-type uit de TOB toe als apart research-record
+                        const TOB_TYPE_MAP = {
+                            'verkennend': 'Nader Onderzoek',
+                            'nader': 'Nader Onderzoek',
+                            'sanering': 'Saneringsonderzoek',
+                            'asbest': 'BRL SIKB 2000',
+                            'historisch': 'Historisch Bodembestand',
+                        };
+                        const addedTypes = new Set(['Nazca (Bodemonderzoek)']);
+                        for (const rap of rapporten) {
+                            const rapTypeLower = (rap.type || '').toLowerCase();
+                            const researchType = Object.entries(TOB_TYPE_MAP).find(([k]) => rapTypeLower.includes(k))?.[1] ?? 'Overig';
+                            if (!addedTypes.has(researchType)) {
+                                addedTypes.add(researchType);
+                                const notes = [rap.bureau, rap.rapportnummer, rap.datum].filter(Boolean).join(' — ');
+                                researchList.push({ type: researchType, status: 'Ontvangen', notes });
+                            }
+                        }
+
+                        await saveResearches(row.id, researchList);
                     } catch (resErr) {
                         console.warn(`⚠️ [DB] Research insert mislukt voor ${row.locatiecode}:`, resErr.message);
                     }
