@@ -323,9 +323,14 @@ export async function parseDocx(file, onProgress) {
         };
 
         // Extract beoordeling verontreiniging
-        // The label is on one line, the VALUE on the NEXT line
+        // The label is on one line, the VALUE on the NEXT line.
+        // Guard: reject captured value if it looks like the label of the next field
+        // (happens when the beoordeling cell is blank in the document).
+        const FIELD_LABEL = /^(Vervolgactie|Rapportinformatie|Locatiecode|Locatienaam|Adres|CROW|Mogelijk onderzochte|Bodembedreigende|Kadastrale|Bijlage)/i;
         const beoordelingMatch = sectionText.match(/Beoordeling verontreiniging\s*\n([^\n]+)/i);
-        if (beoordelingMatch) detail.beoordeling = beoordelingMatch[1].trim();
+        if (beoordelingMatch && !FIELD_LABEL.test(beoordelingMatch[1].trim())) {
+            detail.beoordeling = beoordelingMatch[1].trim();
+        }
 
         // Extract vervolgactie (Nazca follow-up) — value is on the NEXT line after the label
         const vervolgMatch = sectionText.match(/Vervolgactie i\.h\.k\.v[^\n]*\n[\s\n]*([^\n]+)/i);
