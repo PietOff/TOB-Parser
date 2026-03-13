@@ -674,8 +674,8 @@ export async function parseDocx(file, onProgress) {
             console.warn('⚠️ [DOCX] Skipping image OCR:', err.message);
             // Non-critical - don't break parsing
         }
-    } else if (skipOcr) {
-        console.log('ℹ️ [DOCX] Skipping OCR (file too small or trace already found)');
+    } else {
+        console.log('ℹ️ [DOCX] Skipping OCR (trace already found)');
     }
 
     return data;

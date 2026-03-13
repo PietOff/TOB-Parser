@@ -375,14 +375,14 @@ const EXPORT_COLUMNS = [
     { header: 'Straatnaam',                     key: 'straatnaam',        width: 25 },
     { header: 'Huisnummer',                     key: 'huisnummer',        width: 12 },
     { header: 'Postcode',                       key: 'postcode',          width: 12 },
+    { header: 'Woonplaats',                     key: 'woonplaats',        width: 18 },
     { header: 'Status',                         key: 'status',            width: 20 },
     { header: 'Conclusie',                      key: 'conclusie',         width: 20 },
-    { header: 'Veiligheidsmelding',             key: 'veiligheidsklasse', width: 20 },
+    { header: 'Veiligheidsklasse',              key: 'veiligheidsklasse', width: 20 },
     { header: 'Melding',                        key: 'melding',           width: 20 },
     { header: 'MKB',                            key: 'mkb',               width: 12 },
     { header: 'BRL 7000',                       key: 'brl7000',           width: 12 },
     { header: 'Opmerking',                      key: 'opmerking',         width: 30 },
-    { header: '',                               key: 'unnamed',           width: 15 },
     { header: 'Informatie uit Tekeningen (PPTX)', key: 'tekeningInfo',   width: 35 },
 ];
 
@@ -409,6 +409,7 @@ async function exportProjectExcel(project) {
             straatnaam:       loc.straatnaam        ?? '',
             huisnummer:       loc.huisnummer        ?? '',
             postcode:         loc.postcode          ?? '',
+            woonplaats:       loc.woonplaats        ?? '',
             status:           loc.status            ?? '',
             conclusie:        loc.conclusie         ?? '',
             veiligheidsklasse: loc.veiligheidsklasse ?? '',
@@ -416,7 +417,6 @@ async function exportProjectExcel(project) {
             mkb:              loc.mkb               ?? '',
             brl7000:          loc.brl7000           ?? '',
             opmerking:        loc.opmerking         ?? '',
-            unnamed:          '',
             tekeningInfo:     enriched.tekeningInfo ?? enriched.pptxInfo ?? '',
         });
     }
