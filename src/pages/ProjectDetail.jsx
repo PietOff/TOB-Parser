@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, Suspense, lazy } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { fetchProject, fetchLocations, dbRowToLocation, updateLocation, fetchResearches, updateResearch, saveResearches } from '../services/api';
+import { exportProjectExcel } from '../utils/excelExport';
 import Navbar from '../components/Navbar';
 import '../index.css';
 
@@ -49,6 +50,7 @@ export default function ProjectDetail() {
     const [researches, setResearches] = useState({}); // { locationDbId: [research1, research2, ...] }
     const [addingResearch, setAddingResearch] = useState(false);
     const [filterStatus, setFilterStatus] = useState('Alle');
+    const [exporting, setExporting] = useState(false);
 
     // ── Load project + locations + ALL researches upfront ──────────────────────────
     useEffect(() => {
@@ -205,6 +207,27 @@ export default function ProjectDetail() {
                 <span style={{ color: 'var(--text-primary)', fontWeight: '600' }}>{project.name}</span>
                 {project.client && <span style={{ color: 'var(--text-muted)' }}>— {project.client}</span>}
                 <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>📍 {locations.length} locaties</span>
+                <button
+                    onClick={async () => {
+                        setExporting(true);
+                        try { await exportProjectExcel(project); }
+                        finally { setExporting(false); }
+                    }}
+                    disabled={exporting || locations.length === 0}
+                    style={{
+                        padding: '4px 12px',
+                        background: exporting ? 'var(--bg-tertiary)' : 'var(--color-success, #22c55e)',
+                        color: 'white',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: exporting || locations.length === 0 ? 'not-allowed' : 'pointer',
+                        fontSize: '0.82rem',
+                        fontWeight: 500,
+                        opacity: locations.length === 0 ? 0.5 : 1,
+                    }}
+                >
+                    {exporting ? '⏳ Exporteren...' : '📥 Export Excel'}
+                </button>
             </div>
 
             {/* ── Split View ── */}

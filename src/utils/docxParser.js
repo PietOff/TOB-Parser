@@ -299,8 +299,9 @@ export async function parseDocx(file, onProgress) {
         }
 
         // Also check for section boundaries
+        const NUTS_BOUNDARY = 'Bodeminformatie in het Nuts Bodeminformatiesysteem in een straal';
         const sectionBoundaries = [
-            'Bodeminformatie in het Nuts Bodeminformatiesysteem in een straal',
+            NUTS_BOUNDARY,
             'BKK omgerekend',
             'Bijlage 1',
             'Kadastrale Gegevens',
@@ -308,6 +309,18 @@ export async function parseDocx(file, onProgress) {
         for (const boundary of sectionBoundaries) {
             const boundaryIdx = fullText.indexOf(boundary, sectionStart + 50);
             if (boundaryIdx > -1 && boundaryIdx < sectionEnd) sectionEnd = boundaryIdx;
+        }
+
+        // Extract straal radius from "Bodeminformatie...straal van X m" right at section boundary
+        // The text looks like: "...in een straal van 25 m" or "...in een straal van 12,5 m"
+        let straalRadius = null;
+        const nutsIdx = fullText.indexOf(NUTS_BOUNDARY, sectionStart + 50);
+        if (nutsIdx > -1 && nutsIdx <= sectionEnd + NUTS_BOUNDARY.length + 5) {
+            const afterNuts = fullText.substring(nutsIdx + NUTS_BOUNDARY.length, nutsIdx + NUTS_BOUNDARY.length + 60);
+            const straalMatch = afterNuts.match(/van\s+(\d+(?:[.,]\d+)?)\s*m\b/i);
+            if (straalMatch) {
+                straalRadius = parseFloat(straalMatch[1].replace(',', '.'));
+            }
         }
 
         const sectionText = fullText.substring(sectionStart, sectionEnd);
@@ -320,6 +333,7 @@ export async function parseDocx(file, onProgress) {
             activiteiten: [],
             crow400Grond: '',
             crow400Grondwater: '',
+            straalRadius,
         };
 
         // Extract beoordeling verontreiniging
@@ -429,6 +443,7 @@ export async function parseDocx(file, onProgress) {
             complex: false,
             rapportJaar: null,
             afstandTrace: null,
+            straalRadius: null,
             verdachteActiviteiten: 0,
             stoffen: [],
             _source: `DOCX: ${file.name}`,
@@ -492,6 +507,11 @@ export async function parseDocx(file, onProgress) {
         }
         if (!loc.woonplaats && data.projectCity) {
             loc.woonplaats = data.projectCity;
+        }
+
+        // Straal radius from Nuts section header
+        if (detail.straalRadius) {
+            loc.straalRadius = detail.straalRadius;
         }
 
         // CROW 400 veiligheidsklasse from detail
