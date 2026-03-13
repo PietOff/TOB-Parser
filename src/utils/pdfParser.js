@@ -45,6 +45,7 @@ export function parseTobReport(fullText, zoekregels = []) {
         projectAddress: null,
         projectTrace: null,
         dynamicFields: {},
+        fullText, // kept for per-location context lookup in mergeToLocations
     };
 
     // ── Apply dynamic rules ──
@@ -193,19 +194,75 @@ export function parseTobReport(fullText, zoekregels = []) {
  */
 export function mergeToLocations(parsedData, zoekregels = []) {
     const locations = [];
+    const fullText = parsedData.fullText || '';
+
+    // Pre-index locatiecode positions in fullText for per-location context lookup
+    const codePositions = {};
+    if (fullText) {
+        const posRegex = /\b([A-Z]{2}\d{9,12})\b/g;
+        let pm;
+        while ((pm = posRegex.exec(fullText)) !== null) {
+            if (!codePositions[pm[1]]) codePositions[pm[1]] = pm.index;
+        }
+    }
 
     // If we found locatiecodes, create entries for each
     if (parsedData.locatiecodes.length > 0) {
         for (const code of parsedData.locatiecodes) {
+            // Try to extract per-location address from 500-char context around this code
+            let locStraatnaam = '';
+            let locHuisnummer = '';
+            let locPostcode = '';
+            let locCity = '';
+
+            if (fullText && codePositions[code] !== undefined) {
+                const ctxStart = Math.max(0, codePositions[code] - 100);
+                const ctxEnd = Math.min(fullText.length, codePositions[code] + 500);
+                const ctx = fullText.substring(ctxStart, ctxEnd);
+
+                // Look for a postcode in context: 4 digits + 2 letters
+                const pcMatch = ctx.match(/\b([1-9]\d{3}\s?[A-Z]{2})\b/);
+                if (pcMatch) locPostcode = pcMatch[1].replace(/\s/g, '').toUpperCase();
+
+                // Look for explicit address label in context
+                const adresMatch =
+                    ctx.match(/(?:Adres|Straatnaam|Locatieadres)\s*[:\n]\s*([^\n,]+?)(?:\s+(\d{1,4}[a-z]?))?(?:\s+[1-9]\d{3})?/i);
+                if (adresMatch) {
+                    locStraatnaam = adresMatch[1].trim();
+                    locHuisnummer = adresMatch[2]?.trim() || '';
+                }
+
+                // If no explicit label, check if a postcode was found: grab the line before it
+                if (!locStraatnaam && locPostcode) {
+                    const beforePc = ctx.substring(0, ctx.indexOf(pcMatch[0]));
+                    const lines = beforePc.split('\n').map(l => l.trim()).filter(l => l);
+                    const lastLine = lines[lines.length - 1] || '';
+                    // Parse "Straatnaam Huisnummer" from last line
+                    const streetNrMatch = lastLine.match(/^([A-Za-z][A-Za-z\s\-\.]+?)\s+(\d{1,4}[a-zA-Z]?)$/);
+                    if (streetNrMatch) {
+                        locStraatnaam = streetNrMatch[1].trim();
+                        locHuisnummer = streetNrMatch[2].trim();
+                    } else if (lastLine && !/^\d+$/.test(lastLine)) {
+                        locStraatnaam = lastLine;
+                    }
+                }
+            }
+
+            // Fall back to project-level address if per-location extraction failed
+            const straatnaam = locStraatnaam || parsedData.projectAddress?.straatnaam || '';
+            const huisnummer = locHuisnummer || parsedData.projectAddress?.huisnummer || '';
+            const postcode = locPostcode || parsedData.projectAddress?.postcode || '';
+            const city = locCity || parsedData.projectAddress?.city || '';
+
             const location = {
                 locatiecode: code,
-                locatienaam: parsedData.projectAddress?.straatnaam
-                    ? `${parsedData.projectAddress.straatnaam} ${parsedData.projectAddress.huisnummer || ''}`.trim()
+                locatienaam: straatnaam
+                    ? `${straatnaam} ${huisnummer || ''}`.trim()
                     : '',
-                straatnaam: parsedData.projectAddress?.straatnaam || '',
-                huisnummer: parsedData.projectAddress?.huisnummer || '',
-                postcode: parsedData.projectAddress?.postcode || '',
-                woonplaats: parsedData.projectAddress?.city || '',
+                straatnaam,
+                huisnummer,
+                postcode,
+                woonplaats: city,
                 status: parsedData.rapportJaar ? `rapport ${parsedData.rapportJaar}` : '',
                 conclusie: '',
                 veiligheidsklasse: parsedData.veiligheidsklasse || '',
@@ -217,6 +274,7 @@ export function mergeToLocations(parsedData, zoekregels = []) {
                 afstandTrace: null,
                 verdachteActiviteiten: 0,
                 stoffen: [],
+                complex: false,
                 ...parsedData.dynamicFields, // Inject dynamic extraction results
             };
 
@@ -225,17 +283,20 @@ export function mergeToLocations(parsedData, zoekregels = []) {
                 location.stoffen.push(s);
             }
 
-            // Attach conclusions
-            const hasVBO = parsedData.conclusies.some(c => c.type === 'VBO_verdacht');
-            const hasOnverdacht = parsedData.conclusies.some(c => c.type === 'onverdacht');
-            const hasIV = parsedData.conclusies.some(c => c.type === 'interventiewaarde_overschreden');
+            // Only apply document-level conclusie when there's 1 location — for multi-location
+            // PDFs these flags are document-wide and should NOT mark every location as complex.
+            if (parsedData.locatiecodes.length === 1) {
+                const hasVBO = parsedData.conclusies.some(c => c.type === 'VBO_verdacht');
+                const hasOnverdacht = parsedData.conclusies.some(c => c.type === 'onverdacht');
+                const hasIV = parsedData.conclusies.some(c => c.type === 'interventiewaarde_overschreden');
 
-            if (hasVBO || hasIV) {
-                location.conclusie = 'verontreinigd';
-                location.complex = true;
-            } else if (hasOnverdacht) {
-                location.conclusie = 'onverdacht';
-                location.complex = false;
+                if (hasVBO || hasIV) {
+                    location.conclusie = 'verontreinigd';
+                    location.complex = true;
+                } else if (hasOnverdacht) {
+                    location.conclusie = 'onverdacht';
+                    location.complex = false;
+                }
             }
 
             locations.push(location);

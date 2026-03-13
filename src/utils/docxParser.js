@@ -495,7 +495,7 @@ export async function parseDocx(file, onProgress) {
         }
 
         // Set rapport year from most recent report
-        if (detail.rapporten.length > 0) {
+        if ((detail.rapporten ?? []).length > 0) {
             const mostRecent = detail.rapporten.sort((a, b) => {
                 const [da, ma, ya] = a.datum.split('-').map(Number);
                 const [db, mb, yb] = b.datum.split('-').map(Number);
