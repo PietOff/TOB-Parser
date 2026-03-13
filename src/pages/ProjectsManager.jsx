@@ -35,7 +35,7 @@ function Modal({ title, onClose, children, width = 480 }) {
     return (
         <div style={{
             position: 'fixed', inset: 0, zIndex: 9999,
-            background: 'rgba(0,0,0,0.45)',
+            background: 'rgba(0,0,0,0.6)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
         }} onClick={onClose}>
             <div style={{
@@ -223,11 +223,11 @@ export default function ProjectsManager() {
             {toast && (
                 <div style={{
                     position: 'fixed', top: '70px', right: '24px', zIndex: 9999,
-                    background: toast.kind === 'err' ? '#fef2f2' : '#f0fdf4',
-                    border: `1px solid ${toast.kind === 'err' ? '#fecaca' : '#bbf7d0'}`,
-                    color: toast.kind === 'err' ? '#dc2626' : '#166534',
+                    background: toast.kind === 'err' ? 'var(--danger-bg)' : 'var(--success-bg)',
+                    border: `1px solid ${toast.kind === 'err' ? 'var(--danger)' : 'var(--success)'}`,
+                    color: toast.kind === 'err' ? 'var(--danger)' : 'var(--success)',
                     padding: '10px 18px', borderRadius: '8px',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.12)', fontSize: '0.875rem',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.3)', fontSize: '0.875rem',
                 }}>{toast.msg}</div>
             )}
 
@@ -331,7 +331,7 @@ function ProjectsTab({ projects, allProjects, folders, profiles, searchQuery, se
             </aside>
 
             {/* Main project list */}
-            <main style={{ flexGrow: 1, overflowY: 'auto', padding: '20px 24px' }}>
+            <main style={{ flexGrow: 1, overflowY: 'auto', padding: '20px 24px', background: 'var(--bg-primary)' }}>
                 {/* Search bar */}
                 <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
                     <input
@@ -372,9 +372,9 @@ function FolderItem({ label, icon, color, count, active, onClick }) {
         <button onClick={onClick} style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             padding: '6px 8px', borderRadius: '6px', cursor: 'pointer', width: '100%',
-            background: active ? '#eff6ff' : 'transparent',
-            border: 'none',
-            color: active ? '#1d4ed8' : '#374151',
+            background: active ? 'var(--accent-glow)' : 'transparent',
+            border: active ? '1px solid var(--accent)' : '1px solid transparent',
+            color: active ? 'var(--accent-light)' : 'var(--text-secondary)',
             fontWeight: active ? 600 : 400,
             fontSize: '0.83rem', textAlign: 'left',
         }}>
@@ -468,7 +468,6 @@ function ProjectCard({ project, folders, onOpen, onDelete, onMove, onManageMembe
         <div style={{
             background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px',
             padding: '14px 18px', display: 'flex', alignItems: 'center', gap: '14px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
         }}>
             {/* Folder color stripe */}
             <div style={{
@@ -478,7 +477,7 @@ function ProjectCard({ project, folders, onOpen, onDelete, onMove, onManageMembe
 
             {/* Info */}
             <div style={{ flexGrow: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontWeight: 600, fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text-primary)' }}>
                     {project.name}
                 </div>
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', gap: '12px', marginTop: '3px' }}>
@@ -501,7 +500,7 @@ function ProjectCard({ project, folders, onOpen, onDelete, onMove, onManageMembe
                             position: 'absolute', right: 0, top: '110%', zIndex: 100,
                             background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px',
                             padding: '6px', minWidth: '180px',
-                            boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                            boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
                         }}>
                             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', padding: '4px 8px' }}>Verplaats naar</div>
                             <FolderOption label="Geen map" onClick={() => { onMove(null); setShowMove(false); }} />
@@ -536,7 +535,7 @@ function FolderOption({ label, color, onClick }) {
             background: 'none', border: 'none', cursor: 'pointer', borderRadius: '4px',
             color: 'var(--text-primary)',
         }}
-            onMouseOver={e => e.currentTarget.style.background = '#f1f5f9'}
+            onMouseOver={e => e.currentTarget.style.background = 'var(--bg-card-hover)'}
             onMouseOut={e => e.currentTarget.style.background = 'none'}
         >
             {color && <span style={{ color, marginRight: '6px' }}>●</span>}
@@ -591,7 +590,7 @@ function MembersModal({ project, profiles, onClose, showToast }) {
                             return (
                                 <div key={m.user_id} style={{
                                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                    padding: '8px 0', borderBottom: '1px solid #f1f5f9',
+                                    padding: '8px 0', borderBottom: '1px solid var(--border)',
                                 }}>
                                     <div>
                                         <div style={{ fontWeight: 500, fontSize: '0.85rem' }}>{p?.email || '—'}</div>
@@ -609,10 +608,10 @@ function MembersModal({ project, profiles, onClose, showToast }) {
                             {nonMembers.map(p => (
                                 <div key={p.id} style={{
                                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                    padding: '6px 0', borderBottom: '1px solid #f1f5f9',
+                                    padding: '6px 0', borderBottom: '1px solid var(--border)',
                                 }}>
                                     <div>
-                                        <div style={{ fontWeight: 500, fontSize: '0.85rem' }}>{p.email}</div>
+                                        <div style={{ fontWeight: 500, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{p.email}</div>
                                         <RoleBadge role={p.role} />
                                     </div>
                                     <button onClick={() => handleAdd(p.id)} style={btnPrimary}>Toevoegen</button>
@@ -643,16 +642,16 @@ function NewFolderModal({ onClose, onCreate }) {
         <Modal title="Nieuwe map aanmaken" onClose={onClose} width={360}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Naam</label>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: '6px', color: 'var(--text-secondary)' }}>Naam</label>
                     <input style={inputStyle} placeholder="bijv. Utrecht 2025" value={name} onChange={e => setName(e.target.value)} autoFocus />
                 </div>
                 <div>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: '8px' }}>Kleur</label>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: '8px', color: 'var(--text-secondary)' }}>Kleur</label>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                         {FOLDER_COLORS.map(c => (
                             <button key={c} onClick={() => setColor(c)} style={{
                                 width: '28px', height: '28px', borderRadius: '50%', background: c,
-                                border: color === c ? '3px solid #1e293b' : '3px solid transparent',
+                                border: color === c ? '3px solid var(--text-primary)' : '3px solid transparent',
                                 cursor: 'pointer',
                             }} />
                         ))}
@@ -689,7 +688,7 @@ function UsersTab({ profiles, onRoleChange, onInvite }) {
                 background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px',
                 padding: '20px 24px', marginBottom: '24px',
             }}>
-                <h3 style={{ margin: '0 0 14px 0', fontSize: '0.95rem' }}>✉️ Nieuwe gebruiker uitnodigen</h3>
+                <h3 style={{ margin: '0 0 14px 0', fontSize: '0.95rem', color: 'var(--text-primary)' }}>✉️ Nieuwe gebruiker uitnodigen</h3>
                 <div style={{ display: 'flex', gap: '10px' }}>
                     <input
                         style={{ ...inputStyle, maxWidth: '340px' }}
@@ -721,14 +720,14 @@ function UsersTab({ profiles, onRoleChange, onInvite }) {
                     }}>
                         <div style={{
                             width: '36px', height: '36px', borderRadius: '50%',
-                            background: '#dbeafe', color: '#1d4ed8',
+                            background: 'var(--info-bg)', color: 'var(--accent-light)',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             fontWeight: 700, fontSize: '0.9rem', flexShrink: 0,
                         }}>
                             {(profile.email || '?').charAt(0).toUpperCase()}
                         </div>
                         <div style={{ flexGrow: 1, minWidth: 0 }}>
-                            <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{profile.email}</div>
+                            <div style={{ fontWeight: 500, fontSize: '0.875rem', color: 'var(--text-primary)' }}>{profile.email}</div>
                             <RoleBadge role={profile.role} />
                         </div>
                         <select
