@@ -217,7 +217,12 @@ export function mergeToLocations(parsedData, zoekregels = []) {
 
             if (fullText && codePositions[code] !== undefined) {
                 const ctxStart = Math.max(0, codePositions[code] - 100);
-                const ctxEnd = Math.min(fullText.length, codePositions[code] + 500);
+                // Clip context at the NEXT locatiecode so we never read into another location's row
+                const textAfterCode = fullText.substring(codePositions[code] + code.length);
+                const nextCodeIdx = textAfterCode.search(/\b[A-Z]{2}\d{9,12}\b/);
+                const ctxEnd = nextCodeIdx > 0 && nextCodeIdx < 500
+                    ? codePositions[code] + code.length + nextCodeIdx
+                    : Math.min(fullText.length, codePositions[code] + 500);
                 const ctx = fullText.substring(ctxStart, ctxEnd);
 
                 // Look for a postcode in context: 4 digits + 2 letters
@@ -242,7 +247,10 @@ export function mergeToLocations(parsedData, zoekregels = []) {
                     if (streetNrMatch) {
                         locStraatnaam = streetNrMatch[1].trim();
                         locHuisnummer = streetNrMatch[2].trim();
-                    } else if (lastLine && !/^\d+$/.test(lastLine)) {
+                    } else if (lastLine
+                            && !/^\d+$/.test(lastLine)
+                            && !/[A-Z]{2}\d{9,12}/.test(lastLine)  // no embedded locatiecodes
+                            && lastLine.length < 60) {              // not a run-on multi-row string
                         locStraatnaam = lastLine;
                     }
                 }
