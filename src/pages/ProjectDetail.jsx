@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, Suspense, lazy } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { fetchProject, fetchLocations, dbRowToLocation, updateLocation, fetchResearches, updateResearch, saveResearches } from '../services/api';
+import { exportProjectExcel } from '../utils/excelExport';
 import '../index.css';
 
 // Lazy load map
@@ -48,6 +49,7 @@ export default function ProjectDetail() {
     const [researches, setResearches] = useState({}); // { locationDbId: [research1, research2, ...] }
     const [addingResearch, setAddingResearch] = useState(false);
     const [filterStatus, setFilterStatus] = useState('Alle');
+    const [exporting, setExporting] = useState(false);
 
     // ── Load project + locations + ALL researches upfront ──────────────────────────
     useEffect(() => {
@@ -200,8 +202,28 @@ export default function ProjectDetail() {
                     <h2 style={{ margin: 0, fontSize: '1.1rem' }}>{project.name}</h2>
                     {project.client && <span style={{ opacity: 0.7, fontSize: '0.9rem' }}>— {project.client}</span>}
                 </div>
-                <div style={{ display: 'flex', gap: '15px', fontSize: '0.85rem', opacity: 0.9 }}>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', fontSize: '0.85rem', opacity: 0.9 }}>
                     <span>📍 {locations.length} locaties</span>
+                    <button
+                        onClick={async () => {
+                            setExporting(true);
+                            try { await exportProjectExcel(project); }
+                            finally { setExporting(false); }
+                        }}
+                        disabled={exporting || locations.length === 0}
+                        style={{
+                            padding: '4px 12px',
+                            background: exporting ? 'rgba(255,255,255,0.1)' : 'rgba(34,197,94,0.8)',
+                            color: 'white',
+                            border: '1px solid rgba(255,255,255,0.3)',
+                            borderRadius: '4px',
+                            cursor: exporting || locations.length === 0 ? 'not-allowed' : 'pointer',
+                            fontSize: '0.82rem',
+                            fontWeight: 500,
+                        }}
+                    >
+                        {exporting ? '⏳ Exporteren...' : '📥 Export Excel'}
+                    </button>
                 </div>
             </header>
 

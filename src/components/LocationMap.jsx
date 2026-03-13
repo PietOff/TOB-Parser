@@ -10,13 +10,14 @@ import { rdToWgs84 } from '../utils/apiIntegrations';
  * 2. loc.rdX/rdY   (RD coordinates written directly by parsers/geocoder)
  * 3. loc._enriched?.lat/lon
  * 4. loc._enriched?.rd.x/y  (fallback via enrichLocation)
+ * 5. loc.rd_x/rd_y  (DB column names after fetchLocations)
  */
 function getLocCoords(loc) {
     let lat = loc.lat ?? loc._enriched?.lat ?? null;
     let lon = loc.lon ?? loc._enriched?.lon ?? null;
     if (!lat || !lon) {
-        const rdX = loc.rdX ?? loc._enriched?.rd?.x ?? null;
-        const rdY = loc.rdY ?? loc._enriched?.rd?.y ?? null;
+        const rdX = loc.rdX ?? loc.rd_x ?? loc._enriched?.rd?.x ?? null;
+        const rdY = loc.rdY ?? loc.rd_y ?? loc._enriched?.rd?.y ?? null;
         if (rdX && rdY) {
             const wgs = rdToWgs84(rdX, rdY);
             if (wgs && !isNaN(wgs.lat) && !isNaN(wgs.lng)) { lat = wgs.lat; lon = wgs.lng; }
@@ -81,6 +82,17 @@ export default function LocationMap({
             })
             .filter(Boolean);
     }, [locations]);
+
+    // Trace polyline: markers with afstandTrace, sorted by distance
+    const traceLine = useMemo(() => {
+        const withTrace = locationMarkers.filter(
+            m => m.afstandTrace != null && !isNaN(parseFloat(m.afstandTrace))
+        );
+        if (withTrace.length < 2) return null;
+        return [...withTrace]
+            .sort((a, b) => parseFloat(a.afstandTrace) - parseFloat(b.afstandTrace))
+            .map(m => [m._lat, m._lon]);
+    }, [locationMarkers]);
 
     // Geocode the project address to get map center
     useEffect(() => {
@@ -207,6 +219,7 @@ export default function LocationMap({
                 <FitBounds locations={locations} center={center} radius={safeBufferRadius} />
 
                 <LayersControl position="topright">
+                    {/* ── Base layers ── */}
                     <LayersControl.BaseLayer checked name="OpenStreetMap">
                         <TileLayer
                             attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>'
@@ -230,6 +243,7 @@ export default function LocationMap({
                         />
                     </LayersControl.BaseLayer>
 
+                    {/* ── WMS overlays ── */}
                     <LayersControl.Overlay name="Bodemkwaliteitskaart">
                         <WMSTileLayer
                             url="https://service.pdok.nl/provincies/bodemkwaliteit/wms/v1_0"
@@ -262,9 +276,116 @@ export default function LocationMap({
                             attribution='&copy; BAG'
                         />
                     </LayersControl.Overlay>
+
+                    {/* ── Tracé lijn ── */}
+                    {traceLine && (
+                        <LayersControl.Overlay checked name="Tracé lijn">
+                            <FeatureGroup>
+                                <Polyline
+                                    positions={traceLine}
+                                    pathOptions={{
+                                        color: '#f59e0b',
+                                        weight: 3,
+                                        opacity: 0.85,
+                                        dashArray: '10, 6',
+                                    }}
+                                />
+                            </FeatureGroup>
+                        </LayersControl.Overlay>
+                    )}
+
+                    {/* ── Per-location contour circles ── */}
+                    {locationMarkers.length > 0 && (
+                        <LayersControl.Overlay checked name="Onderzoeksgebied contouren">
+                            <FeatureGroup>
+                                {locationMarkers.map(loc => {
+                                    const isComplex = loc.complex || loc.isComplex;
+                                    const color = isComplex ? '#ef4444' : '#3b82f6';
+                                    const radius = loc.straalRadius || 25;
+                                    return (
+                                        <Circle
+                                            key={`contour-${loc.locatiecode}`}
+                                            center={[loc._lat, loc._lon]}
+                                            radius={radius}
+                                            pathOptions={{
+                                                color,
+                                                weight: 2,
+                                                opacity: 0.7,
+                                                fillColor: color,
+                                                fillOpacity: 0.06,
+                                                dashArray: '6, 4',
+                                            }}
+                                        >
+                                            <Popup>
+                                                <div style={{ fontSize: '11px' }}>
+                                                    <strong>{loc.locatiecode}</strong><br />
+                                                    Onderzoeksgebied: {radius}m straal
+                                                </div>
+                                            </Popup>
+                                        </Circle>
+                                    );
+                                })}
+                            </FeatureGroup>
+                        </LayersControl.Overlay>
+                    )}
+
+                    {/* ── Location markers ── */}
+                    <LayersControl.Overlay checked name="Locatiemarkers">
+                        <FeatureGroup>
+                            {locationMarkers.map(loc => {
+                                const isHighlighted = highlightedLocationCode === loc.locatiecode;
+                                const isComplex = loc.complex || loc.isComplex;
+                                const color = isComplex ? '#ef4444' : '#22c55e';
+                                const nazcaDetail = loc._nazcaDetail || loc._enriched?.nazcaDetail || loc.enriched_data?.nazcaDetail;
+
+                                return (
+                                    <CircleMarker
+                                        key={loc.locatiecode}
+                                        center={[loc._lat, loc._lon]}
+                                        radius={isHighlighted ? 10 : 7}
+                                        pathOptions={{
+                                            color: isHighlighted ? '#fff' : color,
+                                            weight: isHighlighted ? 3 : 2,
+                                            fillColor: color,
+                                            fillOpacity: 0.8,
+                                        }}
+                                    >
+                                        <Popup>
+                                            <div style={{ fontSize: '12px', minWidth: '180px' }}>
+                                                <strong>{loc.locatiecode}</strong>
+                                                {loc.locatienaam && <div style={{ color: '#555' }}>{loc.locatienaam}</div>}
+                                                {loc.straatnaam && <div>{loc.straatnaam} {loc.huisnummer}</div>}
+                                                {loc.woonplaats && <div>{loc.postcode} {loc.woonplaats}</div>}
+                                                {nazcaDetail?.beoordeling && (
+                                                    <div style={{ marginTop: '4px', padding: '3px 6px', background: isComplex ? '#fef2f2' : '#f0fdf4', borderRadius: '4px', fontSize: '11px' }}>
+                                                        <strong>Nazca:</strong> {nazcaDetail.beoordeling}
+                                                    </div>
+                                                )}
+                                                {nazcaDetail?.vervolgactie && (
+                                                    <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>
+                                                        Vervolgactie: {nazcaDetail.vervolgactie}
+                                                    </div>
+                                                )}
+                                                {nazcaDetail?.rapporten?.length > 0 && (
+                                                    <div style={{ fontSize: '10px', color: '#9ca3af', marginTop: '2px' }}>
+                                                        📄 {nazcaDetail.rapporten.length} onderzoeksrapport(en)
+                                                    </div>
+                                                )}
+                                                {loc.conclusie && (
+                                                    <div style={{ marginTop: '4px', color: isComplex ? '#ef4444' : '#22c55e', fontWeight: 500 }}>
+                                                        {loc.conclusie}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </Popup>
+                                    </CircleMarker>
+                                );
+                            })}
+                        </FeatureGroup>
+                    </LayersControl.Overlay>
                 </LayersControl>
 
-                {/* Project area buffer circle — only when a real trace distance was detected */}
+                {/* Project area buffer circle — outside LayersControl, only when real trace distance detected */}
                 {hasValidCenter && safeBufferRadius !== 500 && (
                     <Circle
                         center={mapCenter}
@@ -279,121 +400,9 @@ export default function LocationMap({
                         }}
                     />
                 )}
-
-                {/* Trace polyline — connect markers with afstandTrace, sorted by distance */}
-                {(() => {
-                    const traceMarkers = locationMarkers.filter(m => m.afstandTrace != null && !isNaN(parseFloat(m.afstandTrace)));
-                    const sorted = [...traceMarkers].sort((a, b) => parseFloat(a.afstandTrace) - parseFloat(b.afstandTrace));
-                    if (sorted.length < 2) return null;
-                    return (
-                        <LayersControl.Overlay checked name="Tracé lijn">
-                            <FeatureGroup>
-                                <Polyline
-                                    positions={sorted.map(m => [m._lat, m._lon])}
-                                    pathOptions={{
-                                        color: '#f59e0b',
-                                        weight: 3,
-                                        opacity: 0.85,
-                                        dashArray: '10, 6',
-                                    }}
-                                />
-                            </FeatureGroup>
-                        </LayersControl.Overlay>
-                    );
-                })()}
-
-                {/* Per-location contour circles (onderzoeksgebied) — radius from parsed "straal van X m" or fallback 25m */}
-                {locationMarkers.length > 0 && (
-                    <LayersControl.Overlay checked name="Onderzoeksgebied contouren">
-                        <FeatureGroup>
-                            {locationMarkers.map(loc => {
-                                const isComplex = loc.complex || loc.isComplex;
-                                const color = isComplex ? '#ef4444' : '#3b82f6';
-                                const radius = loc.straalRadius || 25;
-                                return (
-                                    <Circle
-                                        key={`contour-${loc.locatiecode}`}
-                                        center={[loc._lat, loc._lon]}
-                                        radius={radius}
-                                        pathOptions={{
-                                            color,
-                                            weight: 2,
-                                            opacity: 0.7,
-                                            fillColor: color,
-                                            fillOpacity: 0.06,
-                                            dashArray: '6, 4',
-                                        }}
-                                    >
-                                        <Popup>
-                                            <div style={{ fontSize: '11px' }}>
-                                                <strong>{loc.locatiecode}</strong><br />
-                                                Onderzoeksgebied: {radius}m straal
-                                            </div>
-                                        </Popup>
-                                    </Circle>
-                                );
-                            })}
-                        </FeatureGroup>
-                    </LayersControl.Overlay>
-                )}
-
-                {/* Individual location markers */}
-                <LayersControl.Overlay checked name="Locatiemarkers">
-                    <FeatureGroup>
-                        {locationMarkers.map(loc => {
-                            const isHighlighted = highlightedLocationCode === loc.locatiecode;
-                            const isComplex = loc.complex || loc.isComplex;
-                            const color = isComplex ? '#ef4444' : '#22c55e';
-                            const nazcaDetail = loc._nazcaDetail || loc._enriched?.nazcaDetail;
-
-                            return (
-                                <CircleMarker
-                                    key={loc.locatiecode}
-                                    center={[loc._lat, loc._lon]}
-                                    radius={isHighlighted ? 10 : 7}
-                                    pathOptions={{
-                                        color: isHighlighted ? '#fff' : color,
-                                        weight: isHighlighted ? 3 : 2,
-                                        fillColor: color,
-                                        fillOpacity: 0.8,
-                                    }}
-                                >
-                                    <Popup>
-                                        <div style={{ fontSize: '12px', minWidth: '180px' }}>
-                                            <strong>{loc.locatiecode}</strong>
-                                            {loc.locatienaam && <div style={{ color: '#555' }}>{loc.locatienaam}</div>}
-                                            {loc.straatnaam && <div>{loc.straatnaam} {loc.huisnummer}</div>}
-                                            {loc.woonplaats && <div>{loc.postcode} {loc.woonplaats}</div>}
-                                            {nazcaDetail?.beoordeling && (
-                                                <div style={{ marginTop: '4px', padding: '3px 6px', background: isComplex ? '#fef2f2' : '#f0fdf4', borderRadius: '4px', fontSize: '11px' }}>
-                                                    <strong>Nazca:</strong> {nazcaDetail.beoordeling}
-                                                </div>
-                                            )}
-                                            {nazcaDetail?.vervolgactie && (
-                                                <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>
-                                                    Vervolgactie: {nazcaDetail.vervolgactie}
-                                                </div>
-                                            )}
-                                            {nazcaDetail?.rapporten?.length > 0 && (
-                                                <div style={{ fontSize: '10px', color: '#9ca3af', marginTop: '2px' }}>
-                                                    📄 {nazcaDetail.rapporten.length} onderzoeksrapport(en)
-                                                </div>
-                                            )}
-                                            {loc.conclusie && (
-                                                <div style={{ marginTop: '4px', color: isComplex ? '#ef4444' : '#22c55e', fontWeight: 500 }}>
-                                                    {loc.conclusie}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </Popup>
-                                </CircleMarker>
-                            );
-                        })}
-                    </FeatureGroup>
-                </LayersControl.Overlay>
             </MapContainer>
 
-            {/* Map legend and info overlay */}
+            {/* Map legend */}
             <div style={{
                 position: 'absolute',
                 bottom: '8px',
