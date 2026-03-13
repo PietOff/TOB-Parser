@@ -61,6 +61,7 @@ export default function ProjectDetail() {
     const [researches, setResearches] = useState({}); // { locationDbId: [research1, research2, ...] }
     const [addingResearch, setAddingResearch] = useState(false);
     const [filterStatus, setFilterStatus] = useState('Alle');
+    const [searchQuery, setSearchQuery] = useState('');
     const [exporting, setExporting] = useState(false);
 
     // ── Load project + locations + ALL researches upfront ──────────────────────────
@@ -256,7 +257,7 @@ export default function ProjectDetail() {
                 }}>
                     {/* Sidebar header */}
                     <div style={{ padding: '12px 15px', borderBottom: '1px solid #e2e8f0', background: 'white' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                             <h3 style={{ margin: 0, fontSize: '0.95rem' }}>📍 Locaties</h3>
                             <select
                                 value={filterStatus}
@@ -268,6 +269,21 @@ export default function ProjectDetail() {
                                 <option>Simpel</option>
                             </select>
                         </div>
+                        <input
+                            type="search"
+                            placeholder="Zoek locatie, straat, code..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '5px 8px',
+                                fontSize: '0.8rem',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '4px',
+                                boxSizing: 'border-box',
+                                outline: 'none',
+                            }}
+                        />
                     </div>
 
                     {/* Location list */}
@@ -277,6 +293,17 @@ export default function ProjectDetail() {
                                 if (filterStatus === 'Complex') return loc.isComplex;
                                 if (filterStatus === 'Simpel') return !loc.isComplex;
                                 return true;
+                            })
+                            .filter(loc => {
+                                if (!searchQuery) return true;
+                                const q = searchQuery.toLowerCase();
+                                return (
+                                    loc.locatiecode?.toLowerCase().includes(q) ||
+                                    loc.locatienaam?.toLowerCase().includes(q) ||
+                                    loc.straatnaam?.toLowerCase().includes(q) ||
+                                    loc.woonplaats?.toLowerCase().includes(q) ||
+                                    loc.postcode?.toLowerCase().includes(q)
+                                );
                             })
                             .map(loc => {
                                 const isSelected = selectedLocation?.locatiecode === loc.locatiecode;
