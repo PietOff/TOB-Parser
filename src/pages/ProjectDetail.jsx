@@ -294,7 +294,7 @@ export default function ProjectDetail() {
                             borderTop: '2px solid #3b82f6',
                             padding: '15px',
                             background: 'white',
-                            maxHeight: '50%',
+                            maxHeight: '65%',
                             overflowY: 'auto',
                         }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
