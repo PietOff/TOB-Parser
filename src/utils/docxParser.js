@@ -66,6 +66,7 @@ export async function parseDocx(file, onProgress) {
         conclusieTekst: '',
         meldingTekst: '',
         asbestverdenking: false,
+    automatischAdvies: null, // 'wel' | 'geen' | null — uit sectie 3.5
 
         // Project location & trace (new)
         projectAddress: null,
@@ -171,7 +172,24 @@ export async function parseDocx(file, onProgress) {
         data.asbestverdenking = /geen\s+(?:sprake|aanwijzingen)/i.test(fullText) ? false : true;
     }
 
-    // ── Extract locatiecodes (ALL matching AA/UT/.. codes) ──
+    // ── Extract automatisch advies (sectie 3.5) ──
+  // Zoekt: "Advies op basis van automatische beoordeling van dit dossier"
+  // Daarna staat: "is er wel/geen aanleiding om verontreinigingen te verwachten"
+  const adviesMarker = 'Advies op basis van automatische beoordeling van dit dossier';
+  const adviesIdx = fullText.indexOf(adviesMarker);
+  if (adviesIdx > -1) {
+    const adviesSnippet = fullText
+      .slice(adviesIdx + adviesMarker.length, adviesIdx + adviesMarker.length + 500)
+      .toLowerCase();
+    if (/\bis er wel\b/.test(adviesSnippet) || /\bwordt wel\b/.test(adviesSnippet) || /wordt.*?wel noodzakelijk/.test(adviesSnippet)) {
+      data.automatischAdvies = 'wel';
+    } else if (/\bis er geen\b/.test(adviesSnippet) || /\bwordt geen\b/.test(adviesSnippet) || /wordt.*?geen.*?noodzakelijk/.test(adviesSnippet)) {
+      data.automatischAdvies = 'geen';
+    }
+    console.log('[DOCX] automatischAdvies:', data.automatischAdvies);
+  }
+
+  // ── Extract locatiecodes (ALL matching AA/UT/.. codes) ──
     const locCodeRegex = /\b([A-Z]{2}\d{9,12})\b/g;
     const locCodes = new Set();
     let match;
@@ -743,6 +761,7 @@ export function docxToLocations(docxData, zoekregels = []) {
     if (docxData.locatiecodes.length > 0) {
         return docxData.locatiecodes.map(loc => ({
             ...loc,
+            automatischAdvies: loc.automatischAdvies ?? docxData.automatischAdvies ?? null,
             ...dynamicFields
         }));
     }
@@ -761,6 +780,7 @@ export function docxToLocations(docxData, zoekregels = []) {
         mkb: '',
         brl7000: '',
         opmerking: docxData.omschrijving || '',
+        automatischAdvies: docxData.automatischAdvies ?? null,
         complex: docxData.isVerdacht,
         rapportJaar: null,
         stoffen: [],
