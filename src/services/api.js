@@ -144,6 +144,7 @@ export async function saveLocations(projectId, locationsArray) {
       mkb:               loc.mkb               ?? null,
       brl7000:           loc.brl7000           ?? null,
       opmerking:         loc.opmerking         ?? null,
+            automatisch_advies: loc.automatischAdvies  ?? null,
       complex:           loc.complex           ?? false,
       // Coördinaten — must be null (not "") for double precision columns
       lat:               toNum(enriched.lat  ?? loc.lat),
@@ -276,6 +277,7 @@ export function dbRowToLocation(row) {
     mkb:               row.mkb           ?? null,
     brl7000:           row.brl7000       ?? null,
     opmerking:         row.opmerking     ?? null,
+    automatischAdvies: row.automatisch_advies ?? null,
     complex:           row.complex       ?? false,
     isComplex:         row.complex       ?? false,
     stoffen:           row.stoffen       ?? null,
