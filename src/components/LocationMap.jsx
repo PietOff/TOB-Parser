@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, Polyline, FeatureGroup, LayersControl, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, Polyline, Polygon, FeatureGroup, LayersControl, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 // leaflet-draw removed: incompatible with react-leaflet v5
@@ -51,6 +51,49 @@ function FitBounds({ locations, center, radius }) {
         }
     }, [locations, center, radius, map]);
     return null;
+}
+
+
+// Build a buffer polygon around a polyline (lat/lng pairs).
+// Offsets each segment left+right by 'radiusM' meters, returns outer ring.
+function buildLineBuffer(points, radiusM) {
+    if (!points || points.length < 2) return null;
+    const R = 6371000; // Earth radius metres
+    const toRad = d => d * Math.PI / 180;
+    const toDeg = r => r * 180 / Math.PI;
+
+    // Offset a point [lat,lng] by dx,dy metres
+    function offsetPoint([lat, lng], dx, dy) {
+        return [
+            lat  + toDeg(dy / R),
+            lng  + toDeg(dx / (R * Math.cos(toRad(lat)))),
+        ];
+    }
+
+    // Perpendicular offset of segment from p1 to p2, dist = radiusM
+    function perp([lat1, lng1], [lat2, lng2], dist) {
+        const dlat = (lat2 - lat1) * Math.PI / 180 * R;
+        const dlng = (lng2 - lng1) * Math.PI / 180 * R * Math.cos(toRad((lat1 + lat2) / 2));
+        const len  = Math.sqrt(dlat * dlat + dlng * dlng) || 1;
+        return [(-dlng / len) * dist, (dlat / len) * dist]; // [dx, dy] perpendicular
+    }
+
+    const left  = [];
+    const right = [];
+
+    for (let i = 0; i < points.length; i++) {
+        // Average the perpendicular of adjacent segments for smooth corners
+        const dirs = [];
+        if (i > 0)                   dirs.push(perp(points[i - 1], points[i], radiusM));
+        if (i < points.length - 1)   dirs.push(perp(points[i],     points[i + 1], radiusM));
+        const dx = dirs.reduce((s, d) => s + d[0], 0) / dirs.length;
+        const dy = dirs.reduce((s, d) => s + d[1], 0) / dirs.length;
+        left.push( offsetPoint(points[i],  dx,  dy));
+        right.push(offsetPoint(points[i], -dx, -dy));
+    }
+
+    // Combine left side forward + right side backward to form closed polygon
+    return [...left, ...[...right].reverse()];
 }
 
 export default function LocationMap({
@@ -225,22 +268,11 @@ export default function LocationMap({
                 {showTrace && savedTracePositions && (
                     <Polyline positions={savedTracePositions} pathOptions={{ color: '#f59e0b', weight: 4, opacity: 0.9 }} />
                 )}
-                {/* Buffer around saved trace */}
-                {showTrace && savedTracePositions && savedTracePositions.map((pt, i) => (
-                    <Circle
-                        key={`stbuf-${i}`}
-                        center={pt}
-                        radius={50}
-                        pathOptions={{
-                            color: '#f59e0b',
-                            weight: 1,
-                            opacity: 0.5,
-                            fillColor: '#f59e0b',
-                            fillOpacity: 0.07,
-                            dashArray: '6 4',
-                        }}
-                    />
-                ))}
+                {/* Buffer polygon: 25m around saved trace line */}
+                {showTrace && savedTracePositions && savedTracePositions.length > 1 && (() => {
+                    const buf = buildLineBuffer(savedTracePositions, 25);
+                    return buf ? <Polygon positions={buf} pathOptions={{ color: '#f59e0b', weight: 1.5, opacity: 0.5, fillColor: '#f59e0b', fillOpacity: 0.1, dashArray: '6 4' }} /> : null;
+                })()}
                 {showTrace && !savedTracePositions && traceLine && (
                     <Polyline positions={traceLine} pathOptions={{ color: '#f59e0b', weight: 3, opacity: 0.85, dashArray: '10, 6' }} />
                 )}
@@ -254,22 +286,11 @@ export default function LocationMap({
                                 pathOptions={{ color: '#f59e0b', weight: 4 }}
                             />
                         )}
-                        {/* Buffer: circle around each point of the drawn trace */}
-                        {drawPoints.length > 0 && drawPoints.map((pt, i) => (
-                            <Circle
-                                key={`buf-${i}`}
-                                center={pt}
-                                radius={50}
-                                pathOptions={{
-                                    color: '#f59e0b',
-                                    weight: 1.5,
-                                    opacity: 0.6,
-                                    fillColor: '#f59e0b',
-                                    fillOpacity: 0.08,
-                                    dashArray: '6 4',
-                                }}
-                            />
-                        ))}
+                        {/* Buffer polygon: 25m around drawn trace line */}
+                        {drawPoints.length > 1 && (() => {
+                            const buf = buildLineBuffer(drawPoints, 25);
+                            return buf ? <Polygon positions={buf} pathOptions={{ color: '#f59e0b', weight: 1.5, opacity: 0.6, fillColor: '#f59e0b', fillOpacity: 0.12, dashArray: '6 4' }} /> : null;
+                        })()}
                         {drawPoints.map((pt, i) => (
                             <CircleMarker
                                 key={i}
