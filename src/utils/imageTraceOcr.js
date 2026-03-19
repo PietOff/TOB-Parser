@@ -2,6 +2,7 @@
  * Image OCR Utility: Extracts trace information from document images
  * Uses Tesseract.js for client-side OCR (loaded dynamically)
  */
+import * as pdfjsLib from 'pdfjs-dist';
 
 const OCR_TIMEOUT = 30000; // 30 second timeout
 
@@ -86,6 +87,7 @@ function extractTracePatterns(text) {
         distances: [],
         routes: [],
         locations: [],
+        rdCoordinates: [],
     };
 
     // Pattern 1: Distance patterns (e.g., "500m", "3,5 km", "2500 meter")
@@ -121,29 +123,63 @@ function extractTracePatterns(text) {
         });
     }
 
+    // Pattern 4: Dutch RD grid coordinate labels printed on map images
+    // "157.250 / 392.750" (km notation on map grid) or "157250 392750" (metres)
+    const rdLabelRegex = /(\d{3}[.,]\d{3})\s*[/]\s*(\d{3}[.,]\d{3})|(\d{5,6})\s+(\d{6,7})/g;
+    while ((match = rdLabelRegex.exec(text)) !== null) {
+        let x, y;
+        if (match[1] && match[2]) {
+            // km notation: "157.250 / 392.750" → multiply by 1000
+            x = parseFloat(match[1].replace(',', '.')) * 1000;
+            y = parseFloat(match[2].replace(',', '.')) * 1000;
+        } else {
+            x = parseFloat(match[3]);
+            y = parseFloat(match[4]);
+        }
+        // Validate RD bounds: X ∈ [10000, 300000], Y ∈ [300000, 700000]
+        if (x > 10000 && x < 300000 && y > 300000 && y < 700000) {
+            patterns.rdCoordinates.push({ x, y });
+        }
+    }
+
     console.log('🖼️ [OCR] Extracted patterns:', patterns);
     return patterns;
 }
 
 /**
- * Extract images from PDF file using pdfjs
+ * Extract images from PDF file by rendering each page to canvas
+ * Checks for image operators first to skip text-only pages
  */
-export async function extractImagesFromPdf(pdf) {
+export async function extractImagesFromPdf(pdf, maxPages = 4) {
     const images = [];
+    const limit = Math.min(pdf.numPages, maxPages);
 
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    for (let pageNum = 1; pageNum <= limit; pageNum++) {
         try {
             const page = await pdf.getPage(pageNum);
-            const operatorList = await page.getOperatorList();
+            const opList = await page.getOperatorList();
 
-            // Try to find image references in the page
-            // This is a simplified approach - real image extraction is more complex
-            if (operatorList.fnArray.includes('paintImageXObject')) {
-                console.log(`🖼️ [OCR] Found image reference on page ${pageNum}`);
-                // In production, you'd extract the actual image data here
-            }
+            // Check if this page contains image paint operators
+            const hasPaintOp = opList.fnArray.some(fn =>
+                fn === pdfjsLib.OPS.paintImageXObject ||
+                fn === pdfjsLib.OPS.paintInlineImageXObject ||
+                fn === pdfjsLib.OPS.paintImageMaskXObject
+            );
+            if (!hasPaintOp) continue;
+
+            const viewport = page.getViewport({ scale: 2.0 });
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            const ctx = canvas.getContext('2d');
+
+            await page.render({ canvasContext: ctx, viewport }).promise;
+            const dataUrl = canvas.toDataURL('image/png');
+
+            console.log(`🖼️ [OCR] Rendered page ${pageNum} from PDF (${Math.round(viewport.width)}×${Math.round(viewport.height)})`);
+            images.push({ url: dataUrl, pageNum });
         } catch (err) {
-            console.warn(`⚠️ [OCR] Error processing page ${pageNum}:`, err);
+            console.warn(`⚠️ [OCR] Error rendering page ${pageNum}:`, err);
         }
     }
 
