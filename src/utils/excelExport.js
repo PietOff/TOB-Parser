@@ -71,7 +71,7 @@ export async function exportProjectExcel(project) {
             mkb:               loc.mkb               ?? '',
             brl7000:           loc.brl7000           ?? '',
             opmerking:         loc.opmerking         ?? '',
-            automatischAdvies: loc.automatischAdvies ?? '',
+            automatischAdvies: loc.automatisch_advies ?? loc.automatischAdvies ?? '',
             tekeningInfo:      enriched.tekeningInfo ?? enriched.pptxInfo ?? '',
         });
     }
