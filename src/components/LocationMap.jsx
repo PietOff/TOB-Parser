@@ -172,11 +172,6 @@ export default function LocationMap({
         return () => clearTimeout(timer);
     }, [drawPoints, editMode]);
 
-    // Notify parent of current draw points count
-    useEffect(() => {
-        onDrawPointsChange?.(drawPoints);
-    }, [drawPoints]);
-
     // Expose undo to parent via window (simple approach)
     useEffect(() => {
         window._undoLastTracePoint = () => setDrawPoints(prev => prev.slice(0, -1));
