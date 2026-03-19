@@ -206,15 +206,35 @@ export async function parseDocx(file, onProgress) {
       allAdviesPositions.push({ idx: aIdx, val: aVal });
       aPos = aIdx + 1;
     }
-    // For each locatiecode find the first advies section AFTER "Locatiecode\n{code}"
-    for (const codeMatch of fullText.matchAll(/\b([A-Z]{2}\d{9,12})\b/g)) {
-      const code2 = codeMatch[1];
-      if (adviesMap[code2] !== undefined) continue; // already found
-      const codePos = fullText.indexOf(`Locatiecode\n${code2}`);
-      const searchFrom = codePos > -1 ? codePos : codeMatch.index;
-      // Find first advies position after this code
-      const nextAdvies = allAdviesPositions.find(a => a.idx > searchFrom);
-      if (nextAdvies) adviesMap[code2] = nextAdvies.val;
+    // For each locatiecode find the advies section that belongs to it.
+    // Strategy: find all unique codes in order of first appearance.
+    // Each code gets the advies from the section that comes AFTER it
+    // but BEFORE the next code's section.
+    // Since mammoth flattens table text, we can't rely on "Locatiecode\n{code}".
+    // Instead: pair each code (by first occurrence) with the next advies position.
+    const uniqueCodesInOrder = [];
+    const seenCodes = new Set();
+    for (const m of fullText.matchAll(/\b([A-Z]{2}\d{9,12})\b/g)) {
+      if (!seenCodes.has(m[1])) {
+        seenCodes.add(m[1]);
+        uniqueCodesInOrder.push({ code: m[1], idx: m.index });
+      }
+    }
+    // Sort allAdviesPositions by idx
+    allAdviesPositions.sort((a, b) => a.idx - b.idx);
+    // Assign: each advies position belongs to the code that appeared just before it
+    for (let i = 0; i < allAdviesPositions.length; i++) {
+      const aPos2 = allAdviesPositions[i].idx;
+      // Find the last code that appeared before this advies position
+      let assignTo = null;
+      for (const { code: c, idx: cIdx } of uniqueCodesInOrder) {
+        if (cIdx < aPos2) assignTo = c;
+        else break;
+      }
+      // Only assign if not yet assigned
+      if (assignTo && adviesMap[assignTo] === undefined) {
+        adviesMap[assignTo] = allAdviesPositions[i].val;
+      }
     }
     console.log('[DOCX] per-locatie adviesMap:', JSON.stringify(adviesMap));
   }
