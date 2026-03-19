@@ -1,8 +1,11 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, Polyline, FeatureGroup, LayersControl, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import 'leaflet-draw/dist/leaflet.draw.css';
+import { EditControl } from 'react-leaflet-draw';
 import { rdToWgs84 } from '../utils/apiIntegrations';
+import { geoJsonToLeafletPositions, leafletPositionsToGeoJson } from '../utils/traceBuilder';
 
 /**
  * Coordinate resolver — tries all sources in order:
@@ -58,6 +61,9 @@ export default function LocationMap({
     onLocationClick,
     projectAddress,
     projectTrace,
+    traceGeoJson = null,
+    onTraceSave = null,
+    editMode = false,
 }) {
     const [mapCenter, setMapCenter] = useState(null);
     const [bufferRadius, setBufferRadius] = useState(500);
@@ -65,6 +71,7 @@ export default function LocationMap({
     const [showMarkers, setShowMarkers] = useState(true);
     const [showContouren, setShowContouren] = useState(true);
     const [showTrace, setShowTrace] = useState(true);
+    const featureGroupRef = useRef(null);
 
     const locationMarkers = useMemo(() => locations
         .map(loc => { const c = getLocCoords(loc); return c ? { ...loc, _lat: c[0], _lon: c[1] } : null; })
@@ -75,6 +82,20 @@ export default function LocationMap({
         if (t.length < 2) return null;
         return [...t].sort((a, b) => parseFloat(a.afstandTrace) - parseFloat(b.afstandTrace)).map(m => [m._lat, m._lon]);
     }, [locationMarkers]);
+
+    const savedTracePositions = useMemo(() => {
+        if (!traceGeoJson) return null;
+        const positions = geoJsonToLeafletPositions(traceGeoJson);
+        return positions.length >= 2 ? positions : null;
+    }, [traceGeoJson]);
+
+    // Pre-load existing trace into FeatureGroup when edit mode is activated
+    useEffect(() => {
+        if (!editMode || !featureGroupRef.current || !savedTracePositions) return;
+        featureGroupRef.current.clearLayers();
+        const polyline = L.polyline(savedTracePositions, { color: '#f59e0b', weight: 4 });
+        featureGroupRef.current.addLayer(polyline);
+    }, [editMode, savedTracePositions]);
 
     useEffect(() => {
         let cancelled = false;
@@ -162,9 +183,41 @@ export default function LocationMap({
                     <Circle center={mapCenter} radius={safeRadius} pathOptions={{ color: '#1976d2', weight: 3, opacity: 0.6, fillColor: '#1976d2', fillOpacity: 0.1, dashArray: '5, 5' }} />
                 )}
 
-                {/* Tracé lijn */}
-                {showTrace && traceLine && (
+                {/* Tracé lijn — saved GeoJSON takes precedence over afstand_trace fallback */}
+                {showTrace && savedTracePositions && (
+                    <Polyline positions={savedTracePositions} pathOptions={{ color: '#f59e0b', weight: 4, opacity: 0.9 }} />
+                )}
+                {showTrace && !savedTracePositions && traceLine && (
                     <Polyline positions={traceLine} pathOptions={{ color: '#f59e0b', weight: 3, opacity: 0.85, dashArray: '10, 6' }} />
+                )}
+
+                {/* Leaflet-draw: edit/draw tracé */}
+                {editMode && (
+                    <FeatureGroup ref={featureGroupRef}>
+                        <EditControl
+                            position="topleft"
+                            draw={{
+                                polyline: { shapeOptions: { color: '#f59e0b', weight: 4 } },
+                                polygon: false,
+                                rectangle: false,
+                                circle: false,
+                                marker: false,
+                                circlemarker: false,
+                            }}
+                            edit={{ remove: true }}
+                            onCreated={e => {
+                                const positions = e.layer.getLatLngs().map(ll => [ll.lat, ll.lng]);
+                                onTraceSave?.(leafletPositionsToGeoJson(positions));
+                            }}
+                            onEdited={e => {
+                                e.layers.eachLayer(layer => {
+                                    const positions = layer.getLatLngs().map(ll => [ll.lat, ll.lng]);
+                                    onTraceSave?.(leafletPositionsToGeoJson(positions));
+                                });
+                            }}
+                            onDeleted={() => onTraceSave?.(null)}
+                        />
+                    </FeatureGroup>
                 )}
 
                 {/* Contour circles */}
@@ -232,10 +285,10 @@ export default function LocationMap({
                         <input type="checkbox" checked={showContouren} onChange={e => setShowContouren(e.target.checked)} style={{ cursor: 'pointer' }} />
                         <span style={{ color: '#3b82f6' }}>○</span> Contouren (straal)
                     </label>
-                    {traceLine && (
+                    {(savedTracePositions || traceLine) && (
                         <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
                             <input type="checkbox" checked={showTrace} onChange={e => setShowTrace(e.target.checked)} style={{ cursor: 'pointer' }} />
-                            <span style={{ color: '#f59e0b' }}>─</span> Tracé lijn
+                            <span style={{ color: '#f59e0b' }}>─</span> Tracé{savedTracePositions ? ' (opgeslagen)' : ''}
                         </label>
                     )}
                 </div>

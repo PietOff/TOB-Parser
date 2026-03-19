@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { fetchProject, fetchLocations, dbRowToLocation, updateLocation, fetchResearches, updateResearch, saveResearches } from '../services/api';
+import { fetchProject, fetchLocations, dbRowToLocation, updateLocation, updateProject, fetchResearches, updateResearch, saveResearches } from '../services/api';
 import { exportProjectExcel } from '../utils/excelExport';
+import { buildTraceGeoJson } from '../utils/traceBuilder';
+import { extractImagesFromDocx, extractImagesFromPdf, ocrImageForTrace } from '../utils/imageTraceOcr';
 import Navbar from '../components/Navbar';
 import '../index.css';
 
@@ -63,6 +65,12 @@ export default function ProjectDetail() {
     const [filterStatus, setFilterStatus] = useState('Alle');
     const [searchQuery, setSearchQuery] = useState('');
     const [exporting, setExporting] = useState(false);
+    const [traceGeoJson, setTraceGeoJson] = useState(null);
+    const [traceEditMode, setTraceEditMode] = useState(false);
+    const [traceSaving, setTraceSaving] = useState(false);
+    const [traceExtracting, setTraceExtracting] = useState(false);
+    const [traceExtractionError, setTraceExtractionError] = useState(null);
+    const traceFileInputRef = useRef(null);
 
     // ── Load project + locations + ALL researches upfront ──────────────────────────
     useEffect(() => {
@@ -71,6 +79,7 @@ export default function ProjectDetail() {
                 setLoading(true);
                 const projectData = await fetchProject(id);
                 setProject(projectData);
+                if (projectData.trace_geojson) setTraceGeoJson(projectData.trace_geojson);
 
                 const rows = await fetchLocations(id);
                 const locs = rows.map(dbRowToLocation);
@@ -174,6 +183,66 @@ export default function ProjectDetail() {
         console.log("Marker dragged", locatiecode, newLat, newLng);
     }, []);
 
+    // ── Save tracé GeoJSON to DB ────────────────────────
+    const handleTraceSave = useCallback(async (geojsonFeature) => {
+        setTraceSaving(true);
+        try {
+            await updateProject(id, { trace_geojson: geojsonFeature });
+            setTraceGeoJson(geojsonFeature);
+            setTraceEditMode(false);
+        } catch (err) {
+            console.error('Tracé opslaan mislukt:', err);
+        } finally {
+            setTraceSaving(false);
+        }
+    }, [id]);
+
+    // ── Extract tracé from uploaded document ────────────
+    const handleExtractTrace = useCallback(async (file) => {
+        if (!file) return;
+        setTraceExtracting(true);
+        setTraceExtractionError(null);
+        try {
+            let ocrRdCoords = [];
+            const arrayBuffer = await file.arrayBuffer();
+            const ext = file.name.split('.').pop().toLowerCase();
+
+            if (ext === 'docx') {
+                const images = await extractImagesFromDocx(arrayBuffer);
+                for (const img of images.slice(0, 3)) {
+                    try {
+                        const result = await ocrImageForTrace(img.url);
+                        ocrRdCoords.push(...(result.traceInfo.rdCoordinates ?? []));
+                    } catch (e) { console.warn('[Tracé] OCR mislukt voor afbeelding:', e.message); }
+                }
+            } else if (ext === 'pdf') {
+                const pdfjsLib = (await import('pdfjs-dist')).default ?? (await import('pdfjs-dist'));
+                // Worker is already configured globally via pdfParser.js
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                const images = await extractImagesFromPdf(pdf);
+                for (const img of images.slice(0, 3)) {
+                    try {
+                        const result = await ocrImageForTrace(img.url);
+                        ocrRdCoords.push(...(result.traceInfo.rdCoordinates ?? []));
+                    } catch (e) { console.warn('[Tracé] OCR mislukt voor afbeelding:', e.message); }
+                }
+            }
+
+            const geojson = buildTraceGeoJson(locations, ocrRdCoords);
+            if (geojson) {
+                await handleTraceSave(geojson);
+            } else {
+                setTraceExtractionError('Geen tracé gevonden. Voeg locaties toe of teken het tracé handmatig.');
+            }
+        } catch (err) {
+            setTraceExtractionError(`Extractie mislukt: ${err.message}`);
+        } finally {
+            setTraceExtracting(false);
+            // Reset file input so same file can be re-selected
+            if (traceFileInputRef.current) traceFileInputRef.current.value = '';
+        }
+    }, [locations, handleTraceSave]);
+
     // ── Compute stats ──────────────────────────────────
     const allResearchesFlat = Object.values(researches).flat();
 
@@ -240,6 +309,84 @@ export default function ProjectDetail() {
                 >
                     {exporting ? '⏳ Exporteren...' : '📥 Export Excel'}
                 </button>
+
+                {/* ── Tracé buttons ── */}
+                <input
+                    ref={traceFileInputRef}
+                    type="file"
+                    accept=".pdf,.docx"
+                    style={{ display: 'none' }}
+                    onChange={e => { if (e.target.files[0]) handleExtractTrace(e.target.files[0]); }}
+                />
+                <button
+                    disabled={traceExtracting || locations.length === 0}
+                    onClick={() => traceFileInputRef.current?.click()}
+                    title="Extraheer tracé op basis van locaties en kaartafbeelding in het document"
+                    style={{
+                        padding: '4px 12px',
+                        background: traceExtracting ? 'var(--bg-tertiary)' : 'var(--bg-secondary)',
+                        color: 'var(--text-secondary)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: (traceExtracting || locations.length === 0) ? 'not-allowed' : 'pointer',
+                        fontSize: '0.82rem',
+                        opacity: locations.length === 0 ? 0.5 : 1,
+                    }}
+                >
+                    {traceExtracting ? '⏳ Extraheren...' : '📐 Tracé uit document'}
+                </button>
+                <button
+                    onClick={() => setTraceEditMode(m => !m)}
+                    style={{
+                        padding: '4px 12px',
+                        background: traceEditMode ? '#f59e0b' : 'var(--bg-secondary)',
+                        color: traceEditMode ? 'white' : 'var(--text-secondary)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: 'pointer',
+                        fontSize: '0.82rem',
+                        fontWeight: traceEditMode ? 600 : 400,
+                    }}
+                >
+                    {traceEditMode ? '✏️ Stoppen' : '✏️ Teken tracé'}
+                </button>
+                {traceEditMode && (
+                    <button
+                        disabled={traceSaving}
+                        onClick={() => {/* save triggered by onCreated/onEdited in LocationMap */}}
+                        style={{
+                            padding: '4px 10px',
+                            background: 'var(--bg-tertiary)',
+                            color: 'var(--text-muted)',
+                            border: '1px solid var(--border)',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: '0.75rem',
+                        }}
+                    >
+                        {traceSaving ? 'Opslaan...' : 'Teken lijn op kaart en klik Finish'}
+                    </button>
+                )}
+                {traceGeoJson && !traceEditMode && (
+                    <button
+                        onClick={() => handleTraceSave(null)}
+                        disabled={traceSaving}
+                        title="Verwijder het opgeslagen tracé"
+                        style={{
+                            padding: '4px 10px',
+                            background: 'transparent',
+                            color: '#ef4444',
+                            border: '1px solid #ef4444',
+                            borderRadius: 'var(--radius-sm)',
+                            cursor: 'pointer',
+                            fontSize: '0.82rem',
+                        }}
+                    >
+                        Tracé wissen
+                    </button>
+                )}
+                {traceExtractionError && (
+                    <span style={{ color: '#ef4444', fontSize: '0.75rem', maxWidth: '200px' }}>{traceExtractionError}</span>
+                )}
             </div>
 
             {/* ── Split View ── */}
@@ -508,6 +655,9 @@ export default function ProjectDetail() {
                                 distance: null,
                                 unit: 'm',
                             } : null}
+                            traceGeoJson={traceGeoJson}
+                            onTraceSave={handleTraceSave}
+                            editMode={traceEditMode}
                         />
                     </Suspense>
                 </main>
