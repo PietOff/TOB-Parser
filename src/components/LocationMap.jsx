@@ -172,9 +172,25 @@ export default function LocationMap({
         return () => clearTimeout(timer);
     }, [drawPoints, editMode]);
 
+    // Notify parent of current draw points count
+    useEffect(() => {
+        onDrawPointsChange?.(drawPoints);
+    }, [drawPoints]);
+
+    // Expose undo to parent via window (simple approach)
+    useEffect(() => {
+        window._undoLastTracePoint = () => setDrawPoints(prev => prev.slice(0, -1));
+        return () => { delete window._undoLastTracePoint; };
+    }, []);
+
+    // When editMode turns on, pre-load saved trace positions so user can edit them
     // When editMode turns off, clear draw points
     useEffect(() => {
-        if (!editMode) setDrawPoints([]);
+        if (editMode && savedTracePositions && savedTracePositions.length > 0) {
+            setDrawPoints(savedTracePositions);
+        } else if (!editMode) {
+            setDrawPoints([]);
+        }
     }, [editMode]);
 
     const locationMarkers = useMemo(() => locations
@@ -253,22 +269,14 @@ export default function LocationMap({
         </div>
     );
 
-    // Custom draw handler: click to add points, double-click to finish
+    // Custom draw handler: each click adds a waypoint to the trace.
+    // Finishing/accepting is done via the button in ProjectDetail.
     function DrawClickHandler() {
         useMapEvents({
             click(e) {
                 if (!editMode) return;
+                // Prevent propagation issues with map popups
                 setDrawPoints(prev => [...prev, [e.latlng.lat, e.latlng.lng]]);
-            },
-            dblclick(e) {
-                if (!editMode) return;
-                // Prevent adding duplicate last point on dblclick
-                setDrawPoints(prev => {
-                    if (prev.length >= 2) {
-                        onTraceSave?.(leafletPositionsToGeoJson(prev));
-                    }
-                    return prev;
-                });
             },
         });
         return null;
@@ -277,7 +285,7 @@ export default function LocationMap({
 
     return (
         <div id="master-location-map" style={{ height, borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid var(--border)', position: 'relative' }}>
-            <MapContainer center={center} zoom={hasValidCenter ? 14 : 8} style={{ height: '100%', width: '100%' }} zoomControl={true}>
+            <MapContainer center={center} zoom={hasValidCenter ? 14 : 8} style={{ height: '100%', width: '100%', cursor: editMode ? 'crosshair' : undefined }} zoomControl={true}>
                 <FitBounds locations={locations} center={center} radius={safeRadius} />
 
                 {/* ── Tile base layers + WMS overlays via LayersControl ── */}
