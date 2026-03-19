@@ -54,46 +54,68 @@ function FitBounds({ locations, center, radius }) {
 }
 
 
-// Build a buffer polygon around a polyline (lat/lng pairs).
-// Offsets each segment left+right by 'radiusM' meters, returns outer ring.
+// Build a buffer polygon around a polyline with round endcaps (25m default).
 function buildLineBuffer(points, radiusM) {
     if (!points || points.length < 2) return null;
-    const R = 6371000; // Earth radius metres
+    const R = 6371000;
     const toRad = d => d * Math.PI / 180;
     const toDeg = r => r * 180 / Math.PI;
 
-    // Offset a point [lat,lng] by dx,dy metres
     function offsetPoint([lat, lng], dx, dy) {
         return [
-            lat  + toDeg(dy / R),
-            lng  + toDeg(dx / (R * Math.cos(toRad(lat)))),
+            lat + toDeg(dy / R),
+            lng + toDeg(dx / (R * Math.cos(toRad(lat)))),
         ];
     }
 
-    // Perpendicular offset of segment from p1 to p2, dist = radiusM
-    function perp([lat1, lng1], [lat2, lng2], dist) {
+    // Returns perpendicular unit vector [dx, dy] (in metres) rotated 90° left
+    function perpUnit([lat1, lng1], [lat2, lng2]) {
         const dlat = (lat2 - lat1) * Math.PI / 180 * R;
         const dlng = (lng2 - lng1) * Math.PI / 180 * R * Math.cos(toRad((lat1 + lat2) / 2));
         const len  = Math.sqrt(dlat * dlat + dlng * dlng) || 1;
-        return [(-dlng / len) * dist, (dlat / len) * dist]; // [dx, dy] perpendicular
+        return [-dlng / len, dlat / len]; // perpendicular left
+    }
+
+    // Semicircle cap around a point in direction of angle range [startAngle, endAngle]
+    function semicap(center, dx, dy, startAngle, steps = 12) {
+        const cap = [];
+        for (let i = 0; i <= steps; i++) {
+            const a = startAngle + (Math.PI * i) / steps;
+            cap.push(offsetPoint(center, dx * Math.cos(a) - dy * Math.sin(a), dx * Math.sin(a) + dy * Math.cos(a)));
+        }
+        return cap;
     }
 
     const left  = [];
     const right = [];
+    const n = points.length;
 
-    for (let i = 0; i < points.length; i++) {
-        // Average the perpendicular of adjacent segments for smooth corners
+    for (let i = 0; i < n; i++) {
         const dirs = [];
-        if (i > 0)                   dirs.push(perp(points[i - 1], points[i], radiusM));
-        if (i < points.length - 1)   dirs.push(perp(points[i],     points[i + 1], radiusM));
+        if (i > 0)     dirs.push(perpUnit(points[i - 1], points[i]));
+        if (i < n - 1) dirs.push(perpUnit(points[i], points[i + 1]));
         const dx = dirs.reduce((s, d) => s + d[0], 0) / dirs.length;
         const dy = dirs.reduce((s, d) => s + d[1], 0) / dirs.length;
-        left.push( offsetPoint(points[i],  dx,  dy));
-        right.push(offsetPoint(points[i], -dx, -dy));
+        const len = Math.sqrt(dx * dx + dy * dy) || 1;
+        const ndx = (dx / len) * radiusM;
+        const ndy = (dy / len) * radiusM;
+        left.push( offsetPoint(points[i],  ndx,  ndy));
+        right.push(offsetPoint(points[i], -ndx, -ndy));
     }
 
-    // Combine left side forward + right side backward to form closed polygon
-    return [...left, ...[...right].reverse()];
+    // Round endcap at START (right → left, outward direction = -forward)
+    const [pu0x, pu0y] = perpUnit(points[0], points[1]);
+    // Start angle: direction pointing backward along the line
+    const startCapAngle = Math.atan2(-pu0x, pu0y) + Math.PI / 2; // 180° arc outward
+    const startCap = semicap(points[0], pu0x * radiusM, pu0y * radiusM, startCapAngle - Math.PI / 2);
+
+    // Round endcap at END
+    const [punx, puny] = perpUnit(points[n - 2], points[n - 1]);
+    const endCapAngle = Math.atan2(punx, -puny) + Math.PI / 2;
+    const endCap = semicap(points[n - 1], punx * radiusM, puny * radiusM, endCapAngle - Math.PI / 2);
+
+    // Build final polygon: left side → end cap → right side reversed → start cap
+    return [...left, ...endCap, ...[...right].reverse(), ...startCap];
 }
 
 export default function LocationMap({
