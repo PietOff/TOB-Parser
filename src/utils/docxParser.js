@@ -173,8 +173,8 @@ export async function parseDocx(file, onProgress) {
     }
 
     // ── Extract automatisch advies (sectie 3.5) ──
-  // Zoekt: "Advies op basis van automatische beoordeling van dit dossier"
-  // Daarna staat: "is er wel/geen aanleiding om verontreinigingen te verwachten"
+  // Globale fallback: eerste advies in het document
+  // Per-locatie advies wordt later in STEP 3 per code berekend
   const adviesMarker = 'Advies op basis van automatische beoordeling van dit dossier';
   const adviesIdx = fullText.indexOf(adviesMarker);
   if (adviesIdx > -1) {
@@ -186,7 +186,37 @@ export async function parseDocx(file, onProgress) {
     } else if (/\bis er geen\b/.test(adviesSnippet) || /\bwordt geen\b/.test(adviesSnippet) || /wordt.*?geen.*?noodzakelijk/.test(adviesSnippet)) {
       data.automatischAdvies = 'geen';
     }
-    console.log('[DOCX] automatischAdvies:', data.automatischAdvies);
+    console.log('[DOCX] global automatischAdvies:', data.automatischAdvies);
+  }
+
+  // ── Build per-locatie advies map ──
+  // For documents with multiple locations, each has its own advies section
+  // after "Locatiecode\n{code}". Map each code to its nearest advies.
+  const adviesMap = {};
+  {
+    const allAdviesPositions = [];
+    let aPos = 0;
+    while (true) {
+      const aIdx = fullText.indexOf(adviesMarker, aPos);
+      if (aIdx === -1) break;
+      const aSnippet = fullText.slice(aIdx + adviesMarker.length, aIdx + adviesMarker.length + 400).toLowerCase();
+      let aVal = null;
+      if (/\bis er wel\b/.test(aSnippet) || /\bwordt wel\b/.test(aSnippet)) aVal = 'wel';
+      else if (/\bis er geen\b/.test(aSnippet) || /\bwordt geen\b/.test(aSnippet)) aVal = 'geen';
+      allAdviesPositions.push({ idx: aIdx, val: aVal });
+      aPos = aIdx + 1;
+    }
+    // For each locatiecode find the first advies section AFTER "Locatiecode\n{code}"
+    for (const codeMatch of fullText.matchAll(/\b([A-Z]{2}\d{9,12})\b/g)) {
+      const code2 = codeMatch[1];
+      if (adviesMap[code2] !== undefined) continue; // already found
+      const codePos = fullText.indexOf(`Locatiecode\n${code2}`);
+      const searchFrom = codePos > -1 ? codePos : codeMatch.index;
+      // Find first advies position after this code
+      const nextAdvies = allAdviesPositions.find(a => a.idx > searchFrom);
+      if (nextAdvies) adviesMap[code2] = nextAdvies.val;
+    }
+    console.log('[DOCX] per-locatie adviesMap:', JSON.stringify(adviesMap));
   }
 
   // ── Extract locatiecodes (ALL matching AA/UT/.. codes) ──
@@ -466,6 +496,7 @@ export async function parseDocx(file, onProgress) {
             stoffen: [],
             _source: `DOCX: ${file.name}`,
             _projectCode: data.projectCode,
+            automatischAdvies: adviesMap[code] ?? data.automatischAdvies ?? null,
         };
 
         // Enrich from detail section
