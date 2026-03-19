@@ -54,84 +54,92 @@ function FitBounds({ locations, center, radius }) {
 }
 
 
-// Build a buffer polygon around a polyline with proper round endcaps.
-// Uses 25m offset left+right along each segment, with 18-step semicircles at each end.
+// Build a buffer polygon around a polyline.
+// Round endcaps + round joins at every vertex for smooth bends.
 function buildLineBuffer(points, radiusM) {
     if (!points || points.length < 2) return null;
 
-    const R = 6371000; // Earth radius in metres
+    const R = 6371000;
     const toRad = d => d * Math.PI / 180;
     const toDeg = r => r * 180 / Math.PI;
 
-    // Move a [lat,lng] point by (northM metres north, eastM metres east)
     function move([lat, lng], northM, eastM) {
         return [
-            lat  + toDeg(northM / R),
-            lng  + toDeg(eastM  / (R * Math.cos(toRad(lat)))),
+            lat + toDeg(northM / R),
+            lng + toDeg(eastM  / (R * Math.cos(toRad(lat)))),
         ];
     }
 
-    // Bearing angle (radians, clockwise from north) from p1 to p2
     function bearing([lat1, lng1], [lat2, lng2]) {
         const dLng = toRad(lng2 - lng1);
         const y = Math.sin(dLng) * Math.cos(toRad(lat2));
         const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2))
                 - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLng);
-        return Math.atan2(y, x); // radians, 0 = north
+        return Math.atan2(y, x);
     }
 
-    // Offset a point perpendicular to a bearing by radiusM.
-    // side = +1 for left, -1 for right
-    function perpOffset(pt, brg, side) {
-        const angle = brg + side * Math.PI / 2;
-        return move(pt, radiusM * Math.cos(angle), radiusM * Math.sin(angle));
-    }
-
-    // Semicircle cap: 18 points, outward from the line end.
-    // centerBrg = bearing of the line AT that endpoint (pointing away from the line).
-    // We sweep 180° outward (left side → tip → right side).
-    function semicap(pt, outBrg, steps = 18) {
+    // Arc of points around 'center', from angle startA to endA (clockwise if step > 0)
+    function arc(center, startA, endA, steps) {
         const pts = [];
+        // Normalise sweep direction: always go the short way
+        let sweep = endA - startA;
+        while (sweep >  Math.PI) sweep -= 2 * Math.PI;
+        while (sweep < -Math.PI) sweep += 2 * Math.PI;
         for (let i = 0; i <= steps; i++) {
-            const angle = outBrg - Math.PI / 2 + (Math.PI * i) / steps;
-            pts.push(move(pt, radiusM * Math.cos(angle), radiusM * Math.sin(angle)));
+            const a = startA + (sweep * i) / steps;
+            pts.push(move(center, radiusM * Math.cos(a), radiusM * Math.sin(a)));
         }
         return pts;
     }
 
-    // Compute segment bearings
     const n = points.length;
     const brgs = [];
-    for (let i = 0; i < n - 1; i++) {
-        brgs.push(bearing(points[i], points[i + 1]));
+    for (let i = 0; i < n - 1; i++) brgs.push(bearing(points[i], points[i + 1]));
+
+    // Left offset angle = bearing - 90°, right = bearing + 90°
+    const leftAngle  = b => b - Math.PI / 2;
+    const rightAngle = b => b + Math.PI / 2;
+
+    const poly = [];
+
+    // ── LEFT side: start → end ──
+    // Start endcap left point
+    poly.push(move(points[0], radiusM * Math.cos(leftAngle(brgs[0])), radiusM * Math.sin(leftAngle(brgs[0]))));
+
+    for (let i = 1; i < n - 1; i++) {
+        const bIn  = brgs[i - 1]; // incoming bearing
+        const bOut = brgs[i];     // outgoing bearing
+        // Left side: arc from leftAngle(bIn) to leftAngle(bOut) around the joint
+        const arcPts = arc(points[i], leftAngle(bIn), leftAngle(bOut), 8);
+        poly.push(...arcPts);
     }
 
-    // Left and right offset points for each vertex (average adjacent bearings at joints)
-    const left  = [];
-    const right = [];
-    for (let i = 0; i < n; i++) {
-        let brg;
-        if (i === 0)         brg = brgs[0];
-        else if (i === n - 1) brg = brgs[n - 2];
-        else {
-            // Average bearing at joint
-            const b1 = brgs[i - 1], b2 = brgs[i];
-            let diff = b2 - b1;
-            while (diff >  Math.PI) diff -= 2 * Math.PI;
-            while (diff < -Math.PI) diff += 2 * Math.PI;
-            brg = b1 + diff / 2;
-        }
-        left.push( perpOffset(points[i], brg,  1));
-        right.push(perpOffset(points[i], brg, -1));
+    // End point of left side
+    poly.push(move(points[n-1], radiusM * Math.cos(leftAngle(brgs[n-2])), radiusM * Math.sin(leftAngle(brgs[n-2]))));
+
+    // ── END endcap: semicircle at last point ──
+    // Sweep from leftAngle(lastBrg) → rightAngle(lastBrg) going forward (180°)
+    const endArcPts = arc(points[n-1], leftAngle(brgs[n-2]), rightAngle(brgs[n-2]), 18);
+    poly.push(...endArcPts);
+
+    // ── RIGHT side: end → start ──
+    poly.push(move(points[n-1], radiusM * Math.cos(rightAngle(brgs[n-2])), radiusM * Math.sin(rightAngle(brgs[n-2]))));
+
+    for (let i = n - 2; i > 0; i--) {
+        const bIn  = brgs[i];     // was outgoing, now incoming (reversed)
+        const bOut = brgs[i - 1]; // was incoming, now outgoing (reversed)
+        const arcPts = arc(points[i], rightAngle(bIn), rightAngle(bOut), 8);
+        poly.push(...arcPts);
     }
 
-    // Start cap: outward bearing = reverse of first segment bearing
-    const startCap = semicap(points[0],     brgs[0] + Math.PI);
-    // End cap: outward bearing = forward direction of last segment
-    const endCap   = semicap(points[n - 1], brgs[n - 2]);
+    poly.push(move(points[0], radiusM * Math.cos(rightAngle(brgs[0])), radiusM * Math.sin(rightAngle(brgs[0]))));
 
-    // Polygon: left side forward → end cap → right side reversed → start cap
-    return [...left, ...endCap, ...[...right].reverse(), ...startCap];
+    // ── START endcap: semicircle at first point ──
+    // Sweep from rightAngle(firstBrg) → leftAngle(firstBrg) going backward (180°)
+    const startArcPts = arc(points[0], rightAngle(brgs[0]), leftAngle(brgs[0]), 18);
+    poly.push(...startArcPts);
+
+    return poly;
 }
 
 export default function LocationMap({
