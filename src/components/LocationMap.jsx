@@ -225,6 +225,22 @@ export default function LocationMap({
                 {showTrace && savedTracePositions && (
                     <Polyline positions={savedTracePositions} pathOptions={{ color: '#f59e0b', weight: 4, opacity: 0.9 }} />
                 )}
+                {/* Buffer around saved trace */}
+                {showTrace && savedTracePositions && savedTracePositions.map((pt, i) => (
+                    <Circle
+                        key={`stbuf-${i}`}
+                        center={pt}
+                        radius={50}
+                        pathOptions={{
+                            color: '#f59e0b',
+                            weight: 1,
+                            opacity: 0.5,
+                            fillColor: '#f59e0b',
+                            fillOpacity: 0.07,
+                            dashArray: '6 4',
+                        }}
+                    />
+                ))}
                 {showTrace && !savedTracePositions && traceLine && (
                     <Polyline positions={traceLine} pathOptions={{ color: '#f59e0b', weight: 3, opacity: 0.85, dashArray: '10, 6' }} />
                 )}
@@ -238,6 +254,22 @@ export default function LocationMap({
                                 pathOptions={{ color: '#f59e0b', weight: 4 }}
                             />
                         )}
+                        {/* Buffer: circle around each point of the drawn trace */}
+                        {drawPoints.length > 0 && drawPoints.map((pt, i) => (
+                            <Circle
+                                key={`buf-${i}`}
+                                center={pt}
+                                radius={50}
+                                pathOptions={{
+                                    color: '#f59e0b',
+                                    weight: 1.5,
+                                    opacity: 0.6,
+                                    fillColor: '#f59e0b',
+                                    fillOpacity: 0.08,
+                                    dashArray: '6 4',
+                                }}
+                            />
+                        ))}
                         {drawPoints.map((pt, i) => (
                             <CircleMarker
                                 key={i}
