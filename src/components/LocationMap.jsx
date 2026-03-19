@@ -264,13 +264,12 @@ export default function LocationMap({
         </div>
     );
 
-    // Custom draw handler: each click adds a waypoint to the trace.
-    // Finishing/accepting is done via the button in ProjectDetail.
+
+    // Custom draw handler — must be INSIDE the component to read live editMode state
     function DrawClickHandler() {
         useMapEvents({
             click(e) {
                 if (!editMode) return;
-                // Prevent propagation issues with map popups
                 setDrawPoints(prev => [...prev, [e.latlng.lat, e.latlng.lng]]);
             },
         });
