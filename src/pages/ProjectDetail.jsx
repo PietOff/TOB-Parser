@@ -320,7 +320,15 @@ export default function ProjectDetail() {
                 />
                 
                 <button
-                    onClick={() => setTraceEditMode(m => !m)}
+                    onClick={() => {
+                        if (traceEditMode) {
+                            // Accept: the LocationMap's useEffect already debounced the save
+                            // Just turn off edit mode — trace was auto-saved on last point
+                            setTraceEditMode(false);
+                        } else {
+                            setTraceEditMode(true);
+                        }
+                    }}
                     style={{
                         padding: '4px 12px',
                         background: traceEditMode ? '#f59e0b' : 'var(--bg-secondary)',
@@ -332,23 +340,40 @@ export default function ProjectDetail() {
                         fontWeight: traceEditMode ? 600 : 400,
                     }}
                 >
-                    {traceEditMode ? '✏️ Stoppen' : '✏️ Teken tracé'}
+                    {traceEditMode ? '✅ Accepteren' : (traceGeoJson ? '✏️ Bewerk tracé' : '✏️ Teken tracé')}
                 </button>
                 {traceEditMode && (
-                    <button
-                        disabled={traceSaving}
-                        onClick={() => {/* save triggered by onCreated/onEdited in LocationMap */}}
-                        style={{
-                            padding: '4px 10px',
-                            background: 'var(--bg-tertiary)',
-                            color: 'var(--text-muted)',
-                            border: '1px solid var(--border)',
-                            borderRadius: 'var(--radius-sm)',
-                            fontSize: '0.75rem',
-                        }}
-                    >
-                        {traceSaving ? 'Opslaan...' : 'Teken lijn op kaart en klik Finish'}
-                    </button>
+                    <>
+                        <button
+                            onClick={() => setTraceEditMode(false)}
+                            style={{
+                                padding: '4px 10px',
+                                background: 'var(--bg-tertiary)',
+                                color: 'var(--text-secondary)',
+                                border: '1px solid var(--border)',
+                                borderRadius: 'var(--radius-sm)',
+                                fontSize: '0.75rem',
+                                cursor: 'pointer',
+                            }}
+                        >
+                            ✖ Annuleren
+                        </button>
+                        <button
+                            onClick={() => window._undoLastTracePoint?.()}
+                            title="Verwijder het laatste punt"
+                            style={{
+                                padding: '4px 8px',
+                                background: 'var(--bg-tertiary)',
+                                color: 'var(--text-secondary)',
+                                border: '1px solid var(--border)',
+                                borderRadius: 'var(--radius-sm)',
+                                fontSize: '0.75rem',
+                                cursor: 'pointer',
+                            }}
+                        >
+                            ↩ Ongedaan
+                        </button>
+                    </>
                 )}
                 {traceGeoJson && !traceEditMode && (
                     <button
