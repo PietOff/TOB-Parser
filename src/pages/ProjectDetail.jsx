@@ -318,23 +318,7 @@ export default function ProjectDetail() {
                     style={{ display: 'none' }}
                     onChange={e => { if (e.target.files[0]) handleExtractTrace(e.target.files[0]); }}
                 />
-                <button
-                    disabled={traceExtracting || locations.length === 0}
-                    onClick={() => traceFileInputRef.current?.click()}
-                    title="Extraheer tracé op basis van locaties en kaartafbeelding in het document"
-                    style={{
-                        padding: '4px 12px',
-                        background: traceExtracting ? 'var(--bg-tertiary)' : 'var(--bg-secondary)',
-                        color: 'var(--text-secondary)',
-                        border: '1px solid var(--border)',
-                        borderRadius: 'var(--radius-sm)',
-                        cursor: (traceExtracting || locations.length === 0) ? 'not-allowed' : 'pointer',
-                        fontSize: '0.82rem',
-                        opacity: locations.length === 0 ? 0.5 : 1,
-                    }}
-                >
-                    {traceExtracting ? '⏳ Extraheren...' : '📐 Tracé uit document'}
-                </button>
+                
                 <button
                     onClick={() => setTraceEditMode(m => !m)}
                     style={{
