@@ -190,50 +190,31 @@ export async function parseDocx(file, onProgress) {
   }
 
   // ── Build per-locatie advies map ──
-  // For documents with multiple locations, each has its own advies section
-  // after "Locatiecode\n{code}". Map each code to its nearest advies.
+  // Split the fullText on the adviesMarker. Each segment between two markers
+  // contains exactly one locatiecode + one advies verdict ("wel" or "geen").
+  // This works because mammoth flattens DOCX tables into a single text stream
+  // where each dossier block contains: ...{locatiecode}...{adviesMarker}{verdict}...
   const adviesMap = {};
   {
-    const allAdviesPositions = [];
-    let aPos = 0;
-    while (true) {
-      const aIdx = fullText.indexOf(adviesMarker, aPos);
-      if (aIdx === -1) break;
-      const aSnippet = fullText.slice(aIdx + adviesMarker.length, aIdx + adviesMarker.length + 400).toLowerCase();
+    const segments = fullText.split(adviesMarker);
+    // segments[0] = text before first marker (may have codes but no advies yet)
+    // segments[1..n] = each starts right after a marker, contains verdict + next code(s)
+    for (let i = 1; i < segments.length; i++) {
+      const seg = segments[i];
+      const segLower = seg.slice(0, 400).toLowerCase();
+      // Determine advies verdict for this segment
       let aVal = null;
-      if (/\bis er wel\b/.test(aSnippet) || /\bwordt wel\b/.test(aSnippet)) aVal = 'wel';
-      else if (/\bis er geen\b/.test(aSnippet) || /\bwordt geen\b/.test(aSnippet)) aVal = 'geen';
-      allAdviesPositions.push({ idx: aIdx, val: aVal });
-      aPos = aIdx + 1;
-    }
-    // For each locatiecode find the advies section that belongs to it.
-    // Strategy: find all unique codes in order of first appearance.
-    // Each code gets the advies from the section that comes AFTER it
-    // but BEFORE the next code's section.
-    // Since mammoth flattens table text, we can't rely on "Locatiecode\n{code}".
-    // Instead: pair each code (by first occurrence) with the next advies position.
-    const uniqueCodesInOrder = [];
-    const seenCodes = new Set();
-    for (const m of fullText.matchAll(/\b([A-Z]{2}\d{9,12})\b/g)) {
-      if (!seenCodes.has(m[1])) {
-        seenCodes.add(m[1]);
-        uniqueCodesInOrder.push({ code: m[1], idx: m.index });
-      }
-    }
-    // Sort allAdviesPositions by idx
-    allAdviesPositions.sort((a, b) => a.idx - b.idx);
-    // Assign: each advies position belongs to the code that appeared just before it
-    for (let i = 0; i < allAdviesPositions.length; i++) {
-      const aPos2 = allAdviesPositions[i].idx;
-      // Find the last code that appeared before this advies position
-      let assignTo = null;
-      for (const { code: c, idx: cIdx } of uniqueCodesInOrder) {
-        if (cIdx < aPos2) assignTo = c;
-        else break;
-      }
-      // Only assign if not yet assigned
-      if (assignTo && adviesMap[assignTo] === undefined) {
-        adviesMap[assignTo] = allAdviesPositions[i].val;
+      if (/\bis er wel\b/.test(segLower) || /\bwordt wel\b/.test(segLower)) aVal = 'wel';
+      else if (/\bis er geen\b/.test(segLower) || /\bwordt geen\b/.test(segLower)) aVal = 'geen';
+      // Find the locatiecode in the PREVIOUS segment (the one before this marker)
+      const prevSeg = segments[i - 1];
+      const codesInPrev = [...prevSeg.matchAll(/\b([A-Z]{2}\d{9,12})\b/g)];
+      if (codesInPrev.length > 0) {
+        // Use the LAST code found before this advies marker
+        const code2 = codesInPrev[codesInPrev.length - 1][1];
+        if (adviesMap[code2] === undefined) {
+          adviesMap[code2] = aVal;
+        }
       }
     }
     console.log('[DOCX] per-locatie adviesMap:', JSON.stringify(adviesMap));
