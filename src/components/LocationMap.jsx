@@ -1,9 +1,8 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, Polyline, FeatureGroup, LayersControl, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, Polyline, FeatureGroup, LayersControl, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import 'leaflet-draw/dist/leaflet.draw.css';
-import { EditControl } from 'react-leaflet-draw';
+// leaflet-draw removed: incompatible with react-leaflet v5
 import { rdToWgs84 } from '../utils/apiIntegrations';
 import { geoJsonToLeafletPositions, leafletPositionsToGeoJson } from '../utils/traceBuilder';
 
@@ -72,6 +71,22 @@ export default function LocationMap({
     const [showContouren, setShowContouren] = useState(true);
     const [showTrace, setShowTrace] = useState(true);
     const featureGroupRef = useRef(null);
+    const [drawPoints, setDrawPoints] = useState([]);
+
+    // Save trace when drawPoints change (debounced)
+    useEffect(() => {
+        if (!editMode) return;
+        if (drawPoints.length < 2) return;
+        const timer = setTimeout(() => {
+            onTraceSave?.(leafletPositionsToGeoJson(drawPoints));
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [drawPoints, editMode]);
+
+    // When editMode turns off, clear draw points
+    useEffect(() => {
+        if (!editMode) setDrawPoints([]);
+    }, [editMode]);
 
     const locationMarkers = useMemo(() => locations
         .map(loc => { const c = getLocCoords(loc); return c ? { ...loc, _lat: c[0], _lon: c[1] } : null; })
@@ -149,6 +164,28 @@ export default function LocationMap({
         </div>
     );
 
+    // Custom draw handler: click to add points, double-click to finish
+    function DrawClickHandler() {
+        useMapEvents({
+            click(e) {
+                if (!editMode) return;
+                setDrawPoints(prev => [...prev, [e.latlng.lat, e.latlng.lng]]);
+            },
+            dblclick(e) {
+                if (!editMode) return;
+                // Prevent adding duplicate last point on dblclick
+                setDrawPoints(prev => {
+                    if (prev.length >= 2) {
+                        onTraceSave?.(leafletPositionsToGeoJson(prev));
+                    }
+                    return prev;
+                });
+            },
+        });
+        return null;
+    }
+
+
     return (
         <div id="master-location-map" style={{ height, borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid var(--border)', position: 'relative' }}>
             <MapContainer center={center} zoom={hasValidCenter ? 14 : 8} style={{ height: '100%', width: '100%' }} zoomControl={true}>
@@ -157,7 +194,8 @@ export default function LocationMap({
                 {/* ── Tile base layers + WMS overlays via LayersControl ── */}
                 <LayersControl position="topright">
                     <LayersControl.BaseLayer checked name="OpenStreetMap">
-                        <TileLayer attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                        <DrawClickHandler />
+                <TileLayer attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                     </LayersControl.BaseLayer>
                     <LayersControl.BaseLayer name="PDOK Luchtfoto">
                         <TileLayer attribution='&copy; PDOK' url="https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/Actueel_orthoHR/EPSG:3857/{z}/{x}/{y}.jpeg" maxZoom={19} />
@@ -193,30 +231,21 @@ export default function LocationMap({
 
                 {/* Leaflet-draw: edit/draw tracé */}
                 {editMode && (
-                    <FeatureGroup ref={featureGroupRef}>
-                        <EditControl
-                            position="topleft"
-                            draw={{
-                                polyline: { shapeOptions: { color: '#f59e0b', weight: 4 } },
-                                polygon: false,
-                                rectangle: false,
-                                circle: false,
-                                marker: false,
-                                circlemarker: false,
-                            }}
-                            edit={{ remove: true }}
-                            onCreated={e => {
-                                const positions = e.layer.getLatLngs().map(ll => [ll.lat, ll.lng]);
-                                onTraceSave?.(leafletPositionsToGeoJson(positions));
-                            }}
-                            onEdited={e => {
-                                e.layers.eachLayer(layer => {
-                                    const positions = layer.getLatLngs().map(ll => [ll.lat, ll.lng]);
-                                    onTraceSave?.(leafletPositionsToGeoJson(positions));
-                                });
-                            }}
-                            onDeleted={() => onTraceSave?.(null)}
-                        />
+                    <FeatureGroup>
+                        {drawPoints.length > 1 && (
+                            <Polyline
+                                positions={drawPoints}
+                                pathOptions={{ color: '#f59e0b', weight: 4 }}
+                            />
+                        )}
+                        {drawPoints.map((pt, i) => (
+                            <CircleMarker
+                                key={i}
+                                center={pt}
+                                radius={5}
+                                pathOptions={{ color: '#f59e0b', fillColor: '#f59e0b', fillOpacity: 1 }}
+                            />
+                        ))}
                     </FeatureGroup>
                 )}
 
