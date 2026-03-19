@@ -761,8 +761,8 @@ export function docxToLocations(docxData, zoekregels = []) {
     if (docxData.locatiecodes.length > 0) {
         return docxData.locatiecodes.map(loc => ({
             ...loc,
+            ...dynamicFields,
             automatischAdvies: loc.automatischAdvies ?? docxData.automatischAdvies ?? null,
-            ...dynamicFields
         }));
     }
 
