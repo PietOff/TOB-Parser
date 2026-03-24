@@ -279,6 +279,8 @@ export function dbRowToLocation(row) {
     opmerking:         row.opmerking     ?? null,
     automatischAdvies: row.automatisch_advies ?? null,
     rapportType:       row.rapport_type        ?? null,
+    latestOnderzoekDatum: row.latest_onderzoek_datum ?? null,
+    aantalOnderzoeken:    row.aantal_onderzoeken     ?? null,
     complex:           row.complex       ?? false,
     isComplex:         row.complex       ?? false,
     stoffen:           row.stoffen       ?? null,
