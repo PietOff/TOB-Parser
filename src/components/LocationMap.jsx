@@ -1,9 +1,11 @@
+// v1774340670661
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, Polyline, Polygon, FeatureGroup, LayersControl, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, Polyline, Polygon, FeatureGroup, LayersControl, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 // leaflet-draw removed: incompatible with react-leaflet v5
 import { rdToWgs84 } from '../utils/apiIntegrations';
+import { buildLineBuffer } from './traceBuffer';
 import { geoJsonToLeafletPositions, leafletPositionsToGeoJson } from '../utils/traceBuilder';
 
 /**
@@ -54,30 +56,6 @@ function FitBounds({ locations, center, radius }) {
 }
 
 
-
-// Geodesic buffer — 25m uniform zone with round caps around a polyline
-function buildLineBuffer(points, radiusM) {
-    if (!points || points.length < 2) return null;
-    const EARTH = 6371000, DEG = Math.PI / 180;
-    const latOff = (m) => (m / EARTH) / DEG;
-    const lngOff = (m, lat) => (m / (EARTH * Math.cos(lat * DEG))) / DEG;
-    function seg([a,b],[c,e]){const dn=(c-a)*EARTH*DEG,de=(e-b)*EARTH*Math.cos((a+c)/2*DEG)*DEG;const len=Math.sqrt(dn*dn+de*de)||1;return{left:[-de/len,dn/len],right:[de/len,-dn/len]};}
-    function move([lat,lng],[vn,ve],dist){return[lat+latOff(vn*dist),lng+lngOff(ve*dist,lat)];}
-    function arc(pt,v0,v1,steps=16){const out=[];for(let i=0;i<=steps;i++){const t=i/steps,vn=v0[0]*(1-t)+v1[0]*t,ve=v0[1]*(1-t)+v1[1]*t;const l=Math.sqrt(vn*vn+ve*ve)||1;out.push(move(pt,[vn/l,ve/l],radiusM));}return out;}
-    const n=points.length;
-    const segs=[];for(let i=0;i<n-1;i++)segs.push(seg(points[i],points[i+1]));
-    const L=[],R=[];
-    L.push(move(points[0],segs[0].left,radiusM));
-    R.unshift(move(points[0],segs[0].right,radiusM));
-    const startCap=arc(points[0],segs[0].right,segs[0].left,16);
-    for(let i=1;i<n-1;i++){L.push(...arc(points[i],segs[i-1].left,segs[i].left,8));R.unshift(...arc(points[i],segs[i-1].right,segs[i].right,8).reverse());}
-    const ls=segs[n-2];
-    L.push(move(points[n-1],ls.left,radiusM));
-    R.unshift(move(points[n-1],ls.right,radiusM));
-    const endCap=arc(points[n-1],ls.left,ls.right,16);
-    return[...L,...endCap,...R,...startCap];
-}
-
 export default function LocationMap({
     locations = [],
     height = '400px',
@@ -96,36 +74,52 @@ export default function LocationMap({
     const [showContouren, setShowContouren] = useState(true);
     const [showTrace, setShowTrace] = useState(true);
     const featureGroupRef = useRef(null);
-
-    // ── Teken Tracé: state en refs ──────────────────────────
+    const mapRef = useRef(null);
     const [drawPoints, setDrawPoints] = useState([]);
-    const editModeRef = useRef(editMode);
-    useEffect(() => { editModeRef.current = editMode; }, [editMode]);
 
-    // Pre-load saved trace points when entering edit mode
+    // Save trace when drawPoints change (debounced)
     useEffect(() => {
-        if (editMode && traceGeoJson?.coordinates?.length > 0) {
-            const pts = traceGeoJson.coordinates.map(([lng, lat]) => [lat, lng]);
-            setDrawPoints(pts);
-        }
-        if (!editMode) setDrawPoints([]);
-    }, [editMode]);
-
-    // Auto-save when drawPoints change during edit
-    useEffect(() => {
-        if (!editMode || drawPoints.length < 2) return;
+        if (!editMode) return;
+        if (drawPoints.length < 2) return;
         const timer = setTimeout(() => {
             onTraceSave?.(leafletPositionsToGeoJson(drawPoints));
         }, 500);
         return () => clearTimeout(timer);
     }, [drawPoints, editMode]);
 
+    // Expose undo to parent via window (simple approach)
+    useEffect(() => {
+        window._undoLastTracePoint = () => setDrawPoints(prev => prev.slice(0, -1));
+        return () => { delete window._undoLastTracePoint; };
+    }, []);
+
+    // Direct Leaflet click listener v3 — no stale closure
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map) return;
+        if (!editMode) return;
+
+        function onMapClick(e) {
+            setDrawPoints(prev => [...prev, [e.latlng.lat, e.latlng.lng]]);
+        }
+
+        map.on('click', onMapClick);
+        return () => map.off('click', onMapClick);
+    }, [editMode]);
 
 
 
+    // When editMode turns on, pre-load saved trace positions so user can edit them
+    // When editMode turns off, clear draw points
+    useEffect(() => {
+        if (editMode && savedTracePositions && savedTracePositions.length > 0) {
+            setDrawPoints(savedTracePositions);
+        } else if (!editMode) {
+            setDrawPoints([]);
+        }
+    }, [editMode]);
 
-
-
+    const locationMarkers = useMemo(() => locations
         .map(loc => { const c = getLocCoords(loc); return c ? { ...loc, _lat: c[0], _lon: c[1] } : null; })
         .filter(Boolean), [locations]);
 
@@ -205,30 +199,15 @@ export default function LocationMap({
 
 
 
-    // ── Inner component: always mounted, reads editMode via ref ──
-    // This pattern avoids stale closure because we use editModeRef.current
-    // and setDrawPoints (stable ref) rather than editMode directly
-    function DrawHandler() {
-        useMapEvents({
-            click(e) {
-                if (!editModeRef.current) return;
-                setDrawPoints(prev => [...prev, [e.latlng.lat, e.latlng.lng]]);
-            },
-        });
-        return null;
-    }
-
-
     return (
         <div id="master-location-map" style={{ height, borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid var(--border)', position: 'relative' }}>
-            <MapContainer center={center} zoom={hasValidCenter ? 14 : 8} style={{ height: '100%', width: '100%', cursor: editMode ? 'crosshair' : undefined }} zoomControl={true}>
+            <MapContainer center={center} zoom={hasValidCenter ? 14 : 8} style={{ height: '100%', width: '100%', cursor: editMode ? 'crosshair' : undefined }} whenCreated={m => { mapRef.current = m; }} zoomControl={true}>
                 <FitBounds locations={locations} center={center} radius={safeRadius} />
 
                 {/* ── Tile base layers + WMS overlays via LayersControl ── */}
                 <LayersControl position="topright">
                     <LayersControl.BaseLayer checked name="OpenStreetMap">
-                        <DrawHandler />
-                <TileLayer attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                        <TileLayer attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                     </LayersControl.BaseLayer>
                     <LayersControl.BaseLayer name="PDOK Luchtfoto">
                         <TileLayer attribution='&copy; PDOK' url="https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/Actueel_orthoHR/EPSG:3857/{z}/{x}/{y}.jpeg" maxZoom={19} />
