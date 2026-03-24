@@ -223,13 +223,7 @@ export async function parseDocx(file, onProgress) {
     console.log('[DOCX] per-locatie adviesMap:', JSON.stringify(adviesMap));
   }
 
-  // ── Detect rapport type ──
-  if (fullText.includes('Meldingsformulier BUS evaluatieverslag')) {
-    data.rapportType = 'BUS-evaluatieverslag';
-  } else if (fullText.includes('Evaluatieverslag saneren')) {
-    data.rapportType = 'Evaluatieverslag saneren';
-  }
-  console.log('[DOCX] rapportType:', data.rapportType);
+  console.log('[DOCX] rapportType: determined per locatie via rapportDatumMap');
 
   // ── Extract rapport dates per locatiecode from Rapportdatum tables ──
   // Strategy: split fullText on 'Rapportdatum' sections, find preceding locatiecode
@@ -550,7 +544,7 @@ export async function parseDocx(file, onProgress) {
             _source: `DOCX: ${file.name}`,
             _projectCode: data.projectCode,
             automatischAdvies: adviesMap[code] ?? data.automatischAdvies ?? null,
-            rapportType: data.rapportType ?? null,
+            rapportType: rapportDatumMap[code]?.rapportType ?? null,
             latestOnderzoekDatum: rapportDatumMap[code]?.latest ?? null,
             aantalOnderzoeken: rapportDatumMap[code]?.count ?? null,
         };
