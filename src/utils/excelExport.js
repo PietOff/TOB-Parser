@@ -22,6 +22,8 @@ export const EXPORT_COLUMNS = [
     { header: 'Opmerking',                        key: 'opmerking',          width: 30 },
     { header: 'Automatisch advies',               key: 'automatischAdvies',  width: 20 },
     { header: 'Rapport type',                     key: 'rapportType',        width: 25 },
+    { header: 'Datum laatste onderzoek',          key: 'latestOnderzoekDatum', width: 20 },
+    { header: 'Aantal onderzoeken',               key: 'aantalOnderzoeken',   width: 18 },
     { header: 'Informatie uit Tekeningen (PPTX)', key: 'tekeningInfo',       width: 35 },
 ];
 
@@ -74,6 +76,8 @@ export async function exportProjectExcel(project) {
             opmerking:         loc.opmerking         ?? '',
             automatischAdvies: loc.automatisch_advies ?? loc.automatischAdvies ?? '',
             rapportType:      loc.rapport_type ?? loc.rapportType ?? '',
+            latestOnderzoekDatum: loc.latest_onderzoek_datum ?? loc.latestOnderzoekDatum ?? '',
+            aantalOnderzoeken:    loc.aantal_onderzoeken ?? loc.aantalOnderzoeken ?? '',
             tekeningInfo:      enriched.tekeningInfo ?? enriched.pptxInfo ?? '',
         });
     }
