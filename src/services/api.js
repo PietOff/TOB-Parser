@@ -144,7 +144,10 @@ export async function saveLocations(projectId, locationsArray) {
       mkb:               loc.mkb               ?? null,
       brl7000:           loc.brl7000           ?? null,
       opmerking:         loc.opmerking         ?? null,
-            automatisch_advies: loc.automatischAdvies  ?? null,
+            automatisch_advies:      loc.automatischAdvies     ?? null,
+      rapport_type:            loc.rapportType          ?? null,
+      latest_onderzoek_datum:  loc.latestOnderzoekDatum ?? null,
+      aantal_onderzoeken:      loc.aantalOnderzoeken != null ? parseInt(loc.aantalOnderzoeken) : null,
       complex:           loc.complex           ?? false,
       // Coördinaten — must be null (not "") for double precision columns
       lat:               toNum(enriched.lat  ?? loc.lat),
