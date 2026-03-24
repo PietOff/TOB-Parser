@@ -67,6 +67,7 @@ export async function parseDocx(file, onProgress) {
         meldingTekst: '',
         asbestverdenking: false,
     automatischAdvies: null, // 'wel' | 'geen' | null — uit sectie 3.5
+        rapportType: null,     // 'BUS-evaluatieverslag' | 'Evaluatieverslag saneren' | null
 
         // Project location & trace (new)
         projectAddress: null,
@@ -219,6 +220,14 @@ export async function parseDocx(file, onProgress) {
     }
     console.log('[DOCX] per-locatie adviesMap:', JSON.stringify(adviesMap));
   }
+
+  // ── Detect rapport type ──
+  if (fullText.includes('Meldingsformulier BUS evaluatieverslag')) {
+    data.rapportType = 'BUS-evaluatieverslag';
+  } else if (fullText.includes('Evaluatieverslag saneren')) {
+    data.rapportType = 'Evaluatieverslag saneren';
+  }
+  console.log('[DOCX] rapportType:', data.rapportType);
 
   // ── Extract locatiecodes (ALL matching AA/UT/.. codes) ──
     const locCodeRegex = /\b([A-Z]{2}\d{9,12})\b/g;
@@ -498,6 +507,7 @@ export async function parseDocx(file, onProgress) {
             _source: `DOCX: ${file.name}`,
             _projectCode: data.projectCode,
             automatischAdvies: adviesMap[code] ?? data.automatischAdvies ?? null,
+            rapportType: data.rapportType ?? null,
         };
 
         // Enrich from detail section
