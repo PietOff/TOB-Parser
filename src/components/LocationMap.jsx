@@ -74,52 +74,36 @@ export default function LocationMap({
     const [showContouren, setShowContouren] = useState(true);
     const [showTrace, setShowTrace] = useState(true);
     const featureGroupRef = useRef(null);
-    const mapRef = useRef(null);
-    const [drawPoints, setDrawPoints] = useState([]);
 
-    // Save trace when drawPoints change (debounced)
+    // ── Teken Tracé: state en refs ──────────────────────────
+    const [drawPoints, setDrawPoints] = useState([]);
+    const editModeRef = useRef(editMode);
+    useEffect(() => { editModeRef.current = editMode; }, [editMode]);
+
+    // Pre-load saved trace points when entering edit mode
     useEffect(() => {
-        if (!editMode) return;
-        if (drawPoints.length < 2) return;
+        if (editMode && traceGeoJson?.coordinates?.length > 0) {
+            const pts = traceGeoJson.coordinates.map(([lng, lat]) => [lat, lng]);
+            setDrawPoints(pts);
+        }
+        if (!editMode) setDrawPoints([]);
+    }, [editMode]);
+
+    // Auto-save when drawPoints change during edit
+    useEffect(() => {
+        if (!editMode || drawPoints.length < 2) return;
         const timer = setTimeout(() => {
             onTraceSave?.(leafletPositionsToGeoJson(drawPoints));
         }, 500);
         return () => clearTimeout(timer);
     }, [drawPoints, editMode]);
 
-    // Expose undo to parent via window (simple approach)
-    useEffect(() => {
-        window._undoLastTracePoint = () => setDrawPoints(prev => prev.slice(0, -1));
-        return () => { delete window._undoLastTracePoint; };
-    }, []);
-
-    // Direct Leaflet click listener v3 — no stale closure
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map) return;
-        if (!editMode) return;
-
-        function onMapClick(e) {
-            setDrawPoints(prev => [...prev, [e.latlng.lat, e.latlng.lng]]);
-        }
-
-        map.on('click', onMapClick);
-        return () => map.off('click', onMapClick);
-    }, [editMode]);
 
 
 
-    // When editMode turns on, pre-load saved trace positions so user can edit them
-    // When editMode turns off, clear draw points
-    useEffect(() => {
-        if (editMode && savedTracePositions && savedTracePositions.length > 0) {
-            setDrawPoints(savedTracePositions);
-        } else if (!editMode) {
-            setDrawPoints([]);
-        }
-    }, [editMode]);
 
-    const locationMarkers = useMemo(() => locations
+
+
         .map(loc => { const c = getLocCoords(loc); return c ? { ...loc, _lat: c[0], _lon: c[1] } : null; })
         .filter(Boolean), [locations]);
 
@@ -199,15 +183,30 @@ export default function LocationMap({
 
 
 
+    // ── Inner component: always mounted, reads editMode via ref ──
+    // This pattern avoids stale closure because we use editModeRef.current
+    // and setDrawPoints (stable ref) rather than editMode directly
+    function DrawHandler() {
+        useMapEvents({
+            click(e) {
+                if (!editModeRef.current) return;
+                setDrawPoints(prev => [...prev, [e.latlng.lat, e.latlng.lng]]);
+            },
+        });
+        return null;
+    }
+
+
     return (
         <div id="master-location-map" style={{ height, borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid var(--border)', position: 'relative' }}>
-            <MapContainer center={center} zoom={hasValidCenter ? 14 : 8} style={{ height: '100%', width: '100%', cursor: editMode ? 'crosshair' : undefined }} whenCreated={m => { mapRef.current = m; }} zoomControl={true}>
+            <MapContainer center={center} zoom={hasValidCenter ? 14 : 8} style={{ height: '100%', width: '100%', cursor: editMode ? 'crosshair' : undefined }} zoomControl={true}>
                 <FitBounds locations={locations} center={center} radius={safeRadius} />
 
                 {/* ── Tile base layers + WMS overlays via LayersControl ── */}
                 <LayersControl position="topright">
                     <LayersControl.BaseLayer checked name="OpenStreetMap">
-                        <TileLayer attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                        <DrawHandler />
+                <TileLayer attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                     </LayersControl.BaseLayer>
                     <LayersControl.BaseLayer name="PDOK Luchtfoto">
                         <TileLayer attribution='&copy; PDOK' url="https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/Actueel_orthoHR/EPSG:3857/{z}/{x}/{y}.jpeg" maxZoom={19} />
