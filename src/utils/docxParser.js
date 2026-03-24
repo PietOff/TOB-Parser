@@ -68,6 +68,8 @@ export async function parseDocx(file, onProgress) {
         asbestverdenking: false,
     automatischAdvies: null, // 'wel' | 'geen' | null — uit sectie 3.5
         rapportType: null,     // 'BUS-evaluatieverslag' | 'Evaluatieverslag saneren' | null
+        latestOnderzoekDatum: null, // meest recente rapportdatum uit sectie 3.5
+        aantalOnderzoeken: null,    // aantal onderzoeken uit sectie 3.5
 
         // Project location & trace (new)
         projectAddress: null,
@@ -228,6 +230,47 @@ export async function parseDocx(file, onProgress) {
     data.rapportType = 'Evaluatieverslag saneren';
   }
   console.log('[DOCX] rapportType:', data.rapportType);
+
+  // ── Extract rapport dates per locatiecode from Rapportdatum tables ──
+  // Strategy: split fullText on 'Rapportdatum' sections, find preceding locatiecode
+  // Each Rapportdatum table contains rows: date, type, bureau, number, ...
+  const rapportDatumMap = {}; // code -> { latest: string, count: number }
+  {
+    // Find all Rapportdatum table blocks in fullText
+    const rdMarker = 'Rapportdatum';
+    let pos = 0;
+    while (true) {
+      const rdIdx = fullText.indexOf(rdMarker, pos);
+      if (rdIdx === -1) break;
+
+      // Find preceding locatiecode (nearest before this position)
+      const preceding = fullText.slice(0, rdIdx);
+      const codeMatches = [...preceding.matchAll(/\b([A-Z]{2}\d{9,12})\b/g)];
+      if (codeMatches.length === 0) { pos = rdIdx + 1; continue; }
+      const locCode = codeMatches[codeMatches.length - 1][1];
+
+      // Extract the table content after the header
+      // Dates appear as DD-MM-YYYY pattern
+      const tableText = fullText.slice(rdIdx, rdIdx + 2000);
+      const datePattern = /\b(\d{2}-\d{2}-\d{4})\b/g;
+      const dates = [...tableText.matchAll(datePattern)].map(m => {
+        const [d, mo, y] = m[1].split('-');
+        return { str: m[1], ts: new Date(+y, +mo - 1, +d).getTime() };
+      }).filter(d => !isNaN(d.ts));
+
+      if (dates.length > 0) {
+        const latest = dates.reduce((a, b) => a.ts > b.ts ? a : b);
+        const existing = rapportDatumMap[locCode];
+        // Keep if no existing, or if this table has newer date
+        if (!existing || latest.ts > new Date(existing.latest.split('-').reverse().join('-')).getTime()) {
+          rapportDatumMap[locCode] = { latest: latest.str, count: dates.length };
+        }
+      }
+
+      pos = rdIdx + 1;
+    }
+    console.log('[DOCX] rapportDatumMap:', JSON.stringify(rapportDatumMap));
+  }
 
   // ── Extract locatiecodes (ALL matching AA/UT/.. codes) ──
     const locCodeRegex = /\b([A-Z]{2}\d{9,12})\b/g;
@@ -508,6 +551,8 @@ export async function parseDocx(file, onProgress) {
             _projectCode: data.projectCode,
             automatischAdvies: adviesMap[code] ?? data.automatischAdvies ?? null,
             rapportType: data.rapportType ?? null,
+            latestOnderzoekDatum: rapportDatumMap[code]?.latest ?? null,
+            aantalOnderzoeken: rapportDatumMap[code]?.count ?? null,
         };
 
         // Enrich from detail section
