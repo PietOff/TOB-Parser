@@ -4,7 +4,6 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 // leaflet-draw removed: incompatible with react-leaflet v5
 import { rdToWgs84 } from '../utils/apiIntegrations';
-import { buildLineBuffer } from './traceBuffer'; // v2-roundjoins
 import { geoJsonToLeafletPositions, leafletPositionsToGeoJson } from '../utils/traceBuilder';
 
 /**
@@ -54,6 +53,58 @@ function FitBounds({ locations, center, radius }) {
     return null;
 }
 
+
+
+// Geodesic buffer — uniform radiusM metres, arc joins + round endcaps, no self-intersection
+function buildLineBuffer(points, radiusM) {
+    if (!points || points.length < 2) return null;
+    const EARTH = 6371000, DEG = Math.PI / 180;
+    function latOff(m) { return (m / EARTH) / DEG; }
+    function lngOff(m, lat) { return (m / (EARTH * Math.cos(lat * DEG))) / DEG; }
+    function move([lat, lng], [vn, ve], dist) {
+        return [lat + latOff(vn * dist), lng + lngOff(ve * dist, lat)];
+    }
+    function segDir([lat1, lng1], [lat2, lng2]) {
+        const mid = (lat1 + lat2) / 2;
+        const dn = (lat2 - lat1) * EARTH * DEG;
+        const de = (lng2 - lng1) * EARTH * Math.cos(mid * DEG) * DEG;
+        const len = Math.sqrt(dn * dn + de * de) || 1;
+        return [dn / len, de / len];
+    }
+    function lft([vn, ve]) { return [-ve, vn]; }
+    function rgt([vn, ve]) { return [ve, -vn]; }
+    function arcBetween(pt, v0, v1, steps) {
+        const pts = [];
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            const vn = v0[0] * (1 - t) + v1[0] * t;
+            const ve = v0[1] * (1 - t) + v1[1] * t;
+            const len = Math.sqrt(vn * vn + ve * ve) || 1;
+            pts.push(move(pt, [vn / len, ve / len], radiusM));
+        }
+        return pts;
+    }
+    const n = points.length;
+    const fwds = [], lfts = [], rgts = [];
+    for (let i = 0; i < n - 1; i++) {
+        const f = segDir(points[i], points[i + 1]);
+        fwds.push(f); lfts.push(lft(f)); rgts.push(rgt(f));
+    }
+    const L = [], R = [];
+    // Left side forward
+    L.push(move(points[0], lfts[0], radiusM));
+    for (let i = 1; i < n - 1; i++) L.push(...arcBetween(points[i], lfts[i-1], lfts[i], 8));
+    L.push(move(points[n-1], lfts[n-2], radiusM));
+    // End endcap (left → right around last point)
+    L.push(...arcBetween(points[n-1], lfts[n-2], rgts[n-2], 16));
+    // Right side backward
+    R.push(move(points[n-1], rgts[n-2], radiusM));
+    for (let i = n-2; i >= 1; i--) R.push(...arcBetween(points[i], rgts[i], rgts[i-1], 8));
+    R.push(move(points[0], rgts[0], radiusM));
+    // Start endcap (right → left going backward around first point)
+    const startCap = arcBetween(points[0], rgts[0], lfts[0], 16);
+    return [...L, ...R, ...startCap];
+}
 
 // CHUNK_HASH_BREAK_1774356574092
 export default function LocationMap({
