@@ -322,15 +322,7 @@ export default function ProjectDetail() {
                 />
                 
                 <button
-                    onClick={() => {
-                        if (traceEditMode) {
-                            // Accept: the LocationMap's useEffect already debounced the save
-                            // Just turn off edit mode — trace was auto-saved on last point
-                            setTraceEditMode(false);
-                        } else {
-                            setTraceEditMode(true);
-                        }
-                    }}
+                    onClick={() => {}} disabled={true}
                     style={{
                         padding: '4px 12px',
                         background: traceEditMode ? '#f59e0b' : 'var(--bg-secondary)',
@@ -342,9 +334,9 @@ export default function ProjectDetail() {
                         fontWeight: traceEditMode ? 600 : 400,
                     }}
                 >
-                    {traceEditMode ? '✅ Accepteren' : (traceGeoJson ? '✏️ Bewerk tracé' : '✏️ Teken tracé')}
+                    {'✏️ Teken tracé (binnenkort beschikbaar)'}
                 </button>
-                {traceEditMode && (
+                {false && (
                     <>
                         <button
                             onClick={() => setTraceEditMode(false)}
