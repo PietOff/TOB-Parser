@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, Polyline, Polygon, FeatureGroup, LayersControl, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, Polyline, Polygon, FeatureGroup, LayersControl, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 // leaflet-draw removed: incompatible with react-leaflet v5
@@ -124,6 +124,7 @@ export default function LocationMap({
     const [showContouren, setShowContouren] = useState(true);
     const [showTrace, setShowTrace] = useState(true);
     const featureGroupRef = useRef(null);
+    const mapRef = useRef(null);
     const [drawPoints, setDrawPoints] = useState([]);
 
     // Save trace when drawPoints change (debounced)
@@ -142,20 +143,21 @@ export default function LocationMap({
         return () => { delete window._undoLastTracePoint; };
     }, []);
 
-    // useRef avoids stale closure in useMapEvents — always reads current editMode
-    const editModeRef = useRef(editMode);
-    useEffect(() => { editModeRef.current = editMode; }, [editMode]);
+    // Direct Leaflet click listener — avoids all React stale closure issues
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map) return;
+        if (!editMode) return;
 
-    // MapClickHandler must be defined inside the component (after all hooks)
-    function MapClickHandler() {
-        useMapEvents({
-            click(e) {
-                if (!editModeRef.current) return;
-                setDrawPoints(prev => [...prev, [e.latlng.lat, e.latlng.lng]]);
-            },
-        });
-        return null;
-    }
+        function onMapClick(e) {
+            setDrawPoints(prev => [...prev, [e.latlng.lat, e.latlng.lng]]);
+        }
+
+        map.on('click', onMapClick);
+        return () => map.off('click', onMapClick);
+    }, [editMode]);
+
+
 
     // When editMode turns on, pre-load saved trace positions so user can edit them
     // When editMode turns off, clear draw points
@@ -249,14 +251,13 @@ export default function LocationMap({
 
     return (
         <div id="master-location-map" style={{ height, borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid var(--border)', position: 'relative' }}>
-            <MapContainer center={center} zoom={hasValidCenter ? 14 : 8} style={{ height: '100%', width: '100%', cursor: editMode ? 'crosshair' : undefined }} zoomControl={true}>
+            <MapContainer center={center} zoom={hasValidCenter ? 14 : 8} style={{ height: '100%', width: '100%', cursor: editMode ? 'crosshair' : undefined }} whenCreated={m => { mapRef.current = m; }} zoomControl={true}>
                 <FitBounds locations={locations} center={center} radius={safeRadius} />
 
                 {/* ── Tile base layers + WMS overlays via LayersControl ── */}
                 <LayersControl position="topright">
                     <LayersControl.BaseLayer checked name="OpenStreetMap">
-                        <MapClickHandler />
-                <TileLayer attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                        <TileLayer attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                     </LayersControl.BaseLayer>
                     <LayersControl.BaseLayer name="PDOK Luchtfoto">
                         <TileLayer attribution='&copy; PDOK' url="https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/Actueel_orthoHR/EPSG:3857/{z}/{x}/{y}.jpeg" maxZoom={19} />
