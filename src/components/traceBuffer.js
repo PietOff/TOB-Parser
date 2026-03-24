@@ -1,6 +1,5 @@
-// Geodesic buffer polygon for trace lines
-export // Geodesic buffer polygon around a polyline — uniform radiusM metres, round caps & joins.
-function buildLineBuffer(points, radiusM) {
+// Geodesic buffer polygon around a polyline — uniform radiusM metres, round caps & joins.
+export function buildLineBuffer(points, radiusM) {
     if (!points || points.length < 2) return null;
     const EARTH = 6371000, DEG = Math.PI / 180;
     const latOff = (metres) => (metres / EARTH) / DEG;
