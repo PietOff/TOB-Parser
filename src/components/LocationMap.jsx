@@ -144,7 +144,7 @@ export default function LocationMap({
         return () => { delete window._undoLastTracePoint; };
     }, []);
 
-    // Direct Leaflet click listener — avoids all React stale closure issues
+    // Direct Leaflet click listener v3 — no stale closure
     useEffect(() => {
         const map = mapRef.current;
         if (!map) return;
