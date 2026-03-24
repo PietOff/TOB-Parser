@@ -4,7 +4,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 // leaflet-draw removed: incompatible with react-leaflet v5
 import { rdToWgs84 } from '../utils/apiIntegrations';
-import { buildLineBuffer } from './traceBuffer';
+import { buildLineBuffer } from './traceBuffer'; // v2-roundjoins
 import { geoJsonToLeafletPositions, leafletPositionsToGeoJson } from '../utils/traceBuilder';
 
 /**
