@@ -255,9 +255,19 @@ export async function parseDocx(file, onProgress) {
       if (dates.length > 0) {
         const latest = dates.reduce((a, b) => a.ts > b.ts ? a : b);
         const existing = rapportDatumMap[locCode];
+        // Detect rapport type from Bodemonderzoek column in this table block
+        const hasBusEval     = tableText.includes('Meldingsformulier BUS evaluatieverslag');
+        const hasEvalSaneren = tableText.includes('Evaluatieverslag saneren');
+        const hasBusSanering = tableText.includes('Meldingsformulier BUS saneringsplan');
+        const rapportType = hasBusEval ? 'BUS-evaluatieverslag'
+                          : hasEvalSaneren ? 'Evaluatieverslag saneren'
+                          : hasBusSanering ? 'BUS-saneringsplan'
+                          : null;
         // Keep if no existing, or if this table has newer date
         if (!existing || latest.ts > new Date(existing.latest.split('-').reverse().join('-')).getTime()) {
-          rapportDatumMap[locCode] = { latest: latest.str, count: dates.length };
+          rapportDatumMap[locCode] = { latest: latest.str, count: dates.length, rapportType };
+        } else if (!existing.rapportType && rapportType) {
+          rapportDatumMap[locCode].rapportType = rapportType;
         }
       }
 
