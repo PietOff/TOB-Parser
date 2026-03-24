@@ -106,7 +106,6 @@ function computeBuffer25m(points, radiusM) {
     return [...L, ...R, ...startCap];
 }
 
-// CHUNK_HASH_BREAK_1774356574092
 function computeBuffer25m(points, radiusM) {
     if (!points || points.length < 2) return null;
     const E = 6371000, D = Math.PI / 180;
