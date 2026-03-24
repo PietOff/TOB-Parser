@@ -1,3 +1,4 @@
+// rebuild 1774340442890
 import { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { fetchProject, fetchLocations, dbRowToLocation, updateLocation, updateProject, fetchResearches, updateResearch, saveResearches } from '../services/api';
