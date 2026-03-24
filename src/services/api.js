@@ -278,6 +278,7 @@ export function dbRowToLocation(row) {
     brl7000:           row.brl7000       ?? null,
     opmerking:         row.opmerking     ?? null,
     automatischAdvies: row.automatisch_advies ?? null,
+    rapportType:       row.rapport_type        ?? null,
     complex:           row.complex       ?? false,
     isComplex:         row.complex       ?? false,
     stoffen:           row.stoffen       ?? null,
