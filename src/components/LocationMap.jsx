@@ -54,92 +54,55 @@ function FitBounds({ locations, center, radius }) {
 }
 
 
-// Build a buffer polygon around a polyline.
-// Round endcaps + round joins at every vertex for smooth bends.
+// Geodesic buffer polygon around a polyline — uniform radiusM metres, round caps & joins.
 function buildLineBuffer(points, radiusM) {
     if (!points || points.length < 2) return null;
+    const R = 6371000, D = Math.PI / 180;
+    const latOff = m => (m / R) / D;
+    const lngOff = (m, lat) => (m / (R * Math.cos(lat * D))) / D;
 
-    const R = 6371000;
-    const toRad = d => d * Math.PI / 180;
-    const toDeg = r => r * 180 / Math.PI;
-
-    function move([lat, lng], northM, eastM) {
-        return [
-            lat + toDeg(northM / R),
-            lng + toDeg(eastM  / (R * Math.cos(toRad(lat)))),
-        ];
+    function seg([a, b], [c, e]) {
+        const dn = (c-a)*R*D, de = (e-b)*R*Math.cos((a+c)/2*D)*D;
+        const l = Math.sqrt(dn*dn+de*de)||1;
+        return {fwd:[dn/l,de/l], left:[-de/l,dn/l], right:[de/l,-dn/l]};
     }
-
-    function bearing([lat1, lng1], [lat2, lng2]) {
-        const dLng = toRad(lng2 - lng1);
-        const y = Math.sin(dLng) * Math.cos(toRad(lat2));
-        const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2))
-                - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLng);
-        return Math.atan2(y, x);
+    function move([lat,lng],[vn,ve],r) {
+        return [lat+latOff(vn*r), lng+lngOff(ve*r,lat)];
     }
-
-    // Arc of points around 'center', from angle startA to endA (clockwise if step > 0)
-    function arc(center, startA, endA, steps) {
-        const pts = [];
-        // Normalise sweep direction: always go the short way
-        let sweep = endA - startA;
-        while (sweep >  Math.PI) sweep -= 2 * Math.PI;
-        while (sweep < -Math.PI) sweep += 2 * Math.PI;
-        for (let i = 0; i <= steps; i++) {
-            const a = startA + (sweep * i) / steps;
-            pts.push(move(center, radiusM * Math.cos(a), radiusM * Math.sin(a)));
+    function arc(pt, v0, v1, steps=16) {
+        const out=[];
+        for(let i=0;i<=steps;i++){
+            const t=i/steps, vn=v0[0]*(1-t)+v1[0]*t, ve=v0[1]*(1-t)+v1[1]*t;
+            const l=Math.sqrt(vn*vn+ve*ve)||1;
+            out.push(move(pt,[vn/l,ve/l],r));
         }
-        return pts;
+        return out;
     }
 
-    const n = points.length;
-    const brgs = [];
-    for (let i = 0; i < n - 1; i++) brgs.push(bearing(points[i], points[i + 1]));
+    const n=points.length;
+    const segs=[];
+    for(let i=0;i<n-1;i++) segs.push(seg(points[i],points[i+1]));
 
-    // Left offset angle = bearing - 90°, right = bearing + 90°
-    const leftAngle  = b => b - Math.PI / 2;
-    const rightAngle = b => b + Math.PI / 2;
+    const L=[], R2=[];
 
-    const poly = [];
+    // Start endcap
+    L.push(move(points[0], segs[0].left, radiusM));
+    R2.unshift(move(points[0], segs[0].right, radiusM));
+    const startCap = arc(points[0], segs[0].right, segs[0].left, 16);
 
-    // ── LEFT side: start → end ──
-    // Start endcap left point
-    poly.push(move(points[0], radiusM * Math.cos(leftAngle(brgs[0])), radiusM * Math.sin(leftAngle(brgs[0]))));
-
-    for (let i = 1; i < n - 1; i++) {
-        const bIn  = brgs[i - 1]; // incoming bearing
-        const bOut = brgs[i];     // outgoing bearing
-        // Left side: arc from leftAngle(bIn) to leftAngle(bOut) around the joint
-        const arcPts = arc(points[i], leftAngle(bIn), leftAngle(bOut), 8);
-        poly.push(...arcPts);
+    // Interior joints
+    for(let i=1;i<n-1;i++){
+        L.push(...arc(points[i], segs[i-1].left,  segs[i].left,  8));
+        R2.unshift(...arc(points[i], segs[i-1].right, segs[i].right, 8).reverse());
     }
 
-    // End point of left side
-    poly.push(move(points[n-1], radiusM * Math.cos(leftAngle(brgs[n-2])), radiusM * Math.sin(leftAngle(brgs[n-2]))));
+    // End endcap
+    const ls=segs[n-2];
+    L.push(move(points[n-1], ls.left, radiusM));
+    R2.unshift(move(points[n-1], ls.right, radiusM));
+    const endCap = arc(points[n-1], ls.left, ls.right, 16);
 
-    // ── END endcap: semicircle at last point ──
-    // Sweep from leftAngle(lastBrg) → rightAngle(lastBrg) going forward (180°)
-    const endArcPts = arc(points[n-1], leftAngle(brgs[n-2]), rightAngle(brgs[n-2]), 18);
-    poly.push(...endArcPts);
-
-    // ── RIGHT side: end → start ──
-    poly.push(move(points[n-1], radiusM * Math.cos(rightAngle(brgs[n-2])), radiusM * Math.sin(rightAngle(brgs[n-2]))));
-
-    for (let i = n - 2; i > 0; i--) {
-        const bIn  = brgs[i];     // was outgoing, now incoming (reversed)
-        const bOut = brgs[i - 1]; // was incoming, now outgoing (reversed)
-        const arcPts = arc(points[i], rightAngle(bIn), rightAngle(bOut), 8);
-        poly.push(...arcPts);
-    }
-
-    poly.push(move(points[0], radiusM * Math.cos(rightAngle(brgs[0])), radiusM * Math.sin(rightAngle(brgs[0]))));
-
-    // ── START endcap: semicircle at first point ──
-    // Sweep from rightAngle(firstBrg) → leftAngle(firstBrg) going backward (180°)
-    const startArcPts = arc(points[0], rightAngle(brgs[0]), leftAngle(brgs[0]), 18);
-    poly.push(...startArcPts);
-
-    return poly;
+    return [...L, ...endCap, ...R2, ...startCap];
 }
 
 export default function LocationMap({
@@ -265,11 +228,14 @@ export default function LocationMap({
     );
 
 
-    // Custom draw handler — must be INSIDE the component to read live editMode state
-    function DrawClickHandler() {
+    // useRef avoids stale closure — always reads current editMode
+    const editModeRef = useRef(editMode);
+    useEffect(() => { editModeRef.current = editMode; }, [editMode]);
+
+    function MapClickHandler() {
         useMapEvents({
             click(e) {
-                if (!editMode) return;
+                if (!editModeRef.current) return;
                 setDrawPoints(prev => [...prev, [e.latlng.lat, e.latlng.lng]]);
             },
         });
@@ -285,7 +251,7 @@ export default function LocationMap({
                 {/* ── Tile base layers + WMS overlays via LayersControl ── */}
                 <LayersControl position="topright">
                     <LayersControl.BaseLayer checked name="OpenStreetMap">
-                        <DrawClickHandler />
+                        <MapClickHandler />
                 <TileLayer attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                     </LayersControl.BaseLayer>
                     <LayersControl.BaseLayer name="PDOK Luchtfoto">
