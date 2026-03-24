@@ -191,7 +191,7 @@ export default function ProjectDetail() {
         try {
             await updateProject(id, { trace_geojson: geojsonFeature });
             setTraceGeoJson(geojsonFeature);
-            setTraceEditMode(false);
+            // edit mode stays open — user closes with Accepteren
         } catch (err) {
             console.error('Tracé opslaan mislukt:', err);
         } finally {
