@@ -141,6 +141,21 @@ export default function LocationMap({
         return () => { delete window._undoLastTracePoint; };
     }, []);
 
+    // useRef avoids stale closure in useMapEvents — always reads current editMode
+    const editModeRef = useRef(editMode);
+    useEffect(() => { editModeRef.current = editMode; }, [editMode]);
+
+    // MapClickHandler must be defined inside the component (after all hooks)
+    function MapClickHandler() {
+        useMapEvents({
+            click(e) {
+                if (!editModeRef.current) return;
+                setDrawPoints(prev => [...prev, [e.latlng.lat, e.latlng.lng]]);
+            },
+        });
+        return null;
+    }
+
     // When editMode turns on, pre-load saved trace positions so user can edit them
     // When editMode turns off, clear draw points
     useEffect(() => {
@@ -228,19 +243,7 @@ export default function LocationMap({
     );
 
 
-    // useRef avoids stale closure — always reads current editMode
-    const editModeRef = useRef(editMode);
-    useEffect(() => { editModeRef.current = editMode; }, [editMode]);
 
-    function MapClickHandler() {
-        useMapEvents({
-            click(e) {
-                if (!editModeRef.current) return;
-                setDrawPoints(prev => [...prev, [e.latlng.lat, e.latlng.lng]]);
-            },
-        });
-        return null;
-    }
 
 
     return (
