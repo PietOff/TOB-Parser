@@ -105,41 +105,6 @@ function computeBuffer25m(points, radiusM) {
     const startCap = arcBetween(points[0], rgts[0], lfts[0], 16);
     return [...L, ...R, ...startCap];
 }
-
-function computeBuffer25m(points, radiusM) {
-    if (!points || points.length < 2) return null;
-    const E = 6371000, D = Math.PI / 180;
-    const dLat = m => (m / E) / D;
-    const dLng = (m, lat) => (m / (E * Math.cos(lat * D))) / D;
-    const mv = ([la, lo], [vn, ve], d) => [la + dLat(vn*d), lo + dLng(ve*d, la)];
-    const dir = ([a,b],[c,e]) => {
-        const mid=(a+c)/2, dn=(c-a)*E*D, de=(e-b)*E*Math.cos(mid*D)*D;
-        const l=Math.sqrt(dn*dn+de*de)||1; return [dn/l,de/l];
-    };
-    const perp = ([vn,ve]) => [-ve, vn];
-    const nperp = ([vn,ve]) => [ve,-vn];
-    const arc = (pt, u0, u1, steps) => {
-        const out=[];
-        for(let i=0;i<=steps;i++){
-            const t=i/steps, vn=u0[0]*(1-t)+u1[0]*t, ve=u0[1]*(1-t)+u1[1]*t;
-            const l=Math.sqrt(vn*vn+ve*ve)||1;
-            out.push(mv(pt,[vn/l,ve/l],radiusM));
-        }
-        return out;
-    };
-    const n=points.length;
-    const F=[],L=[],R=[];
-    for(let i=0;i<n-1;i++){const f=dir(points[i],points[i+1]);F.push(f);L.push(perp(f));R.push(nperp(f));}
-    const left=[], right=[];
-    left.push(mv(points[0],L[0],radiusM));
-    for(let i=1;i<n-1;i++) left.push(...arc(points[i],L[i-1],L[i],8));
-    left.push(mv(points[n-1],L[n-2],radiusM));
-    left.push(...arc(points[n-1],L[n-2],R[n-2],16));
-    right.push(mv(points[n-1],R[n-2],radiusM));
-    for(let i=n-2;i>=1;i--) right.push(...arc(points[i],R[i],R[i-1],8));
-    right.push(mv(points[0],R[0],radiusM));
-    return [...left,...right,...arc(points[0],R[0],L[0],16)];
-}
 export default function LocationMap({
     locations = [],
     height = '400px',
