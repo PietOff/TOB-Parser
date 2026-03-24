@@ -322,7 +322,13 @@ export default function ProjectDetail() {
                 />
                 
                 <button
-                    onClick={() => {}} disabled={true}
+                    onClick={() => {
+                        if (traceEditMode) {
+                            setTraceEditMode(false);
+                        } else {
+                            setTraceEditMode(true);
+                        }
+                    }}
                     style={{
                         padding: '4px 12px',
                         background: traceEditMode ? '#f59e0b' : 'var(--bg-secondary)',
@@ -334,9 +340,9 @@ export default function ProjectDetail() {
                         fontWeight: traceEditMode ? 600 : 400,
                     }}
                 >
-                    {'✏️ Teken tracé (binnenkort beschikbaar)'}
+                    {traceEditMode ? '✅ Accepteren' : (traceGeoJson ? '✏️ Bewerk tracé' : '✏️ Teken tracé')}
                 </button>
-                {false && (
+                {traceEditMode && (
                     <>
                         <button
                             onClick={() => setTraceEditMode(false)}
