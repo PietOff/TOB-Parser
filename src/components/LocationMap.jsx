@@ -1,6 +1,6 @@
 // v1774340670661
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, Polyline, Polygon, FeatureGroup, LayersControl, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, WMSTileLayer, Circle, CircleMarker, Popup, Polyline, Polygon, FeatureGroup, LayersControl, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 // leaflet-draw removed: incompatible with react-leaflet v5
@@ -76,6 +76,8 @@ export default function LocationMap({
     const featureGroupRef = useRef(null);
     const mapRef = useRef(null);
     const [drawPoints, setDrawPoints] = useState([]);
+    const editModeRef = useRef(editMode);
+    useEffect(() => { editModeRef.current = editMode; }, [editMode]);
 
     // Save trace when drawPoints change (debounced)
     useEffect(() => {
@@ -199,6 +201,11 @@ export default function LocationMap({
 
 
 
+    function MapClickHandler() {
+        useMapEvents({ click(e) { if (editModeRef.current) setDrawPoints(p => [...p, [e.latlng.lat, e.latlng.lng]]); } });
+        return null;
+    }
+
     return (
         <div id="master-location-map" style={{ height, borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid var(--border)', position: 'relative' }}>
             <MapContainer center={center} zoom={hasValidCenter ? 14 : 8} style={{ height: '100%', width: '100%', cursor: editMode ? 'crosshair' : undefined }} whenCreated={m => { mapRef.current = m; }} zoomControl={true}>
@@ -207,7 +214,8 @@ export default function LocationMap({
                 {/* ── Tile base layers + WMS overlays via LayersControl ── */}
                 <LayersControl position="topright">
                     <LayersControl.BaseLayer checked name="OpenStreetMap">
-                        <TileLayer attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                        <MapClickHandler />
+                    <TileLayer attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                     </LayersControl.BaseLayer>
                     <LayersControl.BaseLayer name="PDOK Luchtfoto">
                         <TileLayer attribution='&copy; PDOK' url="https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/Actueel_orthoHR/EPSG:3857/{z}/{x}/{y}.jpeg" maxZoom={19} />
