@@ -59,59 +59,66 @@ function FitBounds({ locations, center, radius }) {
 function computeBuffer25m(points, radiusM) {
     if (!points || points.length < 2) return null;
     const E = 6371000, D = Math.PI / 180;
-    // Move a point by a unit vector * dist metres
+
+    // Move point by bearing angle (radians) and distance
     const mv = ([la, lo], angle, dist) => [
-        la + (dist / E) / D * Math.sin(angle),
-        lo + (dist / (E * Math.cos(la * D))) / D * Math.cos(angle)
+        la + (dist / E) / D * Math.cos(angle),
+        lo + (dist / (E * Math.cos(la * D))) / D * Math.sin(angle)
     ];
-    // Bearing of segment in radians (East=0, North=PI/2 etc in atan2 space)
-    const bearing = ([a,b],[c,e]) => {
-        const mid=(a+c)/2;
-        const dn=(c-a)*E*D, de=(e-b)*E*Math.cos(mid*D)*D;
-        return Math.atan2(de, dn); // angle in metric space
+
+    // Bearing of segment in metric space (atan2(east, north))
+    const segBearing = ([a, b], [c, e]) => {
+        const mid = (a + c) / 2;
+        const dn = (c - a) * E * D;
+        const de = (e - b) * E * Math.cos(mid * D) * D;
+        return Math.atan2(de, dn);
     };
-    // Generate arc of points around pt, from angle a0 to a1 (CCW), n steps
-    const arc = (pt, a0, a1, n) => {
-        const pts = [], da = ((a1-a0+3*Math.PI) % (2*Math.PI)) - Math.PI;
-        for(let i=0;i<=n;i++) pts.push(mv(pt, a0 + da*(i/n), radiusM));
+
+    // Arc from angle a0 sweeping by delta da, n steps
+    const arc = (pt, a0, da, n) => {
+        const pts = [];
+        for (let i = 0; i <= n; i++) pts.push(mv(pt, a0 + da * (i / n), radiusM));
         return pts;
     };
 
     const n = points.length;
-    const B = []; // bearings of each segment
-    for(let i=0;i<n-1;i++) B.push(bearing(points[i], points[i+1]));
+    const B = [];
+    for (let i = 0; i < n - 1; i++) B.push(segBearing(points[i], points[i + 1]));
 
-    const left=[], right=[];
+    const result = [];
 
-    // Left side: perpendicular = bearing + PI/2
-    // Right side: perpendicular = bearing - PI/2
-    left.push(mv(points[0], B[0]+Math.PI/2, radiusM));
-    for(let i=1;i<n-1;i++) {
-        // Arc join on left side
-        const a0=B[i-1]+Math.PI/2, a1=B[i]+Math.PI/2;
-        left.push(...arc(points[i], a0, a1, 6));
+    // Start endcap: semicircle on the back of points[0]
+    // Sweep from right-perp to left-perp going backward (PI sweep)
+    result.push(...arc(points[0], B[0] - Math.PI / 2, -Math.PI, 16));
+
+    // Left side (offset = bearing + PI/2) with arc joins at interior vertices
+    for (let i = 0; i < n - 1; i++) {
+        result.push(mv(points[i], B[i] + Math.PI / 2, radiusM));
+        if (i < n - 2) {
+            // Interior join on LEFT side: sweep from B[i]+PI/2 to B[i+1]+PI/2
+            // Always sweep the OUTSIDE (counter-clockwise for left turns, clockwise for right)
+            let da = ((B[i + 1] - B[i] + 3 * Math.PI) % (2 * Math.PI)) - Math.PI;
+            result.push(...arc(points[i + 1], B[i] + Math.PI / 2, da, 8));
+        }
     }
-    left.push(mv(points[n-1], B[n-2]+Math.PI/2, radiusM));
+    result.push(mv(points[n - 1], B[n - 2] + Math.PI / 2, radiusM));
 
-    // End endcap: semicircle from left-perp to right-perp going outward (+ direction)
-    const endA0 = B[n-2]+Math.PI/2;
-    const endA1 = B[n-2]-Math.PI/2;
-    left.push(...arc(points[n-1], endA0, endA1, 16));
+    // End endcap: semicircle on the front of points[n-1]
+    // Sweep from left-perp to right-perp going forward (PI sweep)
+    result.push(...arc(points[n - 1], B[n - 2] + Math.PI / 2, -Math.PI, 16));
 
-    // Right side backward
-    right.push(mv(points[n-1], B[n-2]-Math.PI/2, radiusM));
-    for(let i=n-2;i>=1;i--) {
-        const a0=B[i]-Math.PI/2, a1=B[i-1]-Math.PI/2;
-        right.push(...arc(points[i], a0, a1, 6));
+    // Right side (offset = bearing - PI/2) going backward
+    for (let i = n - 2; i >= 0; i--) {
+        result.push(mv(points[i + 1], B[i] - Math.PI / 2, radiusM));
+        if (i > 0) {
+            // Interior join on RIGHT side
+            let da = ((B[i - 1] - B[i] + 3 * Math.PI) % (2 * Math.PI)) - Math.PI;
+            result.push(...arc(points[i], B[i] - Math.PI / 2, da, 8));
+        }
     }
-    right.push(mv(points[0], B[0]-Math.PI/2, radiusM));
+    result.push(mv(points[0], B[0] - Math.PI / 2, radiusM));
 
-    // Start endcap: semicircle from right-perp to left-perp going backward
-    const stA0 = B[0]-Math.PI/2;
-    const stA1 = B[0]+Math.PI/2;
-    right.push(...arc(points[0], stA0, stA1, 16));
-
-    return [...left, ...right];
+    return result;
 }
 
 
