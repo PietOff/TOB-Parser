@@ -67,7 +67,7 @@ export async function parseDocx(file, onProgress) {
         meldingTekst: '',
         asbestverdenking: false,
     automatischAdvies: null, // 'wel' | 'geen' | null — uit sectie 3.5
-        rapportType: null,     // 'BUS-evaluatieverslag' | 'Evaluatieverslag saneren' | null
+        rapportType: 'Nee',    // 'Ja' | 'Nee'
         latestOnderzoekDatum: null, // meest recente rapportdatum uit sectie 3.5
         aantalOnderzoeken: null,    // aantal onderzoeken uit sectie 3.5
 
@@ -258,11 +258,7 @@ export async function parseDocx(file, onProgress) {
         // Detect rapport type from Bodemonderzoek column in this table block
         const hasBusEval     = tableText.includes('Meldingsformulier BUS evaluatieverslag');
         const hasEvalSaneren = tableText.includes('Evaluatieverslag saneren');
-        const hasBusSanering = tableText.includes('Meldingsformulier BUS saneringsplan');
-        const rapportType = hasBusEval ? 'BUS-evaluatieverslag'
-                          : hasEvalSaneren ? 'Evaluatieverslag saneren'
-                          : hasBusSanering ? 'BUS-saneringsplan'
-                          : null;
+        const rapportType = (hasBusEval || hasEvalSaneren) ? 'Ja' : 'Nee';
         // Keep if no existing, or if this table has newer date
         if (!existing || latest.ts > new Date(existing.latest.split('-').reverse().join('-')).getTime()) {
           rapportDatumMap[locCode] = { latest: latest.str, count: dates.length, rapportType };
