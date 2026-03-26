@@ -297,7 +297,7 @@ export default function LocationMap({
                 {/* Buffer polygon: 25m around saved trace line */}
                 {showTrace && savedTracePositions && savedTracePositions.length > 1 && (() => {
                     const buf = computeBuffer25m(savedTracePositions, 25);
-                    return buf ? <Polygon positions={buf} pathOptions={{ color: '#f59e0b', weight: 1.5, opacity: 0.5, fillColor: '#f59e0b', fillOpacity: 0.1, dashArray: '6 4' }} /> : null;
+                    return buf ? <Polygon positions={buf} pathOptions={{ color: '#f59e0b', weight: 1.5, opacity: 0.5, fillColor: '#f59e0b', fillOpacity: 0.1, dashArray: '6 4', fillRule: 'nonzero' }} /> : null;
                 })()}
                 {showTrace && !savedTracePositions && traceLine && (
                     <Polyline positions={traceLine} pathOptions={{ color: '#f59e0b', weight: 3, opacity: 0.85, dashArray: '10, 6' }} />
@@ -315,7 +315,7 @@ export default function LocationMap({
                         {/* Buffer polygon: 25m around drawn trace line */}
                         {drawPoints.length > 1 && (() => {
                             const buf = computeBuffer25m(drawPoints, 25);
-                            return buf ? <Polygon positions={buf} pathOptions={{ color: '#f59e0b', weight: 1.5, opacity: 0.6, fillColor: '#f59e0b', fillOpacity: 0.12, dashArray: '6 4' }} /> : null;
+                            return buf ? <Polygon positions={buf} pathOptions={{ color: '#f59e0b', weight: 1.5, opacity: 0.6, fillColor: '#f59e0b', fillOpacity: 0.12, dashArray: '6 4', fillRule: 'nonzero' }} /> : null;
                         })()}
                         {drawPoints.map((pt, i) => (
                             <CircleMarker
