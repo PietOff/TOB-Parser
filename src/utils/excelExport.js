@@ -15,7 +15,7 @@ export const EXPORT_COLUMNS = [
     { header: 'Longitude',                        key: 'lon',                width: 14 },
     { header: 'Status',                           key: 'status',             width: 20 },
     { header: 'Automatisch advies',               key: 'automatischAdvies',  width: 20 },
-    { header: 'Rapport type',                     key: 'rapportType',        width: 25 },
+    { header: 'Saneringsverslag',                     key: 'rapportType',        width: 25 },
     { header: 'Datum laatste onderzoek',          key: 'latestOnderzoekDatum', width: 20 },
     { header: 'Aantal onderzoeken',               key: 'aantalOnderzoeken',   width: 18 },
     { header: 'Conclusie',                        key: 'conclusie',          width: 20 },
