@@ -55,82 +55,63 @@ function FitBounds({ locations, center, radius }) {
 
 
 
-// Geodesic buffer — uniform radiusM metres, true semicircle endcaps, arc joins
+// Geodesic buffer — 25m uniform zone, round endcaps, no gaps
 function computeBuffer25m(points, radiusM) {
     if (!points || points.length < 2) return null;
-    const EARTH = 6371000, DEG = Math.PI / 180;
-    const latOff = m => (m / EARTH) / DEG;
-    const lngOff = (m, lat) => (m / (EARTH * Math.cos(lat * DEG))) / DEG;
-    const move = ([la, lo], [vn, ve], d) => [la + latOff(vn * d), lo + lngOff(ve * d, la)];
-    const segDir = ([a, b], [c, e]) => {
-        const mid = (a + c) / 2;
-        const dn = (c - a) * EARTH * DEG, de = (e - b) * EARTH * Math.cos(mid * DEG) * DEG;
-        const l = Math.sqrt(dn*dn + de*de) || 1;
-        return [dn/l, de/l];
+    const E = 6371000, D = Math.PI / 180;
+    // Move a point by a unit vector * dist metres
+    const mv = ([la, lo], angle, dist) => [
+        la + (dist / E) / D * Math.sin(angle),
+        lo + (dist / (E * Math.cos(la * D))) / D * Math.cos(angle)
+    ];
+    // Bearing of segment in radians (East=0, North=PI/2 etc in atan2 space)
+    const bearing = ([a,b],[c,e]) => {
+        const mid=(a+c)/2;
+        const dn=(c-a)*E*D, de=(e-b)*E*Math.cos(mid*D)*D;
+        return Math.atan2(de, dn); // angle in metric space
     };
-    const perp  = ([vn, ve]) => [-ve,  vn];
-    const nperp = ([vn, ve]) => [ ve, -vn];
-
-    // True semicircle: sweep angle from startAngle to startAngle+PI in local metric space
-    function semicircle(pt, fwdDir, side, steps) {
-        // fwdDir is the segment direction; side=1 for end cap (sweep right→left outward),
-        // side=-1 for start cap (sweep left→right outward)
-        const pts = [];
-        const [fn, fe] = fwdDir;
-        for (let i = 0; i <= steps; i++) {
-            const a = (i / steps) * Math.PI * side;
-            // Rotate fwdDir by angle a in the normal plane
-            const vn =  fn * Math.cos(a) + fe * Math.sin(a);
-            const ve = -fn * Math.sin(a) + fe * Math.cos(a);
-            pts.push(move(pt, [vn, ve], radiusM));
-        }
+    // Generate arc of points around pt, from angle a0 to a1 (CCW), n steps
+    const arc = (pt, a0, a1, n) => {
+        const pts = [], da = ((a1-a0+3*Math.PI) % (2*Math.PI)) - Math.PI;
+        for(let i=0;i<=n;i++) pts.push(mv(pt, a0 + da*(i/n), radiusM));
         return pts;
-    }
-
-    // Arc join between two perpendicular vectors — use angular sweep
-    function arcJoin(pt, v0, v1, steps) {
-        const pts = [];
-        const a0 = Math.atan2(v0[1], v0[0]);
-        let   a1 = Math.atan2(v1[1], v1[0]);
-        // Ensure shortest arc
-        let da = a1 - a0;
-        if (da >  Math.PI) da -= 2 * Math.PI;
-        if (da < -Math.PI) da += 2 * Math.PI;
-        for (let i = 0; i <= steps; i++) {
-            const a = a0 + da * (i / steps);
-            pts.push(move(pt, [Math.cos(a), Math.sin(a)], radiusM));
-        }
-        return pts;
-    }
+    };
 
     const n = points.length;
-    const F = [], L = [], R = [];
-    for (let i = 0; i < n - 1; i++) {
-        const f = segDir(points[i], points[i+1]);
-        F.push(f); L.push(perp(f)); R.push(nperp(f));
+    const B = []; // bearings of each segment
+    for(let i=0;i<n-1;i++) B.push(bearing(points[i], points[i+1]));
+
+    const left=[], right=[];
+
+    // Left side: perpendicular = bearing + PI/2
+    // Right side: perpendicular = bearing - PI/2
+    left.push(mv(points[0], B[0]+Math.PI/2, radiusM));
+    for(let i=1;i<n-1;i++) {
+        // Arc join on left side
+        const a0=B[i-1]+Math.PI/2, a1=B[i]+Math.PI/2;
+        left.push(...arc(points[i], a0, a1, 6));
     }
+    left.push(mv(points[n-1], B[n-2]+Math.PI/2, radiusM));
 
-    const left = [], right = [];
+    // End endcap: semicircle from left-perp to right-perp going outward (+ direction)
+    const endA0 = B[n-2]+Math.PI/2;
+    const endA1 = B[n-2]-Math.PI/2;
+    left.push(...arc(points[n-1], endA0, endA1, 16));
 
-    // Start endcap — true semicircle around first point, going from right→back→left
-    // We negate the forward direction so the semicircle faces backward
-    const startCap = semicircle(points[0], [-F[0][0], -F[0][1]], 1, 16);
+    // Right side backward
+    right.push(mv(points[n-1], B[n-2]-Math.PI/2, radiusM));
+    for(let i=n-2;i>=1;i--) {
+        const a0=B[i]-Math.PI/2, a1=B[i-1]-Math.PI/2;
+        right.push(...arc(points[i], a0, a1, 6));
+    }
+    right.push(mv(points[0], B[0]-Math.PI/2, radiusM));
 
-    // Left side forward with arc joins at interior vertices
-    left.push(move(points[0], L[0], radiusM));
-    for (let i = 1; i < n - 1; i++) left.push(...arcJoin(points[i], L[i-1], L[i], 8));
-    left.push(move(points[n-1], L[n-2], radiusM));
+    // Start endcap: semicircle from right-perp to left-perp going backward
+    const stA0 = B[0]-Math.PI/2;
+    const stA1 = B[0]+Math.PI/2;
+    right.push(...arc(points[0], stA0, stA1, 16));
 
-    // End endcap — true semicircle around last point, going from left→front→right
-    const endCap = semicircle(points[n-1], F[n-2], 1, 16);
-
-    // Right side backward with arc joins at interior vertices
-    right.push(move(points[n-1], R[n-2], radiusM));
-    for (let i = n-2; i >= 1; i--) right.push(...arcJoin(points[i], R[i], R[i-1], 8));
-    right.push(move(points[0], R[0], radiusM));
-
-    // Combine: startCap → left → endCap → right (closed polygon)
-    return [...startCap, ...left, ...endCap, ...right];
+    return [...left, ...right];
 }
 
 
