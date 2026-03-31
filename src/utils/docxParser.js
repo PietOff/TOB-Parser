@@ -226,52 +226,60 @@ export async function parseDocx(file, onProgress) {
   console.log('[DOCX] rapportType: determined per locatie via rapportDatumMap');
 
   // ── Extract rapport dates per locatiecode from Rapportdatum tables ──
-  // Strategy: split fullText on 'Rapportdatum' sections, find preceding locatiecode
-  // Each Rapportdatum table contains rows: date, type, bureau, number, ...
-  const rapportDatumMap = {}; // code -> { latest: string, count: number }
+  // Strategy: for each locatiecode, find the section
+  // "Rapportinformatie (uitgevoerde bodemonderzoeken)" and stop at "Toelichting".
+  // Only count Rapportdatum tables within that section.
+  const rapportDatumMap = {};
   {
-    // Find all Rapportdatum table blocks in fullText
-    const rdMarker = 'Rapportdatum';
-    let pos = 0;
-    while (true) {
-      const rdIdx = fullText.indexOf(rdMarker, pos);
-      if (rdIdx === -1) break;
+    const sectionHeader = 'Rapportinformatie (uitgevoerde bodemonderzoeken)';
+    const sectionStop   = 'Toelichting';
+    const datePattern   = /\b(\d{2}-\d{2}-\d{4})\b/g;
 
-      // Find preceding locatiecode (nearest before this position)
-      const preceding = fullText.slice(0, rdIdx);
-      const codeMatches = [...preceding.matchAll(/\b([A-Z]{2}\d{9,12})\b/g)];
-      if (codeMatches.length === 0) { pos = rdIdx + 1; continue; }
-      const locCode = codeMatches[codeMatches.length - 1][1];
+    // Find all locatiecodes in the document
+    const allCodes = [...fullText.matchAll(/\b([A-Z]{2}\d{9,12})\b/g)].map(m => m[1]);
+    const uniqueCodes = [...new Set(allCodes)];
 
-      // Extract the table content after the header
-      // Skip 'Besluiten op locatie' tables — they also have Rapportdatum but are not onderzoeken
-      const tableContext = fullText.slice(Math.max(0, rdIdx - 200), rdIdx + 100);
-      console.log('[DOCX DEBUG] Rapportdatum at', rdIdx, 'context[-500,+100]:', JSON.stringify(fullText.slice(Math.max(0, rdIdx - 500), rdIdx + 100)));
-      if (tableContext.includes('Besluit')) { pos = rdIdx + 1; continue; }
-      // Dates appear as DD-MM-YYYY pattern
-      const tableText = fullText.slice(rdIdx, rdIdx + 2000);
-      const datePattern = /\b(\d{2}-\d{2}-\d{4})\b/g;
-      const dates = [...tableText.matchAll(datePattern)].map(m => {
+    for (const locCode of uniqueCodes) {
+      // Find the first occurrence of this locCode in fullText
+      const codeIdx = fullText.indexOf(locCode);
+      if (codeIdx === -1) continue;
+
+      // Find the Rapportinformatie section header after this locCode
+      const sectionIdx = fullText.indexOf(sectionHeader, codeIdx);
+      if (sectionIdx === -1) continue;
+
+      // Find the next locatiecode occurrence after sectionIdx to bound the search
+      // (so we don't bleed into the next locatie's section)
+      let sectionEnd = fullText.indexOf(locCode, sectionIdx + locCode.length);
+      if (sectionEnd === -1) sectionEnd = fullText.length;
+
+      // Also stop at "Toelichting" within this range
+      const stopIdx = fullText.indexOf(sectionStop, sectionIdx);
+      if (stopIdx !== -1 && stopIdx < sectionEnd) sectionEnd = stopIdx;
+
+      // Extract the section text
+      const sectionText = fullText.slice(sectionIdx, sectionEnd);
+
+      // Find all DD-MM-YYYY dates in this section
+      const dates = [...sectionText.matchAll(datePattern)].map(m => {
         const [d, mo, y] = m[1].split('-');
         return { str: m[1], ts: new Date(+y, +mo - 1, +d).getTime() };
       }).filter(d => !isNaN(d.ts));
 
-      if (dates.length > 0) {
-        const latest = dates.reduce((a, b) => a.ts > b.ts ? a : b);
-        const existing = rapportDatumMap[locCode];
-        // Detect rapport type from Bodemonderzoek column in this table block
-        const hasBusEval     = tableText.includes('Meldingsformulier BUS evaluatieverslag');
-        const hasEvalSaneren = tableText.includes('Evaluatieverslag saneren');
-        const rapportType = (hasBusEval || hasEvalSaneren) ? 'Ja' : 'Nee';
-        // Keep if no existing, or if this table has newer date
-        if (!existing || latest.ts > new Date(existing.latest.split('-').reverse().join('-')).getTime()) {
-          rapportDatumMap[locCode] = { latest: latest.str, count: dates.length, rapportType };
-        } else if (!existing.rapportType && rapportType) {
-          rapportDatumMap[locCode].rapportType = rapportType;
-        }
-      }
+      if (dates.length === 0) continue;
 
-      pos = rdIdx + 1;
+      const latest = dates.reduce((a, b) => a.ts > b.ts ? a : b);
+
+      // Detect saneringsverslag type
+      const hasBusEval     = sectionText.includes('Meldingsformulier BUS evaluatieverslag');
+      const hasEvalSaneren = sectionText.includes('Evaluatieverslag saneren');
+      const rapportType    = (hasBusEval || hasEvalSaneren) ? 'Ja' : 'Nee';
+
+      rapportDatumMap[locCode] = {
+        latest: latest.str,
+        count:  dates.length,
+        rapportType
+      };
     }
     console.log('[DOCX] rapportDatumMap:', JSON.stringify(rapportDatumMap));
   }
