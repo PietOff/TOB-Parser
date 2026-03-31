@@ -246,6 +246,7 @@ export async function parseDocx(file, onProgress) {
       // Extract the table content after the header
       // Skip 'Besluiten op locatie' tables — they also have Rapportdatum but are not onderzoeken
       const tableContext = fullText.slice(Math.max(0, rdIdx - 200), rdIdx + 100);
+      console.log('[DOCX DEBUG] Rapportdatum at', rdIdx, 'context[-500,+100]:', JSON.stringify(fullText.slice(Math.max(0, rdIdx - 500), rdIdx + 100)));
       if (tableContext.includes('Besluit')) { pos = rdIdx + 1; continue; }
       // Dates appear as DD-MM-YYYY pattern
       const tableText = fullText.slice(rdIdx, rdIdx + 2000);
