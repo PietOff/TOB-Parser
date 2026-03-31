@@ -244,6 +244,9 @@ export async function parseDocx(file, onProgress) {
       const locCode = codeMatches[codeMatches.length - 1][1];
 
       // Extract the table content after the header
+      // Skip 'Besluiten op locatie' tables — they also have Rapportdatum but are not onderzoeken
+      const tableContext = fullText.slice(Math.max(0, rdIdx - 200), rdIdx + 100);
+      if (tableContext.includes('Besluit')) { pos = rdIdx + 1; continue; }
       // Dates appear as DD-MM-YYYY pattern
       const tableText = fullText.slice(rdIdx, rdIdx + 2000);
       const datePattern = /\b(\d{2}-\d{2}-\d{4})\b/g;
