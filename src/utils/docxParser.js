@@ -232,7 +232,7 @@ export async function parseDocx(file, onProgress) {
   const rapportDatumMap = {};
   {
     const sectionHeader = 'Rapportinformatie (uitgevoerde bodemonderzoeken)';
-    const sectionStop   = 'Toelichting';
+    const sectionStops  = ['Toelichting', 'Besluiten op locatie', 'Besluit op locatie', 'Besluiten', '3.6', '4.'];
     const datePattern   = /\b(\d{2}-\d{2}-\d{4})\b/g;
 
     // Find all locatiecodes in the document
@@ -253,9 +253,11 @@ export async function parseDocx(file, onProgress) {
       let sectionEnd = fullText.indexOf(locCode, sectionIdx + locCode.length);
       if (sectionEnd === -1) sectionEnd = fullText.length;
 
-      // Also stop at "Toelichting" within this range
-      const stopIdx = fullText.indexOf(sectionStop, sectionIdx);
-      if (stopIdx !== -1 && stopIdx < sectionEnd) sectionEnd = stopIdx;
+      // Stop at any known section-ending keyword
+      for (const stop of sectionStops) {
+        const stopIdx = fullText.indexOf(stop, sectionIdx);
+        if (stopIdx !== -1 && stopIdx < sectionEnd) sectionEnd = stopIdx;
+      }
 
       // Extract the section text
       const sectionText = fullText.slice(sectionIdx, sectionEnd);
