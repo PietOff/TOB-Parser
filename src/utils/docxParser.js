@@ -263,10 +263,13 @@ export async function parseDocx(file, onProgress) {
       const sectionText = fullText.slice(sectionIdx, sectionEnd);
 
       // Find all DD-MM-YYYY dates in this section
+      // Exclude dates that appear in a Besluitdatum context (Besluiten bij locatie table)
       const dates = [...sectionText.matchAll(datePattern)].map(m => {
         const [d, mo, y] = m[1].split('-');
+        const ctx = sectionText.slice(Math.max(0, m.index - 200), m.index + 50);
+        if (ctx.includes('Besluitdatum') || ctx.includes('Soort besluit') || ctx.includes('Kenmerk besluit')) return null;
         return { str: m[1], ts: new Date(+y, +mo - 1, +d).getTime() };
-      }).filter(d => !isNaN(d.ts));
+      }).filter(d => d && !isNaN(d.ts));
 
       if (dates.length === 0) continue;
 
