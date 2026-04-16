@@ -225,66 +225,57 @@ export async function parseDocx(file, onProgress) {
 
   console.log('[DOCX] rapportType: determined per locatie via rapportDatumMap');
 
-  // ── Extract rapport dates per locatiecode from Rapportdatum tables ──
-  // Strategy: for each locatiecode, find the section
-  // "Rapportinformatie (uitgevoerde bodemonderzoeken)" and stop at "Toelichting".
-  // Only count Rapportdatum tables within that section.
+  // ── Extract rapport dates per locatiecode ──────────────────────────────
+  // Strategy: per locatiecode find the 'Rapportinformatie (uitgevoerde bodemonderzoeken)'
+  // section and collect all DD-MM-YYYY dates in it.
+  // Dates that appear near 'Besluitdatum', 'Kenmerk besluit' or 'Soort besluit'
+  // are from the 'Besluiten bij locatie' table and are excluded.
   const rapportDatumMap = {};
   {
     const sectionHeader = 'Rapportinformatie (uitgevoerde bodemonderzoeken)';
-    const sectionStops  = ['Toelichting', 'Besluiten op locatie', 'Besluit op locatie', 'Besluiten', '3.6', '4.'];
     const datePattern   = /\b(\d{2}-\d{2}-\d{4})\b/g;
+    const besluitMarkers = ['Besluitdatum', 'Kenmerk besluit', 'Soort besluit'];
 
-    // Find all locatiecodes in the document
-    const allCodes = [...fullText.matchAll(/\b([A-Z]{2}\d{9,12})\b/g)].map(m => m[1]);
+    const allCodes   = [...fullText.matchAll(/\b([A-Z]{2}\d{9,12})\b/g)].map(m => m[1]);
     const uniqueCodes = [...new Set(allCodes)];
 
     for (const locCode of uniqueCodes) {
-      // Find the first occurrence of this locCode in fullText
       const codeIdx = fullText.indexOf(locCode);
       if (codeIdx === -1) continue;
 
-      // Find the Rapportinformatie section header after this locCode
+      // Find the Rapportinformatie section after this locCode
       const sectionIdx = fullText.indexOf(sectionHeader, codeIdx);
       if (sectionIdx === -1) continue;
 
-      // Find the next locatiecode occurrence after sectionIdx to bound the search
-      // (so we don't bleed into the next locatie's section)
+      // Bound the search: stop at the next locCode occurrence OR after 8000 chars
       let sectionEnd = fullText.indexOf(locCode, sectionIdx + locCode.length);
-      if (sectionEnd === -1) sectionEnd = fullText.length;
+      if (sectionEnd === -1 || sectionEnd - sectionIdx > 8000) sectionEnd = sectionIdx + 8000;
 
-      // Stop at any known section-ending keyword
-      for (const stop of sectionStops) {
-        const stopIdx = fullText.indexOf(stop, sectionIdx);
-        if (stopIdx !== -1 && stopIdx < sectionEnd) sectionEnd = stopIdx;
-      }
-
-      // Extract the section text
       const sectionText = fullText.slice(sectionIdx, sectionEnd);
 
-      // Find all DD-MM-YYYY dates in this section
-      // Exclude dates that appear in a Besluitdatum context (Besluiten bij locatie table)
-      const dates = [...sectionText.matchAll(datePattern)].map(m => {
-        const [d, mo, y] = m[1].split('-');
-        const ctx = sectionText.slice(Math.max(0, m.index - 200), m.index + 50);
-        if (ctx.includes('Besluitdatum') || ctx.includes('Soort besluit') || ctx.includes('Kenmerk besluit')) return null;
-        return { str: m[1], ts: new Date(+y, +mo - 1, +d).getTime() };
-      }).filter(d => d && !isNaN(d.ts));
+      // Collect dates, skipping any that appear in a Besluit context
+      const dates = [];
+      let m;
+      datePattern.lastIndex = 0;
+      while ((m = datePattern.exec(sectionText)) !== null) {
+        const ctx = sectionText.slice(Math.max(0, m.index - 300), m.index + 20);
+        const isBesluit = besluitMarkers.some(marker => ctx.includes(marker));
+        if (isBesluit) continue;
+        const [dd, mo, yy] = m[1].split('-');
+        const ts = new Date(+yy, +mo - 1, +dd).getTime();
+        if (!isNaN(ts)) dates.push({ str: m[1], ts });
+      }
 
       if (dates.length === 0) continue;
 
       const latest = dates.reduce((a, b) => a.ts > b.ts ? a : b);
 
-      // Detect saneringsverslag type
+      // Detect saneringsverslag
       const hasBusEval     = sectionText.includes('Meldingsformulier BUS evaluatieverslag');
       const hasEvalSaneren = sectionText.includes('Evaluatieverslag saneren');
       const rapportType    = (hasBusEval || hasEvalSaneren) ? 'Ja' : 'Nee';
 
-      rapportDatumMap[locCode] = {
-        latest: latest.str,
-        count:  dates.length,
-        rapportType
-      };
+      rapportDatumMap[locCode] = { latest: latest.str, count: dates.length, rapportType };
     }
     console.log('[DOCX] rapportDatumMap:', JSON.stringify(rapportDatumMap));
   }
