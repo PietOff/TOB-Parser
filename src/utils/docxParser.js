@@ -226,41 +226,47 @@ export async function parseDocx(file, onProgress) {
   console.log('[DOCX] rapportType: determined per locatie via rapportDatumMap');
 
   // ── Extract rapport dates per locatiecode ──────────────────────────────
-  // Strategy: per locatiecode find the 'Rapportinformatie (uitgevoerde bodemonderzoeken)'
-  // section and collect all DD-MM-YYYY dates in it.
-  // Dates that appear near 'Besluitdatum', 'Kenmerk besluit' or 'Soort besluit'
-  // are from the 'Besluiten bij locatie' table and are excluded.
+  // Strategy: find every 'Rapportinformatie (uitgevoerde bodemonderzoeken)' section.
+  // Each section is bounded by the NEXT such section header (not by locCode).
+  // The nearest locCode BEFORE each section is the owner.
+  // Dates near 'Besluitdatum'/'Kenmerk besluit'/'Soort besluit' are excluded.
   const rapportDatumMap = {};
   {
-    const sectionHeader = 'Rapportinformatie (uitgevoerde bodemonderzoeken)';
-    const datePattern   = /\b(\d{2}-\d{2}-\d{4})\b/g;
+    const sectionHeader  = 'Rapportinformatie (uitgevoerde bodemonderzoeken)';
+    const locCodeRegexRD = /\b([A-Z]{2}\d{9,12})\b/g;
     const besluitMarkers = ['Besluitdatum', 'Kenmerk besluit', 'Soort besluit'];
+    const datePatternRD  = /\b(\d{2}-\d{2}-\d{4})\b/g;
 
-    const allCodes   = [...fullText.matchAll(/\b([A-Z]{2}\d{9,12})\b/g)].map(m => m[1]);
-    const uniqueCodes = [...new Set(allCodes)];
+    // Collect all section start positions
+    const sectionPositions = [];
+    let searchPos = 0;
+    while (true) {
+      const idx = fullText.indexOf(sectionHeader, searchPos);
+      if (idx === -1) break;
+      sectionPositions.push(idx);
+      searchPos = idx + 1;
+    }
 
-    for (const locCode of uniqueCodes) {
-      const codeIdx = fullText.indexOf(locCode);
-      if (codeIdx === -1) continue;
-
-      // Find the Rapportinformatie section after this locCode
-      const sectionIdx = fullText.indexOf(sectionHeader, codeIdx);
-      if (sectionIdx === -1) continue;
-
-      // Bound the search: stop at the next locCode occurrence OR after 8000 chars
-      let sectionEnd = fullText.indexOf(locCode, sectionIdx + locCode.length);
-      if (sectionEnd === -1 || sectionEnd - sectionIdx > 8000) sectionEnd = sectionIdx + 8000;
-
+    for (let si = 0; si < sectionPositions.length; si++) {
+      const sectionIdx = sectionPositions[si];
+      // End at next section header, or max 5000 chars
+      const nextSection = sectionPositions[si + 1] ?? (sectionIdx + 5000);
+      const sectionEnd  = Math.min(nextSection, sectionIdx + 5000);
       const sectionText = fullText.slice(sectionIdx, sectionEnd);
 
-      // Collect dates, skipping any that appear in a Besluit context
+      // Find the nearest locCode in the 2000 chars BEFORE this section
+      const preceding = fullText.slice(Math.max(0, sectionIdx - 2000), sectionIdx);
+      locCodeRegexRD.lastIndex = 0;
+      const codeMatches = [...preceding.matchAll(/\b([A-Z]{2}\d{9,12})\b/g)];
+      if (codeMatches.length === 0) continue;
+      const locCode = codeMatches[codeMatches.length - 1][1];
+
+      // Collect dates, skipping Besluit context
       const dates = [];
-      let m;
-      datePattern.lastIndex = 0;
-      while ((m = datePattern.exec(sectionText)) !== null) {
+      datePatternRD.lastIndex = 0;
+      for (const m of sectionText.matchAll(/\b(\d{2}-\d{2}-\d{4})\b/g)) {
         const ctx = sectionText.slice(Math.max(0, m.index - 300), m.index + 20);
-        const isBesluit = besluitMarkers.some(marker => ctx.includes(marker));
-        if (isBesluit) continue;
+        if (besluitMarkers.some(marker => ctx.includes(marker))) continue;
         const [dd, mo, yy] = m[1].split('-');
         const ts = new Date(+yy, +mo - 1, +dd).getTime();
         if (!isNaN(ts)) dates.push({ str: m[1], ts });
@@ -275,7 +281,12 @@ export async function parseDocx(file, onProgress) {
       const hasEvalSaneren = sectionText.includes('Evaluatieverslag saneren');
       const rapportType    = (hasBusEval || hasEvalSaneren) ? 'Ja' : 'Nee';
 
-      rapportDatumMap[locCode] = { latest: latest.str, count: dates.length, rapportType };
+      // Merge: keep the one with the most dates, or latest date if same count
+      const existing = rapportDatumMap[locCode];
+      if (!existing || dates.length > existing.count ||
+          (dates.length === existing.count && latest.ts > new Date(existing.latest.split('-').reverse().join('-')).getTime())) {
+        rapportDatumMap[locCode] = { latest: latest.str, count: dates.length, rapportType };
+      }
     }
     console.log('[DOCX] rapportDatumMap:', JSON.stringify(rapportDatumMap));
   }
