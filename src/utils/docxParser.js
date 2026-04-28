@@ -470,8 +470,8 @@ export async function parseDocx(file, onProgress) {
         }
 
         // Extract vervolgactie (Nazca follow-up) — value is on the NEXT line after the label
-        const vervolgMatch = sectionText.match(/Vervolgactie i\.h\.k\.v[^\n]*\n[\s\n]*([^\n]+)/i);
-        if (vervolgMatch) detail.vervolgactie = vervolgMatch[1].trim();
+        const vervolgMatch = sectionText.match(/Vervolgactie i\.h\.k\.v[^\n]*\n([^\n]*)/i);
+        if (vervolgMatch) detail.vervolgactie = vervolgMatch[1].trim() || 'NVT';
 
         // Extract adres — try multiple label formats
         const adresMatch =
@@ -600,6 +600,8 @@ export async function parseDocx(file, onProgress) {
 
         if (detail.vervolgactie) {
             loc.status = detail.vervolgactie;
+        } else if (sectionText.includes('Vervolgactie i.h.k.v')) {
+            loc.status = 'NVT';
             // Only mark complex for serious follow-up actions (sanering, afperkend, spoedeisend).
             // "Verkennend/nader bodemonderzoek uitvoeren" is routine — not automatically complex.
             if (/sanering|afperkend|spoedeisend/i.test(detail.vervolgactie)) loc.complex = true;
