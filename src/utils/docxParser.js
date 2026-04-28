@@ -249,9 +249,11 @@ export async function parseDocx(file, onProgress) {
 
     for (let si = 0; si < sectionPositions.length; si++) {
       const sectionIdx = sectionPositions[si];
-      // End at next section header, or max 5000 chars
-      const nextSection = sectionPositions[si + 1] ?? (sectionIdx + 5000);
-      const sectionEnd  = Math.min(nextSection, sectionIdx + 5000);
+      // End at next section header, or at 'Besluiten bij locatie', or max 5000 chars
+      const nextSection   = sectionPositions[si + 1] ?? (sectionIdx + 5000);
+      const besluitenIdx  = fullText.indexOf('Besluiten bij locatie', sectionIdx);
+      const besluitenEnd  = besluitenIdx !== -1 ? besluitenIdx : sectionIdx + 5000;
+      const sectionEnd    = Math.min(nextSection, besluitenEnd, sectionIdx + 5000);
       const sectionText = fullText.slice(sectionIdx, sectionEnd);
 
       // Find the nearest locCode in the 2000 chars BEFORE this section
