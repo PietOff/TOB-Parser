@@ -249,11 +249,12 @@ export async function parseDocx(file, onProgress) {
 
     for (let si = 0; si < sectionPositions.length; si++) {
       const sectionIdx = sectionPositions[si];
-      // End at next section header, or at 'Besluiten bij locatie', or max 5000 chars
+      // End at next section header, or at 'Besluiten bij locatie' (within this section), or max 5000 chars
       const nextSection   = sectionPositions[si + 1] ?? (sectionIdx + 5000);
-      const besluitenIdx  = fullText.indexOf('Besluiten bij locatie', sectionIdx);
-      const besluitenEnd  = besluitenIdx !== -1 ? besluitenIdx : sectionIdx + 5000;
-      const sectionEnd    = Math.min(nextSection, besluitenEnd, sectionIdx + 5000);
+      // Only look for 'Besluiten bij locatie' within the current section window
+      const besluitenSearch = fullText.indexOf('Besluiten bij locatie', sectionIdx + 12);
+      const besluitenEnd  = (besluitenSearch !== -1 && besluitenSearch < nextSection) ? besluitenSearch : nextSection;
+      const sectionEnd    = Math.min(besluitenEnd, sectionIdx + 5000);
       const sectionText = fullText.slice(sectionIdx, sectionEnd);
 
       // Find the nearest locCode in the 2000 chars BEFORE this section
@@ -267,7 +268,7 @@ export async function parseDocx(file, onProgress) {
       const dates = [];
       datePatternRD.lastIndex = 0;
       for (const m of sectionText.matchAll(/\b(\d{2}-\d{2}-\d{4})\b/g)) {
-        const ctx = sectionText.slice(Math.max(0, m.index - 300), m.index + 20);
+        const ctx = sectionText.slice(Math.max(0, m.index - 600), m.index + 20);
         if (besluitMarkers.some(marker => ctx.includes(marker))) continue;
         const [dd, mo, yy] = m[1].split('-');
         const ts = new Date(+yy, +mo - 1, +dd).getTime();
