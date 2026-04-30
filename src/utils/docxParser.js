@@ -471,7 +471,10 @@ export async function parseDocx(file, onProgress) {
 
         // Extract vervolgactie (Nazca follow-up) — value is on the NEXT line after the label
         const vervolgMatch = sectionText.match(/Vervolgactie i\.h\.k\.v[^\n]*\n([^\n]*)/i);
-        if (vervolgMatch) detail.vervolgactie = vervolgMatch[1].trim() || 'NVT';
+        if (vervolgMatch) {
+            const val = vervolgMatch[1].trim();
+            detail.vervolgactie = /bevoegd\s*gezag/i.test(val) ? 'NVT' : val;
+        }
 
         // Extract adres — try multiple label formats
         const adresMatch =
