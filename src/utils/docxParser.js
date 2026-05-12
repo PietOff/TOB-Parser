@@ -225,7 +225,14 @@ export async function parseDocx(file, onProgress) {
 
   console.log('[DOCX] rapportType: determined per locatie via rapportDatumMap');
 
-  // ── Extract rapport dates per locatiecode ──────────────────────────────
+  // ── Extract locatiecodes (ALL matching AA/UT/.. codes) ──
+    const locCodeRegex = /\b([A-Z]{2}\d{9,12})\b/g;
+    const locCodes = new Set();
+    let match;
+    while ((match = locCodeRegex.exec(fullText)) !== null) {
+        locCodes.add(match[1]);
+    }
+     // ── Extract rapport dates per locatiecode ──────────────────────────────
   // Strategy: find every 'Rapportinformatie (uitgevoerde bodemonderzoeken)' section.
   // Each section is bounded by the NEXT such section header (not by locCode).
   // The nearest locCode BEFORE each section is the owner.
@@ -293,14 +300,6 @@ export async function parseDocx(file, onProgress) {
     }
     console.log('[DOCX] rapportDatumMap:', JSON.stringify(rapportDatumMap));
   }
-
-  // ── Extract locatiecodes (ALL matching AA/UT/.. codes) ──
-    const locCodeRegex = /\b([A-Z]{2}\d{9,12})\b/g;
-    const locCodes = new Set();
-    let match;
-    while ((match = locCodeRegex.exec(fullText)) !== null) {
-        locCodes.add(match[1]);
-    }
 
     // ── STEP 1: Parse "Overzicht bodemlocaties" table ──────────────────
     // This table has columns: Locatiecode | Locatienaam | Straatnaam | Huisnummer | Postcode | Plaatsnaam
