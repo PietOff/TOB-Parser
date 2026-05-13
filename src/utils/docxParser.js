@@ -601,9 +601,9 @@ export async function parseDocx(file, onProgress) {
         }
 
         if (detail.vervolgactie) {
-            loc.status = detail.vervolgactie;
-        } else if (sectionText.includes('Vervolgactie i.h.k.v')) {
-            loc.status = 'NVT';
+    loc.status = detail.vervolgactie;
+} else {
+    loc.status = 'NVT';
             // Only mark complex for serious follow-up actions (sanering, afperkend, spoedeisend).
             // "Verkennend/nader bodemonderzoek uitvoeren" is routine — not automatically complex.
             if (/sanering|afperkend|spoedeisend/i.test(detail.vervolgactie)) loc.complex = true;
