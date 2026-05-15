@@ -82,19 +82,25 @@ export async function exportProjectExcel(project) {
         });
     }
 
-    // Gegevensvalidatie: Conclusie kolom (P) = onverdacht | verdacht
-    const conclusieColNum = 16; // kolom P
-    for (let r = 2; r <= 10000; r++) {
-        ws.getCell(r, conclusieColNum).dataValidation = {
-            type: 'list',
-            allowBlank: true,
-            formulae: ['"onverdacht,verdacht"'],
-            showDropDown: false,
-            showErrorMessage: true,
-            errorStyle: 'warning',
-            errorTitle: 'Ongeldige waarde',
-            error: 'Kies onverdacht of verdacht',
-        };
+    // Gegevensvalidatie dropdowns per kolom
+    const dropdowns = [
+        { col: 16, options: 'onverdacht,verdacht' },
+        { col: 17, options: 'basishygiëne,oranje vluchtig,oranje niet vluchtig,rood vluchtig,rood niet vluchtig,zwart vluchtig,zwart niet vluchtig' },
+        { col: 18, options: 'vormvrij,MBA graven,BUS-melding 5 weken,BUS-melding 5 dagen' },
+        { col: 19, options: 'ja,nee' },
+        { col: 20, options: 'ja,nee' },
+    ];
+    for (const { col, options } of dropdowns) {
+        for (let r = 2; r <= 10000; r++) {
+            ws.getCell(r, col).dataValidation = {
+                type: 'list',
+                allowBlank: true,
+                formulae: [`"${options}"`],
+                showDropDown: false,
+                showErrorMessage: true,
+                errorStyle: 'warning',
+            };
+        }
     }
 
     ws.views = [{ state: 'frozen', ySplit: 1 }];
