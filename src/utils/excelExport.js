@@ -82,6 +82,21 @@ export async function exportProjectExcel(project) {
         });
     }
 
+    // Gegevensvalidatie: Conclusie kolom (P) = onverdacht | verdacht
+    const conclusieColNum = 16; // kolom P
+    for (let r = 2; r <= 10000; r++) {
+        ws.getCell(r, conclusieColNum).dataValidation = {
+            type: 'list',
+            allowBlank: true,
+            formulae: ['"onverdacht,verdacht"'],
+            showDropDown: false,
+            showErrorMessage: true,
+            errorStyle: 'warning',
+            errorTitle: 'Ongeldige waarde',
+            error: 'Kies onverdacht of verdacht',
+        };
+    }
+
     ws.views = [{ state: 'frozen', ySplit: 1 }];
 
     const buffer = await wb.xlsx.writeBuffer();
