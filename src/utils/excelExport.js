@@ -25,6 +25,7 @@ export const EXPORT_COLUMNS = [
     { header: 'BRL 7000',                         key: 'brl7000',            width: 12 },
     { header: 'Opmerking',                        key: 'opmerking',          width: 30 },
     { header: 'Informatie uit Tekeningen (PPTX)', key: 'tekeningInfo',       width: 35 },
+  { header: 'Tracé / Netwerk',                      key: 'traceNetwerk',       width: 16 },
 ];
 
 export async function exportProjectExcel(project) {
