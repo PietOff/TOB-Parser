@@ -469,16 +469,20 @@ export async function parseDocx(file, onProgress) {
         }
 
         // Extract vervolgactie (Nazca follow-up) — value is on the NEXT line after the label
-        const vervolgMatch = sectionText.match(/Vervolgactie i\.h\.k\.v[^\n]*\n([^\n]*)/i);
-        if (vervolgMatch) {
-            const val = vervolgMatch[1].trim();
-            console.log('[DEBUG vervolgMatch] locCode=' + locCode + ' val=' + JSON.stringify(val) + ' raw=' + JSON.stringify(vervolgMatch[0].slice(0,80)));
-            detail.vervolgactie = (!val || /bevoegd\s*gezag/i.test(val)) ? 'NVT' : val;
-        } else {
-            // Debug: show what's near the label
-            const labelIdx = sectionText.indexOf('Vervolgactie i.h.k.v');
-            if (labelIdx > -1) console.log('[DEBUG no match] locCode=' + locCode + ' near label=' + JSON.stringify(sectionText.slice(labelIdx, labelIdx+80)));
+        const // Extract vervolgactie: label is directly followed by value then "Bevoegd gezag Wbb" (no newlines)
+        const vervolgLabelEnd = sectionText.search(/Vervolgactie i\.h\.k\.v[^B]*(Nazca|WBB)/i);
+        if (vervolgLabelEnd !== -1) {
+            // Find where the label ends (after "Nazca" or last word of label)
+            const labelMatch = sectionText.match(/Vervolgactie i\.h\.k\.v[^\n]*?(?:van Nazca|WBB uit status locatie van \w+)/i);
+            if (labelMatch) {
+                const afterLabel = sectionText.slice(vervolgLabelEnd + labelMatch[0].length).trim();
+                // Value is everything before "Bevoegd" 
+                const bevoegdIdx = afterLabel.search(/Bevoegd\s*gezag/i);
+                const rawVal = bevoegdIdx > 0 ? afterLabel.slice(0, bevoegdIdx).trim() : '';
+                detail.vervolgactie = rawVal || 'NVT';
+            }
         }
+        const vervolgMatch = null; // legacy compat
 
         // Extract adres — try multiple label formats
         const adresMatch =
