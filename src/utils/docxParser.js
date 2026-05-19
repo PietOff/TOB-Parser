@@ -472,7 +472,12 @@ export async function parseDocx(file, onProgress) {
         const vervolgMatch = sectionText.match(/Vervolgactie i\.h\.k\.v[^\n]*\n([^\n]*)/i);
         if (vervolgMatch) {
             const val = vervolgMatch[1].trim();
+            console.log('[DEBUG vervolgMatch] locCode=' + locCode + ' val=' + JSON.stringify(val) + ' raw=' + JSON.stringify(vervolgMatch[0].slice(0,80)));
             detail.vervolgactie = (!val || /bevoegd\s*gezag/i.test(val)) ? 'NVT' : val;
+        } else {
+            // Debug: show what's near the label
+            const labelIdx = sectionText.indexOf('Vervolgactie i.h.k.v');
+            if (labelIdx > -1) console.log('[DEBUG no match] locCode=' + locCode + ' near label=' + JSON.stringify(sectionText.slice(labelIdx, labelIdx+80)));
         }
 
         // Extract adres — try multiple label formats
