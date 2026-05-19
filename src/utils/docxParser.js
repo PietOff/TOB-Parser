@@ -472,11 +472,7 @@ export async function parseDocx(file, onProgress) {
         const vervolgMatch = sectionText.match(/Vervolgactie i\.h\.k\.v[^\n]*\n([^\n]*)/i);
         if (vervolgMatch) {
             const val = vervolgMatch[1].trim();
-            // Empty or grabbed next field label → NVT, real value → use it
             detail.vervolgactie = (!val || /bevoegd\s*gezag/i.test(val)) ? 'NVT' : val;
-        } else if (sectionText.includes('Vervolgactie i.h.k.v')) {
-            // Label present but regex found nothing → NVT
-            detail.vervolgactie = 'NVT';
         }
 
         // Extract adres — try multiple label formats
