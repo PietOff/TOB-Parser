@@ -469,18 +469,12 @@ export async function parseDocx(file, onProgress) {
         }
 
         // Extract vervolgactie (Nazca follow-up) — value is on the NEXT line after the label
-        const // Extract vervolgactie: label is directly followed by value then "Bevoegd gezag Wbb" (no newlines)
-        const vervolgLabelEnd = sectionText.search(/Vervolgactie i\.h\.k\.v[^B]*(Nazca|WBB)/i);
-        if (vervolgLabelEnd !== -1) {
-            // Find where the label ends (after "Nazca" or last word of label)
-            const labelMatch = sectionText.match(/Vervolgactie i\.h\.k\.v[^\n]*?(?:van Nazca|WBB uit status locatie van \w+)/i);
-            if (labelMatch) {
-                const afterLabel = sectionText.slice(vervolgLabelEnd + labelMatch[0].length).trim();
-                // Value is everything before "Bevoegd" 
-                const bevoegdIdx = afterLabel.search(/Bevoegd\s*gezag/i);
-                const rawVal = bevoegdIdx > 0 ? afterLabel.slice(0, bevoegdIdx).trim() : '';
-                detail.vervolgactie = rawVal || 'NVT';
-            }
+        const // Extract vervolgactie: text is aaneengeplakt (no newlines between label and value)
+        // Pattern: "...van Nazca" + value + "Bevoegd gezag Wbb"
+        const vervolgLabelMatch = sectionText.match(/Vervolgactie i\.h\.k\.v[^\n]*?(?:van \w+)(.*?)(?:Bevoegd\s*gezag)/i);
+        if (vervolgLabelMatch) {
+            const rawVal = vervolgLabelMatch[1].trim();
+            detail.vervolgactie = rawVal || 'NVT';
         }
         const vervolgMatch = null; // legacy compat
 
