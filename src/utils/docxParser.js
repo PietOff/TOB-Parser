@@ -469,11 +469,15 @@ export async function parseDocx(file, onProgress) {
         }
 
         // Extract vervolgactie (Nazca follow-up) — value is on the NEXT line after the label
-        const // Extract vervolgactie: text is aaneengeplakt (no newlines between label and value)
-        // Pattern: "...van Nazca" + value + "Bevoegd gezag Wbb"
-        const vervolgLabelMatch = sectionText.match(/Vervolgactie i\.h\.k\.v[^\n]*?(?:van \w+)(.*?)(?:Bevoegd\s*gezag)/i);
-        if (vervolgLabelMatch) {
-            const rawVal = vervolgLabelMatch[1].trim();
+        const // Extract vervolgactie using indexOf (no regex, no newlines in fullText)
+        const vLabel = 'Vervolgactie i.h.k.v';
+        const vIdx = sectionText.indexOf(vLabel);
+        if (vIdx !== -1) {
+            // Find end of the label (stops at Bevoegd or Rapportinformatie)
+            const afterLabel = sectionText.indexOf('van Nazca', vIdx);
+            const startVal = afterLabel !== -1 ? afterLabel + 9 : vIdx + vLabel.length;
+            const endVal = sectionText.indexOf('Bevoegd', startVal);
+            const rawVal = endVal > startVal ? sectionText.slice(startVal, endVal).trim() : '';
             detail.vervolgactie = rawVal || 'NVT';
         }
         const vervolgMatch = null; // legacy compat
