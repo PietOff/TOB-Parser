@@ -82,6 +82,13 @@ export async function exportProjectExcel(project) {
         });
     }
 
+    // Tracé/Netwerk formule in kolom W (23) voor elke datarij
+    const traceCol = 23;
+    const totalRows = ws.rowCount;
+    for (let r = 2; r <= Math.max(totalRows, 10000); r++) {
+        ws.getCell(r, traceCol).value = { formula: `=IF(OR(ISNUMBER(SEARCH("tracé",B${r})),ISNUMBER(SEARCH("glasvezel",B${r})),ISNUMBER(SEARCH("riool",B${r})),ISNUMBER(SEARCH("riolen",B${r})),ISNUMBER(SEARCH("leidingen",B${r})),ISNUMBER(SEARCH("kabels",B${r}))),"Ja","Nee")` };
+    }
+
     // Gegevensvalidatie dropdowns per kolom
     const dropdowns = [
         { col: 16, options: 'onverdacht,verdacht' },
