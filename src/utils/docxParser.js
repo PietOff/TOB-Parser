@@ -70,6 +70,7 @@ export async function parseDocx(file, onProgress) {
         rapportType: 'Nee',    // 'Ja' | 'Nee'
         latestOnderzoekDatum: null, // meest recente rapportdatum uit sectie 3.5
         oldestOnderzoekDatum: null,  // oudste rapportdatum uit sectie 3.5
+        ubiGte5: null,               // max UBI-klasse >= 5 in sectie
         aantalOnderzoeken: null,    // aantal onderzoeken uit sectie 3.5
 
         // Project location & trace (new)
@@ -579,6 +580,16 @@ export async function parseDocx(file, onProgress) {
             rapportType: rapportDatumMap[code]?.rapportType ?? null,
             latestOnderzoekDatum: rapportDatumMap[code]?.latest ?? null,
             oldestOnderzoekDatum: rapportDatumMap[code]?.oldest ?? null,
+            ubiGte5: (() => {
+                // Find UBI-klasse section for this loc and check if any score >= 5
+                const ubiIdx = sectionText.indexOf('ubi-klasse');
+                if (ubiIdx === -1) return null;
+                const ubiSection = sectionText.slice(ubiIdx);
+                const scores = [...ubiSection.matchAll(/(?<!\d)(\d{1,2})(?=(?:Ja|Nee|Onbekend))/g)]
+                    .map(m => parseInt(m[1])).filter(n => n <= 10);
+                if (scores.length === 0) return null;
+                return Math.max(...scores) >= 5 ? 'Ja' : ' ';
+            })(),
             aantalOnderzoeken: rapportDatumMap[code]?.count ?? null,
         };
 
