@@ -69,6 +69,7 @@ export async function parseDocx(file, onProgress) {
     automatischAdvies: null, // 'wel' | 'geen' | null — uit sectie 3.5
         rapportType: 'Nee',    // 'Ja' | 'Nee'
         latestOnderzoekDatum: null, // meest recente rapportdatum uit sectie 3.5
+        oldestOnderzoekDatum: null,  // oudste rapportdatum uit sectie 3.5
         aantalOnderzoeken: null,    // aantal onderzoeken uit sectie 3.5
 
         // Project location & trace (new)
@@ -577,6 +578,7 @@ export async function parseDocx(file, onProgress) {
             automatischAdvies: adviesMap[code] ?? data.automatischAdvies ?? null,
             rapportType: rapportDatumMap[code]?.rapportType ?? null,
             latestOnderzoekDatum: rapportDatumMap[code]?.latest ?? null,
+            oldestOnderzoekDatum: rapportDatumMap[code]?.oldest ?? null,
             aantalOnderzoeken: rapportDatumMap[code]?.count ?? null,
         };
 
