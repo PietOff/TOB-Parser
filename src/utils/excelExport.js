@@ -27,6 +27,7 @@ export const EXPORT_COLUMNS = [
     { header: 'Opmerking',                        key: 'opmerking',          width: 30 },
     { header: 'Informatie uit Tekeningen (PPTX)', key: 'tekeningInfo',       width: 35 },
   { header: 'Tracé / Netwerk',                      key: 'traceNetwerk',       width: 16 },
+    { header: 'HBB',                                  key: 'hbb',                width: 10 },
 ];
 
 export async function exportProjectExcel(project) {
@@ -90,6 +91,12 @@ export async function exportProjectExcel(project) {
     const totalRows = ws.rowCount;
     for (let r = 2; r <= Math.max(totalRows, 10000); r++) {
         ws.getCell(r, traceCol).value = { formula: `=IF(OR(ISNUMBER(SEARCH("tracé",B${r})),ISNUMBER(SEARCH("glasvezel",B${r})),ISNUMBER(SEARCH("riool",B${r})),ISNUMBER(SEARCH("riolen",B${r})),ISNUMBER(SEARCH("leidingen",B${r})),ISNUMBER(SEARCH("kabels",B${r}))),"Ja"," ")` };
+    }
+
+    // HBB formule in kolom X (24)
+    const hbbCol = 24;
+    for (let r = 2; r <= Math.max(ws.rowCount, 10000); r++) {
+        ws.getCell(r, hbbCol).value = { formula: `=IF(ISNUMBER(SEARCH("HBB",B${r})),"Ja"," ")` };
     }
 
     // Gegevensvalidatie dropdowns per kolom
