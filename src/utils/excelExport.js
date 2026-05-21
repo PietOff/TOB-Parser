@@ -28,6 +28,7 @@ export const EXPORT_COLUMNS = [
     { header: 'Informatie uit Tekeningen (PPTX)', key: 'tekeningInfo',       width: 35 },
   { header: 'Tracé / Netwerk',                      key: 'traceNetwerk',       width: 16 },
     { header: 'HBB',                                  key: 'hbb',                width: 10 },
+    { header: 'UBI >= 5',                              key: 'ubiGte5',            width: 10 },
 ];
 
 export async function exportProjectExcel(project) {
