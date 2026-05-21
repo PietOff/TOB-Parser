@@ -284,7 +284,8 @@ export async function parseDocx(file, onProgress) {
 
       if (dates.length === 0) continue;
 
-      const latest = dates.reduce((a, b) => a.ts > b.ts ? a : b);
+      const latest  = dates.reduce((a, b) => a.ts > b.ts ? a : b);
+      const oldest  = dates.reduce((a, b) => a.ts < b.ts ? a : b);
 
       // Detect saneringsverslag
       const hasBusEval     = sectionText.includes('Meldingsformulier BUS evaluatieverslag');
@@ -295,7 +296,7 @@ export async function parseDocx(file, onProgress) {
       const existing = rapportDatumMap[locCode];
       if (!existing || dates.length > existing.count ||
           (dates.length === existing.count && latest.ts > new Date(existing.latest.split('-').reverse().join('-')).getTime())) {
-        rapportDatumMap[locCode] = { latest: latest.str, count: dates.length, rapportType };
+        rapportDatumMap[locCode] = { latest: latest.str, oldest: oldest.str, count: dates.length, rapportType };
       }
     }
     console.log('[DOCX] rapportDatumMap:', JSON.stringify(rapportDatumMap));
