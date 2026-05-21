@@ -17,6 +17,7 @@ export const EXPORT_COLUMNS = [
     { header: 'Status',                           key: 'status',             width: 20 },
     { header: 'Saneringsverslag',                     key: 'rapportType',        width: 25 },
     { header: 'Datum laatste onderzoek',          key: 'latestOnderzoekDatum', width: 20 },
+    { header: 'Datum oudste onderzoek',           key: 'oldestOnderzoekDatum', width: 20 },
     { header: 'Aantal onderzoeken',               key: 'aantalOnderzoeken',   width: 18 },
     { header: 'Conclusie',                        key: 'conclusie',          width: 20 },
     { header: 'Veiligheidsklasse',                key: 'veiligheidsklasse',  width: 20 },
@@ -78,6 +79,7 @@ export async function exportProjectExcel(project) {
             opmerking:         loc.opmerking         ?? '',
             rapportType:      loc.rapport_type ?? loc.rapportType ?? '',
             latestOnderzoekDatum: loc.latest_onderzoek_datum ?? loc.latestOnderzoekDatum ?? '',
+            oldestOnderzoekDatum: loc.oldest_onderzoek_datum ?? loc.oldestOnderzoekDatum ?? '',
             aantalOnderzoeken:    loc.aantal_onderzoeken ?? loc.aantalOnderzoeken ?? '',
             tekeningInfo:      enriched.tekeningInfo ?? enriched.pptxInfo ?? '',
         });
