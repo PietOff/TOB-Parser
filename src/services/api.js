@@ -146,7 +146,8 @@ export async function saveLocations(projectId, locationsArray) {
       opmerking:         loc.opmerking         ?? null,
             automatisch_advies:      loc.automatischAdvies     ?? null,
       rapport_type:            loc.rapportType          ?? null,
-      latest_onderzoek_datum:  loc.latestOnderzoekDatum ?? null,
+      latest_onderzoek_datum:  loc.latestOnderzoekDatum  ?? null,
+      oldest_onderzoek_datum:  loc.oldestOnderzoekDatum  ?? null,
       aantal_onderzoeken:      loc.aantalOnderzoeken != null ? parseInt(loc.aantalOnderzoeken) : null,
       complex:           loc.complex           ?? false,
       // Coördinaten — must be null (not "") for double precision columns
