@@ -580,16 +580,7 @@ export async function parseDocx(file, onProgress) {
             rapportType: rapportDatumMap[code]?.rapportType ?? null,
             latestOnderzoekDatum: rapportDatumMap[code]?.latest ?? null,
             oldestOnderzoekDatum: rapportDatumMap[code]?.oldest ?? null,
-            ubiGte5: (() => {
-                // Find UBI-klasse section for this loc and check if any score >= 5
-                const ubiIdx = sectionText.indexOf('ubi-klasse');
-                if (ubiIdx === -1) return null;
-                const ubiSection = sectionText.slice(ubiIdx);
-                const scores = [...ubiSection.matchAll(/(?<!\d)(\d{1,2})(?=(?:Ja|Nee|Onbekend))/g)]
-                    .map(m => parseInt(m[1])).filter(n => n <= 10);
-                if (scores.length === 0) return null;
-                return Math.max(...scores) >= 5 ? 'Ja' : ' ';
-            })(),
+           ubiGte5: null,
             aantalOnderzoeken: rapportDatumMap[code]?.count ?? null,
         };
 
