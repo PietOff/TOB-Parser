@@ -84,6 +84,7 @@ export async function exportProjectExcel(project) {
             oldestOnderzoekDatum: loc.oldest_onderzoek_datum ?? loc.oldestOnderzoekDatum ?? '',
             aantalOnderzoeken:    loc.aantal_onderzoeken ?? loc.aantalOnderzoeken ?? '',
             tekeningInfo:      enriched.tekeningInfo ?? enriched.pptxInfo ?? '',
+        hbb:               '',
         ubiGte5:           enriched.ubi_gte5 ?? enriched.ubiGte5 ?? '',
         });
     }
