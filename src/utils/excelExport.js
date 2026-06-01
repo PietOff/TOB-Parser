@@ -135,15 +135,15 @@ export async function exportProjectExcel(project) {
         }
     }
 
-    // Tracé/Netwerk formule in kolom X (24) — locatienaam is nu kolom C
-    const traceCol = 24;
+    // Tracé/Netwerk formule in kolom Y (25) — locatienaam is nu kolom C
+    const traceCol = 25;
     const totalRows = ws.rowCount;
     for (let r = 2; r <= Math.max(totalRows, 10000); r++) {
         ws.getCell(r, traceCol).value = { formula: `=IF(OR(ISNUMBER(SEARCH("tracé",C${r})),ISNUMBER(SEARCH("glasvezel",C${r})),ISNUMBER(SEARCH("riool",C${r})),ISNUMBER(SEARCH("riolen",C${r})),ISNUMBER(SEARCH("leidingen",C${r})),ISNUMBER(SEARCH("kabels",C${r}))),"Ja"," ")` };
     }
 
-    // HBB formule in kolom Y (25)
-    const hbbCol = 25;
+    // HBB formule in kolom Z (26)
+    const hbbCol = 26;
     for (let r = 2; r <= Math.max(ws.rowCount, 10000); r++) {
         ws.getCell(r, hbbCol).value = { formula: `=IF(ISNUMBER(SEARCH("HBB",C${r})),"Ja"," ")` };
     }
