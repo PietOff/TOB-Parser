@@ -30,34 +30,34 @@ function calcPrio(loc) {
 }
 
 export const EXPORT_COLUMNS = [
-    { header: 'Prioriteit',                         key: 'prioriteit',         width: 12 },
-    { header: 'Locatiecode',                      key: 'locatiecode',        width: 15 },
-    { header: 'Locatienaam',                      key: 'locatienaam',        width: 25 },
-    { header: 'Straatnaam',                       key: 'straatnaam',         width: 25 },
-    { header: 'Huisnummer',                       key: 'huisnummer',         width: 12 },
-    { header: 'Postcode',                         key: 'postcode',           width: 12 },
-    { header: 'Woonplaats',                       key: 'woonplaats',         width: 18 },
-    { header: 'RD X',                             key: 'rd_x',               width: 12 },
-    { header: 'RD Y',                             key: 'rd_y',               width: 12 },
-    { header: 'Latitude',                         key: 'lat',                width: 14 },
-    { header: 'Longitude',                        key: 'lon',                width: 14 },
-    { header: 'Automatisch advies',               key: 'automatischAdvies',  width: 20 },
-    { header: 'Status',                           key: 'status',             width: 20 },
-    { header: 'Saneringsverslag',                     key: 'rapportType',        width: 25 },
-    { header: 'Datum laatste onderzoek',          key: 'latestOnderzoekDatum', width: 20 },
-    { header: 'Datum oudste onderzoek',           key: 'oldestOnderzoekDatum', width: 20 },
-    { header: 'Aantal onderzoeken',               key: 'aantalOnderzoeken',   width: 18 },
-    { header: 'Conclusie',                        key: 'conclusie',          width: 20 },
-    { header: 'Veiligheidsklasse',                key: 'veiligheidsklasse',  width: 20 },
-    { header: 'Melding',                          key: 'melding',            width: 20 },
-    { header: 'MKB',                              key: 'mkb',                width: 12 },
-    { header: 'BRL 7000',                         key: 'brl7000',            width: 12 },
-    { header: 'Opmerking',                        key: 'opmerking',          width: 30 },
-    { header: 'Informatie uit Tekeningen (PPTX)', key: 'tekeningInfo',       width: 35 },
-  { header: 'Tracé / Netwerk',                      key: 'traceNetwerk',       width: 16 },
-    { header: 'HBB',                                  key: 'hbb',                width: 10 },
-    { header: 'UBI >= 5',                              key: 'ubiGte5',            width: 10 },
-    { header: 'Aantal UBI >= 5',                       key: 'ubiGte5Count',       width: 14 },
+    { header: 'Prioriteit',                         key: 'prioriteit',           width: 12 },
+    { header: 'Locatiecode',                         key: 'locatiecode',          width: 15 },
+    { header: 'Locatienaam',                         key: 'locatienaam',          width: 25 },
+    { header: 'Straatnaam',                          key: 'straatnaam',           width: 25 },
+    { header: 'Huisnummer',                          key: 'huisnummer',           width: 12 },
+    { header: 'Postcode',                            key: 'postcode',             width: 12 },
+    { header: 'Woonplaats',                          key: 'woonplaats',           width: 18 },
+    { header: 'RD X',                                key: 'rd_x',                 width: 12 },
+    { header: 'RD Y',                                key: 'rd_y',                 width: 12 },
+    { header: 'Latitude',                            key: 'lat',                  width: 14 },
+    { header: 'Longitude',                           key: 'lon',                  width: 14 },
+    { header: 'Automatisch advies',                  key: 'automatischAdvies',    width: 20 },
+    { header: 'Status',                              key: 'status',               width: 20 },
+    { header: 'Tracé / Netwerk',                     key: 'traceNetwerk',         width: 16 },
+    { header: 'HBB',                                 key: 'hbb',                  width: 10 },
+    { header: 'Saneringsverslag',                    key: 'rapportType',          width: 25 },
+    { header: 'Datum laatste onderzoek',             key: 'latestOnderzoekDatum', width: 20 },
+    { header: 'Datum oudste onderzoek',              key: 'oldestOnderzoekDatum', width: 20 },
+    { header: 'Aantal onderzoeken',                  key: 'aantalOnderzoeken',    width: 18 },
+    { header: 'UBI >= 5',                            key: 'ubiGte5',              width: 10 },
+    { header: 'Aantal UBI >= 5',                     key: 'ubiGte5Count',         width: 14 },
+    { header: 'Conclusie',                           key: 'conclusie',            width: 20 },
+    { header: 'Veiligheidsklasse',                   key: 'veiligheidsklasse',    width: 20 },
+    { header: 'Melding',                             key: 'melding',              width: 20 },
+    { header: 'MKB',                                 key: 'mkb',                  width: 12 },
+    { header: 'BRL 7000',                            key: 'brl7000',              width: 12 },
+    { header: 'Opmerking',                           key: 'opmerking',            width: 30 },
+    { header: 'Informatie uit Tekeningen (PPTX)',    key: 'tekeningInfo',         width: 35 },
 ];
 
 export async function exportProjectExcel(project) {
@@ -135,26 +135,26 @@ export async function exportProjectExcel(project) {
         }
     }
 
-    // Tracé/Netwerk formule in kolom Y (25) — locatienaam is nu kolom C
-    const traceCol = 25;
+    // Tracé/Netwerk formule in kolom N (14) — locatienaam is nu kolom C
+    const traceCol = 14;
     const totalRows = ws.rowCount;
     for (let r = 2; r <= Math.max(totalRows, 10000); r++) {
         ws.getCell(r, traceCol).value = { formula: `=IF(OR(ISNUMBER(SEARCH("tracé",C${r})),ISNUMBER(SEARCH("glasvezel",C${r})),ISNUMBER(SEARCH("riool",C${r})),ISNUMBER(SEARCH("riolen",C${r})),ISNUMBER(SEARCH("leidingen",C${r})),ISNUMBER(SEARCH("kabels",C${r}))),"Ja"," ")` };
     }
 
-    // HBB formule in kolom Z (26)
-    const hbbCol = 26;
+    // HBB formule in kolom O (15)
+    const hbbCol = 15;
     for (let r = 2; r <= Math.max(ws.rowCount, 10000); r++) {
         ws.getCell(r, hbbCol).value = { formula: `=IF(ISNUMBER(SEARCH("HBB",C${r})),"Ja"," ")` };
     }
 
-    // Gegevensvalidatie dropdowns per kolom (alles +1 door nieuwe Prioriteit kolom)
+    // Gegevensvalidatie dropdowns: Conclusie(22), Veiligheidsklasse(23), Melding(24), MKB(25), BRL7000(26)
     const dropdowns = [
-        { col: 17, options: 'onverdacht,verdacht' },
-        { col: 18, options: 'basishygiëne,oranje vluchtig,oranje niet vluchtig,rood vluchtig,rood niet vluchtig,zwart vluchtig,zwart niet vluchtig' },
-        { col: 19, options: 'vormvrij,MBA graven,BUS-melding 5 weken,BUS-melding 5 dagen' },
-        { col: 20, options: 'ja,nee' },
-        { col: 21, options: 'ja,nee' },
+        { col: 22, options: 'onverdacht,verdacht' },
+        { col: 23, options: 'basishygiëne,oranje vluchtig,oranje niet vluchtig,rood vluchtig,rood niet vluchtig,zwart vluchtig,zwart niet vluchtig' },
+        { col: 24, options: 'vormvrij,MBA graven,BUS-melding 5 weken,BUS-melding 5 dagen' },
+        { col: 25, options: 'ja,nee' },
+        { col: 26, options: 'ja,nee' },
     ];
     for (const { col, options } of dropdowns) {
         for (let r = 2; r <= 10000; r++) {
