@@ -527,7 +527,7 @@ export async function parseDocx(file, onProgress) {
         if (actIdx > -1) {
             const actBlock = sectionText.substring(actIdx);
             // Pattern: Gebruik\nVan\nTot\nubi-klasse\nVoldoende onderzocht\n{values repeat}
-            const actRegex = /(?:^|\n)\s*([a-z][\w\s\-()\/.]+?)\s*\n\s*((?:\d{4}|Onbekend))\s*\n\s*((?:\d{4}|Onbekend))\s*\n\s*(\d+)\s*\n\s*(Ja|Nee|Onbekend)/gim;
+            const actRegex = /(?:^|\n)\s*([a-z][\w\s\-()\/.,']+?)\s*\n\s*((?:\d{4}|Onbekend|Heden))\s*\n\s*((?:\d{4}|Onbekend|Heden))\s*\n\s*(\d+)\s*\n\s*(Ja|Nee|Onbekend)/gim;
             let actMatch;
             while ((actMatch = actRegex.exec(actBlock)) !== null) {
                 detail.activiteiten.push({
@@ -538,16 +538,6 @@ export async function parseDocx(file, onProgress) {
                     onderzocht: actMatch[5],
                 });
             }
-        }
-
-        // DEBUG: log raw text around activiteiten section
-        const _actDbgIdx = sectionText.indexOf('Mogelijk onderzochte bodembedreigende activiteiten');
-        const _ubiDbgIdx = sectionText.toLowerCase().indexOf('ubi');
-        console.log(`🐛 [UBI DEBUG ${code}] actIdx=${_actDbgIdx} ubiIdx=${_ubiDbgIdx} activiteiten=${detail.activiteiten.length}`);
-        if (_actDbgIdx !== -1) {
-            console.log(`🐛 [UBI DEBUG ${code}] raw actBlock:\n${JSON.stringify(sectionText.slice(_actDbgIdx, _actDbgIdx + 600))}`);
-        } else if (_ubiDbgIdx !== -1) {
-            console.log(`🐛 [UBI DEBUG ${code}] raw ubi area:\n${JSON.stringify(sectionText.slice(_ubiDbgIdx, _ubiDbgIdx + 400))}`);
         }
 
         // Derive UBI >= 5 from already-parsed activiteiten (ubiKlasse field)
