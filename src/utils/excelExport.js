@@ -2,7 +2,35 @@ import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { fetchLocations } from '../services/api';
 
+const TRACE_KEYWORDS = ['tracé', 'trace', 'glasvezel', 'riool', 'riolen', 'leidingen', 'kabels'];
+
+function isTraceLocation(naam) {
+    const lower = (naam ?? '').toLowerCase();
+    return TRACE_KEYWORDS.some(k => lower.includes(k));
+}
+
+function calcPrio(loc) {
+    let prio = 0;
+    const code      = loc.locatiecode ?? '';
+    const advies    = (loc.automatisch_advies ?? '').toLowerCase();
+    const ubiGte5   = (loc.ubi_gte5 ?? '').toLowerCase();
+    const rapport   = (loc.rapport_type ?? '').toLowerCase();
+    const huisnr    = loc.huisnummer ?? '';
+    const naam      = loc.locatienaam ?? '';
+    const isHbb     = /hbb/i.test(naam);
+
+    if (code.startsWith('ST'))      prio += 1;
+    if (ubiGte5 === 'ja')           prio += 1;
+    if (rapport === 'ja')           prio += 1;
+    if (!huisnr.trim())             prio += 1;
+    if (advies === 'wel')           prio += 1;
+    if (isHbb && ubiGte5 !== 'ja')  prio -= 1;
+
+    return prio;
+}
+
 export const EXPORT_COLUMNS = [
+    { header: 'Prioriteit',                         key: 'prioriteit',         width: 12 },
     { header: 'Locatiecode',                      key: 'locatiecode',        width: 15 },
     { header: 'Locatienaam',                      key: 'locatienaam',        width: 25 },
     { header: 'Straatnaam',                       key: 'straatnaam',         width: 25 },
@@ -49,6 +77,16 @@ export async function exportProjectExcel(project) {
     headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4285F4' } };
     headerRow.alignment = { vertical: 'middle' };
 
+    // Sort: tracé/netwerk locations first, then by prio desc, then by straatnaam asc
+    locations.sort((a, b) => {
+        const aTrace = isTraceLocation(a.locatienaam) ? 1 : 0;
+        const bTrace = isTraceLocation(b.locatienaam) ? 1 : 0;
+        if (bTrace !== aTrace) return bTrace - aTrace;
+        const pDiff = calcPrio(b) - calcPrio(a);
+        if (pDiff !== 0) return pDiff;
+        return (a.straatnaam ?? '').localeCompare(b.straatnaam ?? '', 'nl');
+    });
+
     for (const loc of locations) {
         const enriched = loc.enriched_data ?? {};
 
@@ -61,7 +99,10 @@ export async function exportProjectExcel(project) {
         const lat  = loc.lat  ?? enriched.lat  ?? null;
         const lon  = loc.lon  ?? enriched.lon  ?? null;
 
-        ws.addRow({
+        const prio = calcPrio(loc);
+        const isTrace = isTraceLocation(loc.locatienaam);
+        const row = ws.addRow({
+            prioriteit:        prio,
             locatiecode:       loc.locatiecode       ?? '',
             locatienaam:       loc.locatienaam       ?? '',
             straatnaam:        loc.straatnaam        ?? '',
@@ -89,28 +130,31 @@ export async function exportProjectExcel(project) {
         ubiGte5:           loc.ubi_gte5 ?? '',
         ubiGte5Count:      loc.ubi_gte5_count ?? '',
         });
+        if (isTrace) {
+            row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9EAD3' } };
+        }
     }
 
-    // Tracé/Netwerk formule in kolom W (23) voor elke datarij
-    const traceCol = 23;
+    // Tracé/Netwerk formule in kolom X (24) — locatienaam is nu kolom C
+    const traceCol = 24;
     const totalRows = ws.rowCount;
     for (let r = 2; r <= Math.max(totalRows, 10000); r++) {
-        ws.getCell(r, traceCol).value = { formula: `=IF(OR(ISNUMBER(SEARCH("tracé",B${r})),ISNUMBER(SEARCH("glasvezel",B${r})),ISNUMBER(SEARCH("riool",B${r})),ISNUMBER(SEARCH("riolen",B${r})),ISNUMBER(SEARCH("leidingen",B${r})),ISNUMBER(SEARCH("kabels",B${r}))),"Ja"," ")` };
+        ws.getCell(r, traceCol).value = { formula: `=IF(OR(ISNUMBER(SEARCH("tracé",C${r})),ISNUMBER(SEARCH("glasvezel",C${r})),ISNUMBER(SEARCH("riool",C${r})),ISNUMBER(SEARCH("riolen",C${r})),ISNUMBER(SEARCH("leidingen",C${r})),ISNUMBER(SEARCH("kabels",C${r}))),"Ja"," ")` };
     }
 
-    // HBB formule in kolom X (24)
-    const hbbCol = 24;
+    // HBB formule in kolom Y (25)
+    const hbbCol = 25;
     for (let r = 2; r <= Math.max(ws.rowCount, 10000); r++) {
-        ws.getCell(r, hbbCol).value = { formula: `=IF(ISNUMBER(SEARCH("HBB",B${r})),"Ja"," ")` };
+        ws.getCell(r, hbbCol).value = { formula: `=IF(ISNUMBER(SEARCH("HBB",C${r})),"Ja"," ")` };
     }
 
-    // Gegevensvalidatie dropdowns per kolom
+    // Gegevensvalidatie dropdowns per kolom (alles +1 door nieuwe Prioriteit kolom)
     const dropdowns = [
-        { col: 16, options: 'onverdacht,verdacht' },
-        { col: 17, options: 'basishygiëne,oranje vluchtig,oranje niet vluchtig,rood vluchtig,rood niet vluchtig,zwart vluchtig,zwart niet vluchtig' },
-        { col: 18, options: 'vormvrij,MBA graven,BUS-melding 5 weken,BUS-melding 5 dagen' },
-        { col: 19, options: 'ja,nee' },
+        { col: 17, options: 'onverdacht,verdacht' },
+        { col: 18, options: 'basishygiëne,oranje vluchtig,oranje niet vluchtig,rood vluchtig,rood niet vluchtig,zwart vluchtig,zwart niet vluchtig' },
+        { col: 19, options: 'vormvrij,MBA graven,BUS-melding 5 weken,BUS-melding 5 dagen' },
         { col: 20, options: 'ja,nee' },
+        { col: 21, options: 'ja,nee' },
     ];
     for (const { col, options } of dropdowns) {
         for (let r = 2; r <= 10000; r++) {
