@@ -29,6 +29,7 @@ export const EXPORT_COLUMNS = [
   { header: 'Tracé / Netwerk',                      key: 'traceNetwerk',       width: 16 },
     { header: 'HBB',                                  key: 'hbb',                width: 10 },
     { header: 'UBI >= 5',                              key: 'ubiGte5',            width: 10 },
+    { header: 'Aantal UBI >= 5',                       key: 'ubiGte5Count',       width: 14 },
 ];
 
 export async function exportProjectExcel(project) {
@@ -85,7 +86,8 @@ export async function exportProjectExcel(project) {
             aantalOnderzoeken:    loc.aantal_onderzoeken ?? loc.aantalOnderzoeken ?? '',
             tekeningInfo:      enriched.tekeningInfo ?? enriched.pptxInfo ?? '',
         hbb:               '',
-        ubiGte5:           enriched.ubi_gte5 ?? enriched.ubiGte5 ?? '',
+        ubiGte5:           loc.ubi_gte5 ?? '',
+        ubiGte5Count:      loc.ubi_gte5_count ?? '',
         });
     }
 

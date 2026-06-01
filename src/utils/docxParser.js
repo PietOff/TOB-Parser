@@ -542,24 +542,13 @@ export async function parseDocx(file, onProgress) {
 
         // Derive UBI >= 5 from already-parsed activiteiten (ubiKlasse field)
         if (detail.activiteiten.length > 0) {
-            const maxUbi = Math.max(...detail.activiteiten.map(a => a.ubiKlasse).filter(n => !isNaN(n)));
-            detail.ubiGte5 = maxUbi >= 5 ? 'Ja' : ' ';
+            const ubiScores = detail.activiteiten.map(a => a.ubiKlasse).filter(n => !isNaN(n));
+            const countGte5 = ubiScores.filter(n => n >= 5).length;
+            detail.ubiGte5 = countGte5 > 0 ? 'Ja' : 'Nee';
+            detail.ubiGte5Count = countGte5;
         } else {
-            // Fallback: scan raw text for UBI scores (number followed by optional whitespace then Ja/Nee/Onbekend)
-            const ubiIdx = sectionText.indexOf('ubi-klasse');
-            if (ubiIdx !== -1) {
-                const ubiSection = sectionText.slice(ubiIdx, ubiIdx + 2000);
-                const ubiScores = [];
-                const ubiRe = /(\d{1,2})\s*(?=Ja|Nee|Onbekend)/g;
-                let ubiM;
-                while ((ubiM = ubiRe.exec(ubiSection)) !== null) {
-                    const n = parseInt(ubiM[1]);
-                    if (n >= 1 && n <= 10) ubiScores.push(n);
-                }
-                detail.ubiGte5 = ubiScores.length > 0 ? (Math.max(...ubiScores) >= 5 ? 'Ja' : ' ') : null;
-            } else {
-                detail.ubiGte5 = null;
-            }
+            detail.ubiGte5 = null;
+            detail.ubiGte5Count = null;
         }
 
         detailMap[code] = detail;
@@ -604,6 +593,7 @@ export async function parseDocx(file, onProgress) {
             oldestOnderzoekDatum: rapportDatumMap[code]?.oldest ?? null,
 
             ubiGte5: detail.ubiGte5 ?? null,
+            ubiGte5Count: detail.ubiGte5Count ?? null,
             aantalOnderzoeken: rapportDatumMap[code]?.count ?? null,
         };
 
