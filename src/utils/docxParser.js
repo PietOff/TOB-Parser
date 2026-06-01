@@ -580,19 +580,7 @@ export async function parseDocx(file, onProgress) {
             rapportType: rapportDatumMap[code]?.rapportType ?? null,
             latestOnderzoekDatum: rapportDatumMap[code]?.latest ?? null,
             oldestOnderzoekDatum: rapportDatumMap[code]?.oldest ?? null,
-            ubiGte5: (function() {
-                var ubiIdx = sectionText.indexOf('ubi-klasse');
-                if (ubiIdx === -1) return null;
-                var ubiSection = sectionText.slice(ubiIdx, ubiIdx + 2000);
-                var re = /(\d{1,2})(?=Ja|Nee|Onbekend)/g;
-                var m, scores = [];
-                while ((m = re.exec(ubiSection)) !== null) {
-                    var n = parseInt(m[1]);
-                    if (n >= 1 && n <= 10) scores.push(n);
-                }
-                if (scores.length === 0) return null;
-                return Math.max.apply(null, scores) >= 5 ? 'Ja' : ' ';
-            }()),
+
            ubiGte5: null,
             aantalOnderzoeken: rapportDatumMap[code]?.count ?? null,
         };
