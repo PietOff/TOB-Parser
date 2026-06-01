@@ -540,6 +540,22 @@ export async function parseDocx(file, onProgress) {
             }
         }
 
+        // Extract UBI-klasse >= 5 (sectionText is available here in STEP 2)
+        const ubiIdx = sectionText.indexOf('ubi-klasse');
+        if (ubiIdx !== -1) {
+            const ubiSection = sectionText.slice(ubiIdx, ubiIdx + 2000);
+            const ubiScores = [];
+            const ubiRe = /(\d{1,2})(?=Ja|Nee|Onbekend)/g;
+            let ubiM;
+            while ((ubiM = ubiRe.exec(ubiSection)) !== null) {
+                const n = parseInt(ubiM[1]);
+                if (n >= 1 && n <= 10) ubiScores.push(n);
+            }
+            detail.ubiGte5 = ubiScores.length > 0 ? (Math.max(...ubiScores) >= 5 ? 'Ja' : ' ') : null;
+        } else {
+            detail.ubiGte5 = null;
+        }
+
         detailMap[code] = detail;
     }
 
@@ -581,7 +597,7 @@ export async function parseDocx(file, onProgress) {
             latestOnderzoekDatum: rapportDatumMap[code]?.latest ?? null,
             oldestOnderzoekDatum: rapportDatumMap[code]?.oldest ?? null,
 
-           ubiGte5: null,
+            ubiGte5: detail.ubiGte5 ?? null,
             aantalOnderzoeken: rapportDatumMap[code]?.count ?? null,
         };
 
