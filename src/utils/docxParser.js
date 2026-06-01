@@ -611,6 +611,19 @@ export async function parseDocx(file, onProgress) {
             if (/sanering|afperkend|spoedeisend/i.test(detail.vervolgactie)) loc.complex = true;
         }
 
+        // Extract UBI-klasse >= 5
+        var ubiIdx2 = sectionText.indexOf('ubi-klasse');
+        if (ubiIdx2 !== -1) {
+            var ubiSec = sectionText.slice(ubiIdx2, ubiIdx2 + 2000);
+            var ubiRe = /(\d{1,2})(?=Ja|Nee|Onbekend)/g;
+            var ubiM, ubiScores = [];
+            while ((ubiM = ubiRe.exec(ubiSec)) !== null) {
+                var ubiN = parseInt(ubiM[1]);
+                if (ubiN >= 1 && ubiN <= 10) ubiScores.push(ubiN);
+            }
+            loc.ubiGte5 = ubiScores.length > 0 ? (Math.max.apply(null, ubiScores) >= 5 ? 'Ja' : ' ') : null;
+        }
+
         // Parse adres for straatnaam/woonplaats if not from overview
         if (detail.adres) {
             // Format: "STRAATNAAM [HUISNUMMER] PLAATSNAAM"
