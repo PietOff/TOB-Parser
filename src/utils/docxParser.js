@@ -540,6 +540,13 @@ export async function parseDocx(file, onProgress) {
             }
         }
 
+        // DEBUG: log raw text around ubi-klasse and parsed activiteiten
+        const _ubiDbgIdx = sectionText.indexOf('ubi-klasse');
+        if (_ubiDbgIdx !== -1) {
+            console.log(`🐛 [UBI DEBUG ${code}] raw around ubi-klasse:\n${JSON.stringify(sectionText.slice(_ubiDbgIdx, _ubiDbgIdx + 500))}`);
+        }
+        console.log(`🐛 [UBI DEBUG ${code}] activiteiten parsed:`, JSON.stringify(detail.activiteiten));
+
         // Derive UBI >= 5 from already-parsed activiteiten (ubiKlasse field)
         if (detail.activiteiten.length > 0) {
             const maxUbi = Math.max(...detail.activiteiten.map(a => a.ubiKlasse).filter(n => !isNaN(n)));
