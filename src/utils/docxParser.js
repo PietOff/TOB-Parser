@@ -540,20 +540,26 @@ export async function parseDocx(file, onProgress) {
             }
         }
 
-        // Extract UBI-klasse >= 5 (sectionText is available here in STEP 2)
-        const ubiIdx = sectionText.indexOf('ubi-klasse');
-        if (ubiIdx !== -1) {
-            const ubiSection = sectionText.slice(ubiIdx, ubiIdx + 2000);
-            const ubiScores = [];
-            const ubiRe = /(\d{1,2})(?=Ja|Nee|Onbekend)/g;
-            let ubiM;
-            while ((ubiM = ubiRe.exec(ubiSection)) !== null) {
-                const n = parseInt(ubiM[1]);
-                if (n >= 1 && n <= 10) ubiScores.push(n);
-            }
-            detail.ubiGte5 = ubiScores.length > 0 ? (Math.max(...ubiScores) >= 5 ? 'Ja' : ' ') : null;
+        // Derive UBI >= 5 from already-parsed activiteiten (ubiKlasse field)
+        if (detail.activiteiten.length > 0) {
+            const maxUbi = Math.max(...detail.activiteiten.map(a => a.ubiKlasse).filter(n => !isNaN(n)));
+            detail.ubiGte5 = maxUbi >= 5 ? 'Ja' : ' ';
         } else {
-            detail.ubiGte5 = null;
+            // Fallback: scan raw text for UBI scores (number followed by optional whitespace then Ja/Nee/Onbekend)
+            const ubiIdx = sectionText.indexOf('ubi-klasse');
+            if (ubiIdx !== -1) {
+                const ubiSection = sectionText.slice(ubiIdx, ubiIdx + 2000);
+                const ubiScores = [];
+                const ubiRe = /(\d{1,2})\s*(?=Ja|Nee|Onbekend)/g;
+                let ubiM;
+                while ((ubiM = ubiRe.exec(ubiSection)) !== null) {
+                    const n = parseInt(ubiM[1]);
+                    if (n >= 1 && n <= 10) ubiScores.push(n);
+                }
+                detail.ubiGte5 = ubiScores.length > 0 ? (Math.max(...ubiScores) >= 5 ? 'Ja' : ' ') : null;
+            } else {
+                detail.ubiGte5 = null;
+            }
         }
 
         detailMap[code] = detail;
