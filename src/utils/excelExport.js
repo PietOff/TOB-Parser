@@ -22,7 +22,7 @@ function calcPrio(loc) {
     if (code.startsWith('ST'))      prio += 1;
     if (ubiGte5 === 'ja')           prio += 1;
     if (rapport === 'ja')           prio += 1;
-    if (!huisnr.trim())             prio += 1;
+    if (!huisnr.trim() || huisnr.trim() === '0') prio += 1;
     if (advies === 'wel')           prio += 1;
     if (isHbb && ubiGte5 !== 'ja')  prio -= 1;
 
