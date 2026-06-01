@@ -580,7 +580,19 @@ export async function parseDocx(file, onProgress) {
             rapportType: rapportDatumMap[code]?.rapportType ?? null,
             latestOnderzoekDatum: rapportDatumMap[code]?.latest ?? null,
             oldestOnderzoekDatum: rapportDatumMap[code]?.oldest ?? null,
-
+            ubiGte5: (function() {
+                var ubiIdx = sectionText.indexOf('ubi-klasse');
+                if (ubiIdx === -1) return null;
+                var ubiSection = sectionText.slice(ubiIdx, ubiIdx + 2000);
+                var re = /(\d{1,2})(?=Ja|Nee|Onbekend)/g;
+                var m, scores = [];
+                while ((m = re.exec(ubiSection)) !== null) {
+                    var n = parseInt(m[1]);
+                    if (n >= 1 && n <= 10) scores.push(n);
+                }
+                if (scores.length === 0) return null;
+                return Math.max.apply(null, scores) >= 5 ? 'Ja' : ' ';
+            }()),
            ubiGte5: null,
             aantalOnderzoeken: rapportDatumMap[code]?.count ?? null,
         };
@@ -609,19 +621,6 @@ export async function parseDocx(file, onProgress) {
         if (detail.vervolgactie) {
             loc.status = detail.vervolgactie;
             if (/sanering|afperkend|spoedeisend/i.test(detail.vervolgactie)) loc.complex = true;
-        }
-
-        // Extract UBI-klasse >= 5
-        var ubiIdx2 = sectionText.indexOf('ubi-klasse');
-        if (ubiIdx2 !== -1) {
-            var ubiSec = sectionText.slice(ubiIdx2, ubiIdx2 + 2000);
-            var ubiRe = /(\d{1,2})(?=Ja|Nee|Onbekend)/g;
-            var ubiM, ubiScores = [];
-            while ((ubiM = ubiRe.exec(ubiSec)) !== null) {
-                var ubiN = parseInt(ubiM[1]);
-                if (ubiN >= 1 && ubiN <= 10) ubiScores.push(ubiN);
-            }
-            loc.ubiGte5 = ubiScores.length > 0 ? (Math.max.apply(null, ubiScores) >= 5 ? 'Ja' : ' ') : null;
         }
 
         // Parse adres for straatnaam/woonplaats if not from overview
