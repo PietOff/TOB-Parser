@@ -540,12 +540,15 @@ export async function parseDocx(file, onProgress) {
             }
         }
 
-        // DEBUG: log raw text around ubi-klasse and parsed activiteiten
-        const _ubiDbgIdx = sectionText.indexOf('ubi-klasse');
-        if (_ubiDbgIdx !== -1) {
-            console.log(`🐛 [UBI DEBUG ${code}] raw around ubi-klasse:\n${JSON.stringify(sectionText.slice(_ubiDbgIdx, _ubiDbgIdx + 500))}`);
+        // DEBUG: log raw text around activiteiten section
+        const _actDbgIdx = sectionText.indexOf('Mogelijk onderzochte bodembedreigende activiteiten');
+        const _ubiDbgIdx = sectionText.toLowerCase().indexOf('ubi');
+        console.log(`🐛 [UBI DEBUG ${code}] actIdx=${_actDbgIdx} ubiIdx=${_ubiDbgIdx} activiteiten=${detail.activiteiten.length}`);
+        if (_actDbgIdx !== -1) {
+            console.log(`🐛 [UBI DEBUG ${code}] raw actBlock:\n${JSON.stringify(sectionText.slice(_actDbgIdx, _actDbgIdx + 600))}`);
+        } else if (_ubiDbgIdx !== -1) {
+            console.log(`🐛 [UBI DEBUG ${code}] raw ubi area:\n${JSON.stringify(sectionText.slice(_ubiDbgIdx, _ubiDbgIdx + 400))}`);
         }
-        console.log(`🐛 [UBI DEBUG ${code}] activiteiten parsed:`, JSON.stringify(detail.activiteiten));
 
         // Derive UBI >= 5 from already-parsed activiteiten (ubiKlasse field)
         if (detail.activiteiten.length > 0) {
