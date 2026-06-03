@@ -19,7 +19,7 @@ function calcPrio(loc) {
     const naam      = loc.locatienaam ?? '';
     const isHbb     = /hbb/i.test(naam);
 
-    if (code.startsWith('ST'))      prio += 1;
+    if (code.startsWith('ST'))      prio += 2;
     if (ubiGte5 === 'ja')           prio += 1;
     if (rapport === 'ja')           prio += 1;
     if (!huisnr.trim() || huisnr.trim() === '0') prio += 1;
