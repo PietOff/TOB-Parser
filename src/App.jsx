@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard';
 import UserManagement from './pages/UserManagement';
 import ProjectDetail from './pages/ProjectDetail';
 import ProjectsManager from './pages/ProjectsManager';
+import ProjectSelect from './pages/ProjectSelect';
 import './index.css';
 
 // Protect private routes from unauthenticated users
@@ -85,13 +86,21 @@ export default function App() {
                             </PrivateRoute>
                         } 
                     />
-                    <Route 
-                        path="/*" 
+                    <Route
+                        path="/"
+                        element={
+                            <PrivateRoute>
+                                <ProjectSelect />
+                            </PrivateRoute>
+                        }
+                    />
+                    <Route
+                        path="/*"
                         element={
                             <PrivateRoute>
                                 <Dashboard />
                             </PrivateRoute>
-                        } 
+                        }
                     />
                 </Routes>
             </BrowserRouter>
