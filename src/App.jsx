@@ -95,6 +95,14 @@ export default function App() {
                         }
                     />
                     <Route
+                        path="/dashboard"
+                        element={
+                            <PrivateRoute>
+                                <Dashboard />
+                            </PrivateRoute>
+                        }
+                    />
+                    <Route
                         path="/*"
                         element={
                             <PrivateRoute>

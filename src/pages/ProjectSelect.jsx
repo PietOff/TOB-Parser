@@ -33,7 +33,7 @@ export default function ProjectSelect() {
             }}>
                 {/* TAUW */}
                 <button
-                    onClick={() => navigate('/projecten')}
+                    onClick={() => navigate('/dashboard')}
                     style={{
                         width: 220,
                         height: 160,
