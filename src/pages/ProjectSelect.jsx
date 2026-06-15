@@ -125,14 +125,10 @@ export default function ProjectSelect() {
 
 function AbelTalentLogo() {
     return (
-        <svg width="220" height="56" viewBox="0 0 220 56" xmlns="http://www.w3.org/2000/svg">
-            {/* Rocket icon */}
-            <text x="0" y="42" fontSize="36">🚀</text>
-            {/* Abel */}
-            <text x="50" y="42" fontFamily="'Bitter', Georgia, serif" fontWeight="700" fontSize="36" fill="#1F261F">Abel</text>
-            {/* Talent in dark */}
-            <text x="128" y="42" fontFamily="'Bitter', Georgia, serif" fontWeight="700" fontSize="36" fill="#1F261F">Talent</text>
-        </svg>
+        <div style={{ fontFamily: "'Bitter', Georgia, serif", fontWeight: 700, fontSize: '2.4rem', lineHeight: 1 }}>
+            <span style={{ color: '#ffffff' }}>Abel</span>
+            <span style={{ color: '#1F261F' }}>Talent</span>
+        </div>
     );
 }
 
