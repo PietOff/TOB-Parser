@@ -14,9 +14,30 @@ export default function ProjectSelect() {
             gap: '2rem',
             padding: '2rem',
         }}>
-            {/* AbelTalent logo */}
-            <div style={{ marginBottom: '0.5rem' }}>
+            {/* AbelTalent banner */}
+            <div style={{
+                background: '#FFB81C',
+                borderRadius: 16,
+                padding: '2rem 3rem',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '0.5rem',
+                minWidth: 280,
+                boxShadow: '0 4px 32px rgba(255,184,28,0.18)',
+                marginBottom: '0.5rem',
+            }}>
                 <AbelTalentLogo />
+                <span style={{
+                    fontFamily: 'var(--font)',
+                    fontSize: '0.95rem',
+                    fontWeight: 600,
+                    color: '#1F261F',
+                    letterSpacing: '0.08em',
+                    textTransform: 'lowercase',
+                }}>
+                    ervaringsversnellers
+                </span>
             </div>
 
             <h1 style={{
@@ -104,13 +125,13 @@ export default function ProjectSelect() {
 
 function AbelTalentLogo() {
     return (
-        <svg width="200" height="52" viewBox="0 0 200 52" xmlns="http://www.w3.org/2000/svg">
-            {/* Yellow accent bar */}
-            <rect x="0" y="0" width="6" height="52" rx="3" fill="#FFB81C"/>
+        <svg width="220" height="56" viewBox="0 0 220 56" xmlns="http://www.w3.org/2000/svg">
+            {/* Rocket icon */}
+            <text x="0" y="42" fontSize="36">🚀</text>
             {/* Abel */}
-            <text x="18" y="34" fontFamily="'Bitter', Georgia, serif" fontWeight="700" fontSize="30" fill="#f0f2f0">Abel</text>
-            {/* Talent in accent blue */}
-            <text x="88" y="34" fontFamily="'Bitter', Georgia, serif" fontWeight="700" fontSize="30" fill="#424CF9">Talent</text>
+            <text x="50" y="42" fontFamily="'Bitter', Georgia, serif" fontWeight="700" fontSize="36" fill="#1F261F">Abel</text>
+            {/* Talent in dark */}
+            <text x="128" y="42" fontFamily="'Bitter', Georgia, serif" fontWeight="700" fontSize="36" fill="#1F261F">Talent</text>
         </svg>
     );
 }
