@@ -14,6 +14,11 @@ export default function ProjectSelect() {
             gap: '2rem',
             padding: '2rem',
         }}>
+            {/* AbelTalent logo */}
+            <div style={{ marginBottom: '0.5rem' }}>
+                <AbelTalentLogo />
+            </div>
+
             <h1 style={{
                 fontFamily: 'var(--font-heading)',
                 color: 'var(--text-primary)',
@@ -94,6 +99,19 @@ export default function ProjectSelect() {
                 </button>
             </div>
         </div>
+    );
+}
+
+function AbelTalentLogo() {
+    return (
+        <svg width="200" height="52" viewBox="0 0 200 52" xmlns="http://www.w3.org/2000/svg">
+            {/* Yellow accent bar */}
+            <rect x="0" y="0" width="6" height="52" rx="3" fill="#FFB81C"/>
+            {/* Abel */}
+            <text x="18" y="34" fontFamily="'Bitter', Georgia, serif" fontWeight="700" fontSize="30" fill="#f0f2f0">Abel</text>
+            {/* Talent in accent blue */}
+            <text x="88" y="34" fontFamily="'Bitter', Georgia, serif" fontWeight="700" fontSize="30" fill="#424CF9">Talent</text>
+        </svg>
     );
 }
 
