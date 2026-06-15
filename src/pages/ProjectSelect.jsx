@@ -62,7 +62,7 @@ export default function ProjectSelect() {
                     <TauwLogo />
                 </button>
 
-                {/* BK ingenieurs — no functionality yet */}
+                {/* Aelmans — no functionality yet */}
                 <button
                     disabled
                     style={{
@@ -80,7 +80,7 @@ export default function ProjectSelect() {
                         opacity: 0.5,
                     }}
                 >
-                    <BkLogo />
+                    <AelmansLogo />
                 </button>
             </div>
         </div>
@@ -102,16 +102,15 @@ function TauwLogo() {
     );
 }
 
-function BkLogo() {
+function AelmansLogo() {
     return (
-        <svg width="100" height="60" viewBox="0 0 140 80" xmlns="http://www.w3.org/2000/svg">
-            {/* Speech bubble */}
-            <rect x="2" y="2" width="100" height="64" rx="14" ry="14" fill="#0099cc"/>
-            <polygon points="20,66 36,66 20,80" fill="#0099cc"/>
-            {/* bk text */}
-            <text x="14" y="42" fontFamily="'Source Sans 3', sans-serif" fontWeight="700" fontSize="32" fill="white">bk</text>
-            {/* ingenieurs */}
-            <text x="108" y="50" fontFamily="'Source Sans 3', sans-serif" fontWeight="400" fontSize="13" fill="#0099cc">ingenieurs</text>
+        <svg width="160" height="70" viewBox="0 0 320 140" xmlns="http://www.w3.org/2000/svg">
+            {/* Teal stripe */}
+            <polygon points="20,62 180,30 210,48 50,80" fill="#008b9a"/>
+            {/* Green parallelogram */}
+            <polygon points="60,18 260,10 240,52 40,60" fill="#8dc63f"/>
+            {/* aelmans text */}
+            <text x="10" y="130" fontFamily="'Source Sans 3', sans-serif" fontWeight="400" fontSize="52" fill="#008b9a" letterSpacing="-1">aelmans</text>
         </svg>
     );
 }
