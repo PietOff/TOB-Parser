@@ -2,16 +2,13 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const PROVINCIES = [
-    'Drenthe', 'Flevoland', 'Friesland', 'Gelderland', 'Groningen',
-    'Limburg', 'Noord-Brabant', 'Noord-Holland', 'Overijssel',
-    'Utrecht', 'Zeeland', 'Zuid-Holland',
+    'Noord-Brabant',
+    'Limburg',
 ];
 
 const UITVOERDERS = [
-    'Aelmans Milieu en Omgeving',
-    'Aelmans Ruimte en Vastgoed',
-    'Aelmans Bodem',
-    'Anders',
+    'Synfra',
+    'BDOK',
 ];
 
 export default function AelmansForm() {
