@@ -7,6 +7,7 @@ import UserManagement from './pages/UserManagement';
 import ProjectDetail from './pages/ProjectDetail';
 import ProjectsManager from './pages/ProjectsManager';
 import ProjectSelect from './pages/ProjectSelect';
+import AelmansForm from './pages/AelmansForm';
 import './index.css';
 
 // Protect private routes from unauthenticated users
@@ -91,6 +92,14 @@ export default function App() {
                         element={
                             <PrivateRoute>
                                 <ProjectSelect />
+                            </PrivateRoute>
+                        }
+                    />
+                    <Route
+                        path="/aelmans"
+                        element={
+                            <PrivateRoute>
+                                <AelmansForm />
                             </PrivateRoute>
                         }
                     />

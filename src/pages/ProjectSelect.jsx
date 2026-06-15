@@ -62,22 +62,32 @@ export default function ProjectSelect() {
                     <TauwLogo />
                 </button>
 
-                {/* Aelmans — no functionality yet */}
+                {/* Aelmans */}
                 <button
-                    disabled
+                    onClick={() => navigate('/aelmans')}
                     style={{
                         width: 220,
                         height: 160,
                         background: 'var(--bg-card)',
                         border: '2px solid var(--border)',
                         borderRadius: 'var(--radius)',
-                        cursor: 'not-allowed',
+                        cursor: 'pointer',
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
                         justifyContent: 'center',
                         gap: '1rem',
-                        opacity: 0.5,
+                        transition: 'border-color 0.2s, background 0.2s, transform 0.15s',
+                    }}
+                    onMouseEnter={e => {
+                        e.currentTarget.style.borderColor = '#008b9a';
+                        e.currentTarget.style.background = 'var(--bg-card-hover)';
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                    }}
+                    onMouseLeave={e => {
+                        e.currentTarget.style.borderColor = 'var(--border)';
+                        e.currentTarget.style.background = 'var(--bg-card)';
+                        e.currentTarget.style.transform = 'translateY(0)';
                     }}
                 >
                     <AelmansLogo />
