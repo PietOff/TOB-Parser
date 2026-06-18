@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { parseBdok, parseBodemrapportage } from '../utils/bdokParser';
+import { parseBdok, parseBodemrapportage, renderPdfPageToJpeg } from '../utils/bdokParser';
 import { fillAelmansTemplate, downloadBlob } from '../utils/aelmansDocFiller';
 
 const PROVINCIES = ['Noord-Brabant', 'Limburg'];
@@ -30,9 +30,11 @@ export default function AelmansForm() {
         tekening: null,
         bodem: null,
     });
+    // Pre-rendered tekening image (JPEG blob + dimensions) for PDF tekenings
+    const [tekeningImage, setTekeningImage] = useState(null);
 
     const [parsing, setParsing] = useState({ quickscan: false, bodem: false });
-    const [parseStatus, setParseStatus] = useState({ quickscan: '', bodem: '' });
+    const [parseStatus, setParseStatus] = useState({ quickscan: '', bodem: '', tekening: '' });
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
 
@@ -84,6 +86,22 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
             }
         }
 
+        if (key === 'tekening' && file.name.toLowerCase().endsWith('.pdf')) {
+            setParseStatus(prev => ({ ...prev, tekening: 'PDF renderen...' }));
+            try {
+                const result = await renderPdfPageToJpeg(file);
+                setTekeningImage(result);
+                setParseStatus(prev => ({ ...prev, tekening: '✓ Omgezet naar afbeelding' }));
+            } catch (err) {
+                setTekeningImage(null);
+                setParseStatus(prev => ({ ...prev, tekening: `⚠ ${err.message}` }));
+            }
+        } else if (key === 'tekening') {
+            // Regular image — convert to blob/dimensions for embedding
+            setTekeningImage(null); // will be handled from file directly in submit
+            setParseStatus(prev => ({ ...prev, tekening: '' }));
+        }
+
         if (key === 'bodem' && file.name.toLowerCase().endsWith('.pdf')) {
             setParsing(prev => ({ ...prev, bodem: true }));
             setParseStatus(prev => ({ ...prev, bodem: 'PDF laden...' }));
@@ -109,6 +127,23 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
         setError('');
         try {
             const bdokData = form._bdokData || {};
+
+            // Resolve tekening image: PDF already pre-rendered, images read directly
+            let tekening = tekeningImage; // { blob, widthPx, heightPx } or null
+            if (!tekening && files.tekening && !files.tekening.name.toLowerCase().endsWith('.pdf')) {
+                // Regular image file — create an Image to get dimensions
+                const imgUrl = URL.createObjectURL(files.tekening);
+                tekening = await new Promise((resolve) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        resolve({ blob: files.tekening, widthPx: img.naturalWidth, heightPx: img.naturalHeight });
+                        URL.revokeObjectURL(imgUrl);
+                    };
+                    img.onerror = () => { URL.revokeObjectURL(imgUrl); resolve(null); };
+                    img.src = imgUrl;
+                });
+            }
+
             const filled = await fillAelmansTemplate(files.template, {
                 straatnaam:        form.straatnaam,
                 huisnummer:        form.huisnummer,
@@ -123,7 +158,9 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                 uitvoerder:        form.uitvoerder || 'Synfra/BDOK',
                 amvNummer:         bdokData.amvNummer || '',
                 hasBodemrapportage: !!files.bodem,
+                bodemtype:         bdokData.bodemtype || '',
                 jaar:              new Date().getFullYear(),
+                tekening,          // { blob, widthPx, heightPx } or null
             });
 
             const address = [form.straatnaam, form.huisnummer, form.plaatsnaam].filter(Boolean).join(' ');
@@ -202,11 +239,13 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                 />
 
                 <UploadField
-                    label="Tekening onderzoekslocatie (afbeelding)"
-                    accept=".png,.jpg,.jpeg,.tif,.tiff"
+                    label="Tekening onderzoekslocatie"
+                    accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff"
+                    status={parseStatus.tekening}
                     file={files.tekening}
                     inputRef={fileRefs.tekening}
                     onChange={(f) => handleFile('tekening', f)}
+                    hint="PDF of afbeelding — wordt automatisch in Bijlage 1 geplaatst"
                 />
 
                 <UploadField

@@ -80,6 +80,11 @@ function xmlEsc(s) {
  * @param {File} templateFile
  * @param {Object} values
  */
+/** Build the <w:drawing> inline image XML for a given relationship ID and EMU dimensions */
+function inlineDrawingXml(rId, cxEmu, cyEmu) {
+    return `<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="${cxEmu}" cy="${cyEmu}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="99" name="Tekening"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="99" name="Tekening"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cxEmu}" cy="${cyEmu}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>`;
+}
+
 export async function fillAelmansTemplate(templateFile, values) {
     const arrayBuffer = await templateFile.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
@@ -98,7 +103,9 @@ export async function fillAelmansTemplate(templateFile, values) {
         contactpersoon = '',
         uitvoerder = '',
         amvNummer = '',
+        bodemtype = '',         // e.g. "Landbouw/Natuur"
         jaar = new Date().getFullYear(),
+        tekening = null,        // { blob, widthPx, heightPx } or null
     } = values;
 
     // Dutch-format numbers (dot→comma)
@@ -220,6 +227,43 @@ export async function fillAelmansTemplate(templateFile, values) {
     // AMV nummer in header/title
     if (amvNummer) {
         xml = xml.split('AMV261626.001').join(amvNummer);
+    }
+
+    // Comment 71: BKK bodemtype — replace only the first run "Landbouw/Natuur",
+    // leave surrounding text "' (zie BDOK)." runs unchanged
+    if (bodemtype) {
+        xml = xml.replace(
+            /(<w:commentRangeStart w:id="71"\/>.*?<w:t[^>]*>)Landbouw\/Natuur(<\/w:t>)/s,
+            `$1${xmlEsc(bodemtype)}$2`
+        );
+    }
+
+    // ── Tekening embedding (comment 89 — Bijlage 1) ──────────────────────────
+    if (tekening) {
+        const tekeningRId = 'rId41';
+        const imgArrayBuffer = await tekening.blob.arrayBuffer();
+
+        // Scale to max page width 160mm = 5 760 000 EMU, keeping aspect ratio
+        const maxCx = 5_760_000;
+        const ratio = tekening.heightPx / tekening.widthPx;
+        const cxEmu = maxCx;
+        const cyEmu = Math.round(maxCx * ratio);
+
+        // Add image to zip
+        zip.file('word/media/tekening.jpg', imgArrayBuffer);
+
+        // Add relationship
+        let rels = await zip.file('word/_rels/document.xml.rels').async('string');
+        const newRel = `<Relationship Id="${tekeningRId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tekening.jpg"/>`;
+        rels = rels.replace('</Relationships>', `${newRel}</Relationships>`);
+        zip.file('word/_rels/document.xml.rels', rels);
+
+        // Insert drawing run into the comment 89 paragraph (before commentRangeEnd)
+        const drawingRun = `<w:r>${inlineDrawingXml(tekeningRId, cxEmu, cyEmu)}</w:r>`;
+        xml = xml.replace(
+            '<w:commentRangeEnd w:id="89"/>',
+            `${drawingRun}<w:commentRangeEnd w:id="89"/>`
+        );
     }
 
     zip.file('word/document.xml', xml);

@@ -259,3 +259,33 @@ export async function parseBodemrapportage(file, onProgress) {
 
     return result;
 }
+
+/**
+ * Render the first page of a PDF file to a JPEG blob.
+ * Used to convert a tekening PDF into an embeddable image.
+ * Returns { blob, widthPx, heightPx }
+ */
+export async function renderPdfPageToJpeg(file, scaleFactor = 2) {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: scaleFactor });
+
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d');
+
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    return new Promise((resolve, reject) => {
+        canvas.toBlob(
+            (blob) => {
+                if (blob) resolve({ blob, widthPx: canvas.width, heightPx: canvas.height });
+                else reject(new Error('Canvas toBlob failed'));
+            },
+            'image/jpeg',
+            0.92,
+        );
+    });
+}
