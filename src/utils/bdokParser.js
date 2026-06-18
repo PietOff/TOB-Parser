@@ -42,10 +42,12 @@ export async function parseBdok(file, onProgress) {
         gemeente: '',
         // Project fields
         amvNummer: '',
+        betalingskenmerk: '',
+        aanvrager: '',
         sleuflengte: '',
         ontgravingsdiepte: '',
         isGroterDan25m3: null,    // true/false/null
-        grondwaterstand: '',      // e.g. "1,0 m-mv"
+        grondwaterstand: '',      // numeric string m-mv
         bodemtype: '',            // Landbouw/Natuur etc.
         typeVerharding: '',
         // Calculated
@@ -59,6 +61,14 @@ export async function parseBdok(file, onProgress) {
     // ── AMV nummer ──
     const amvMatch = fullText.match(/\b(AMV\d{6,}(?:\.\d+)?)\b/i);
     if (amvMatch) result.amvNummer = amvMatch[1];
+
+    // ── Betalingskenmerk / project ID ──
+    const betalingMatch = fullText.match(/Betalingskenmerk:\s*(\d+)/i);
+    if (betalingMatch) result.betalingskenmerk = betalingMatch[1];
+
+    // ── Aanvrager ──
+    const aanvragerMatch = fullText.match(/Aanvrager:\s*([^\n]+)/);
+    if (aanvragerMatch) result.aanvrager = aanvragerMatch[1].trim();
 
     // ── Address from title / header ──
     // BDOK often has: "Locatie: Straat Huisnummer te Plaatsnaam"
@@ -77,71 +87,95 @@ export async function parseBdok(file, onProgress) {
     }
 
     // ── Gemeente ──
+    // Avoid matching generic phrases like "gemeente" in bodemkwaliteitskaart descriptions
     const gemeentePatterns = [
-        /[Gg]emeente[:\s]+([A-Za-z][A-Za-zéèêëàáâùúûüïîíìöôóò\s\-]+?)(?:\s*[\n,]|$)/,
-        /[Gg]emeente\s+([A-Z][a-z][A-Za-z\s\-]+?)(?:\s*[\n,]|$)/,
+        /[Gg]emeente[:\s]+([A-Z][a-z][A-Za-zéèêëàáâùúûüïîíìöôóò\-]+(?:\s+[A-Za-z][A-Za-zéèêëàáâùúûüïîíìöôóò\-]+){0,3})(?=\s*[\n,\.])/,
     ];
     for (const pat of gemeentePatterns) {
         const m = fullText.match(pat);
-        if (m && m[1].trim().length > 1 && m[1].trim().length < 60) {
+        if (m && m[1].trim().length > 2 && m[1].trim().length < 50) {
             result.gemeente = m[1].trim();
             break;
         }
     }
 
-    // ── Sleuflengte ──
-    const sleufPatterns = [
-        /(?:lengte|sleuflengte|tracélengte|tracé\s*lengte)[^\d]*(\d+(?:[,\.]\d+)?)\s*(?:m(?:eter)?)\b/i,
-        /(\d+(?:[,\.]\d+)?)\s*(?:m(?:eter)?)\s*(?:lang|lengte)/i,
-    ];
-    for (const pat of sleufPatterns) {
-        const m = fullText.match(pat);
-        if (m) {
-            result.sleuflengte = m[1].replace(',', '.');
-            break;
-        }
+    // ── Ontgravingsdiepte ──
+    // BDOK cover format: "Ontgravingsdiepte: 120 cm" (centimetres) or "X m-mv"
+    const ontgravingCm = fullText.match(/Ontgravingsdiepte:\s*(\d+(?:[,\.]\d+)?)\s*cm/i);
+    const ontgravingM = fullText.match(/Ontgravingsdiepte:\s*(\d+(?:[,\.]\d+)?)\s*m(?!\w)/i);
+    if (ontgravingCm) {
+        result.ontgravingsdiepte = (parseFloat(ontgravingCm[1]) / 100).toFixed(2);
+    } else if (ontgravingM) {
+        result.ontgravingsdiepte = parseFloat(ontgravingM[1].replace(',', '.')).toFixed(2);
+    } else {
+        // Fallback to older patterns (m-mv mentions elsewhere)
+        const mMatch = fullText.match(/(?:graafdiepte|maximale\s+ontgravingsdiepte)[^\d]*(\d+(?:[,\.]\d+)?)\s*m(?:-mv)?/i);
+        if (mMatch) result.ontgravingsdiepte = mMatch[1].replace(',', '.');
     }
 
-    // ── Ontgravingsdiepte ──
-    const ontgravingsPatterns = [
-        /(?:ontgravingsdiepte|graafdiepte|maximale\s+ontgravingsdiepte)[^\d]*(\d+(?:[,\.]\d+)?)\s*m(?:-mv)?/i,
-        /(?:diepte)[^\d]*(\d+(?:[,\.]\d+)?)\s*m-mv/i,
-    ];
-    for (const pat of ontgravingsPatterns) {
-        const m = fullText.match(pat);
-        if (m) {
-            result.ontgravingsdiepte = m[1].replace(',', '.');
-            break;
-        }
+    // ── Sleuflengte ──
+    // BDOK cover: "lengte: X m" — only meaningful if > 0 (0 means point location)
+    const sleufCoverMatch = fullText.match(/\blengte:\s*(\d+(?:[,\.]\d+)?)\s*m\b/i);
+    if (sleufCoverMatch) {
+        const len = parseFloat(sleufCoverMatch[1].replace(',', '.'));
+        if (len > 0) result.sleuflengte = String(len);
+    }
+    if (!result.sleuflengte) {
+        // Try other patterns (tracélengte, sleuflengte mentions)
+        const sleufAlt = fullText.match(/(?:sleuflengte|tracélengte|tracé\s*lengte)[^\d]*(\d+(?:[,\.]\d+)?)\s*m(?:eter)?\b/i);
+        if (sleufAlt) result.sleuflengte = sleufAlt[1].replace(',', '.');
     }
 
     // ── >25 m³ ──
-    if (/>25\s*m[³3]/i.test(fullText) || /meer\s+dan\s+25\s*m[³3]/i.test(fullText)) {
-        result.isGroterDan25m3 = true;
-    } else if (/<25\s*m[³3]/i.test(fullText) || /minder\s+dan\s+25\s*m[³3]/i.test(fullText) || /maximaal\s+25\s*m[³3]/i.test(fullText)) {
-        result.isGroterDan25m3 = false;
+    // BDOK cover: ">25 m3: Nee" — must check the Ja/Nee after the marker, not just presence
+    const m3CoverMatch = fullText.match(/>25\s*m[³3]:\s*(Ja|Nee)/i);
+    const m3TableMatch = fullText.match(/Graafactiviteit meer dan 25\s*m[³3]\?\s*(Ja|Nee)/i);
+    if (m3CoverMatch) {
+        result.isGroterDan25m3 = m3CoverMatch[1].toLowerCase() === 'ja';
+    } else if (m3TableMatch) {
+        result.isGroterDan25m3 = m3TableMatch[1].toLowerCase() === 'ja';
+    }
+
+    // ── Bemaling — derived from "Contact met grondwater" question in Quickscan table ──
+    // Try inline (pdfjs-dist row-order extraction): "...werkzaamheden? Nee"
+    const gwContactInline = fullText.match(/Contact met grondwater verwacht[^?]*\?\s*(Ja|Nee)/i);
+    if (gwContactInline) {
+        const isJa = gwContactInline[1].toLowerCase() === 'ja';
+        result.bemaling = isJa ? 'Ter plaatse beoordelen' : 'Nee';
+    } else {
+        // Fallback: positional — first value after "Ja/Nee" header in table
+        const jaNeeSectionMatch = fullText.match(/Ja\/Nee\s+((?:(?:Ja|Nee)\s*)+)/i);
+        if (jaNeeSectionMatch) {
+            const firstVal = jaNeeSectionMatch[1].trim().split(/\s+/)[0];
+            if (firstVal) result.bemaling = firstVal.toLowerCase() === 'ja' ? 'Ter plaatse beoordelen' : 'Nee';
+        }
     }
 
     // ── Grondwaterstand (GWS) from paragraph 2.1 ──
+    // The BDOK §2.1 shows a map with GWS bands; try to find a specific value in the text.
+    // Only match explicit "circa X m-mv" mentions, not map legend ranges.
     const gwsPatterns = [
-        /(?:grondwater(?:stand)?|gws|stijghoogte)[^\d]*(?:circa\s*)?(\d+(?:[,\.]\d+)?)\s*m[-\s]?(?:\+NAP|-mv)/i,
-        /(?:grondwater(?:stand)?|gws)[^\d]*(?:op\s*)?(?:circa\s*)?(\d+(?:[,\.]\d+)?)\s*m(?:-mv)?/i,
-        /(?:2\.1[^.]{0,200})(?:circa\s+)?(\d+(?:[,\.]\d+)?)\s*m[-\s]?(?:\+NAP|-mv)/is,
+        /(?:grondwater(?:stand)?|GHG|gws)[^.]*?(?:circa\s+)?(\d+(?:[,\.]\d+)?)\s*m-mv/i,
+        /(?:2\.1[^.]{0,300})(?:circa\s+)?(\d+(?:[,\.]\d+)?)\s*m[-\s]?(?:\+NAP|-mv)/is,
     ];
     for (const pat of gwsPatterns) {
         const m = fullText.match(pat);
         if (m) {
-            result.grondwaterstand = m[1].replace(',', '.');
-            break;
+            const val = parseFloat(m[1].replace(',', '.'));
+            // Sanity check: GWS should be between 0.1 and 10 m-mv
+            if (!isNaN(val) && val >= 0.1 && val <= 10) {
+                result.grondwaterstand = val.toFixed(1);
+                break;
+            }
         }
     }
 
     // ── Bodemtype / background value ──
     if (/landbouw\s*\/?\s*natuur/i.test(fullText)) {
         result.bodemtype = 'Landbouw/Natuur';
-    } else if (/wonen/i.test(fullText)) {
+    } else if (/\bwonen\b/i.test(fullText)) {
         result.bodemtype = 'Wonen';
-    } else if (/industrie/i.test(fullText)) {
+    } else if (/\bindustrie\b/i.test(fullText)) {
         result.bodemtype = 'Industrie';
     }
 

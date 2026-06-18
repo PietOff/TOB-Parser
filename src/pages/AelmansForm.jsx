@@ -58,15 +58,17 @@ export default function AelmansForm() {
                 );
                 setForm(prev => ({
                     ...prev,
-                    straatnaam:       data.straatnaam      || prev.straatnaam,
-                    huisnummer:       data.huisnummer      || prev.huisnummer,
-                    plaatsnaam:       data.plaatsnaam      || prev.plaatsnaam,
-                    gemeente:         data.gemeente        || prev.gemeente,
-                    sleuflengte:      data.sleuflengte     || prev.sleuflengte,
+                    straatnaam:        data.straatnaam        || prev.straatnaam,
+                    huisnummer:        data.huisnummer        || prev.huisnummer,
+                    plaatsnaam:        data.plaatsnaam        || prev.plaatsnaam,
+                    gemeente:          data.gemeente          || prev.gemeente,
+                    sleuflengte:       data.sleuflengte       || prev.sleuflengte,
                     ontgravingsdiepte: data.ontgravingsdiepte || prev.ontgravingsdiepte,
-                    grondwaterstand:  data.grondwaterstand || prev.grondwaterstand,
-                    bemaling:         data.bemaling        || prev.bemaling,
-                    _bdokData:        data,
+                    grondwaterstand:   data.grondwaterstand   || prev.grondwaterstand,
+                    bemaling:          data.bemaling          || prev.bemaling,
+                    // Pre-fill contactpersoon from aanvrager if not yet set
+                    contactpersoon:    prev.contactpersoon || data.aanvrager || '',
+                    _bdokData:         data,
                 }));
                 setParseStatus(prev => ({ ...prev, quickscan: '✓ Ingelezen' }));
             } catch (err) {
@@ -114,7 +116,8 @@ export default function AelmansForm() {
                 contactpersoon:    form.contactpersoon,
                 uitvoerder:        form.uitvoerder || 'Synfra/BDOK',
                 amvNummer:         bdokData.amvNummer || '',
-                bodemrapportageNaam: files.bodem?.name || '',
+                hasBodemrapportage: !!files.bodem,
+                jaar:              new Date().getFullYear(),
             });
 
             const address = [form.straatnaam, form.huisnummer, form.plaatsnaam].filter(Boolean).join(' ');
