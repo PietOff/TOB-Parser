@@ -88,15 +88,23 @@ export async function parseBdok(file, onProgress) {
     }
 
     // ── Gemeente ──
-    // Avoid matching generic phrases like "gemeente" in bodemkwaliteitskaart descriptions
+    // BDOK PDFs rarely have "Gemeente: X" directly — try several patterns in order of reliability
     const gemeentePatterns = [
-        /[Gg]emeente[:\s]+([A-Z][a-z][A-Za-zéèêëàáâùúûüïîíìöôóò\-]+(?:\s+[A-Za-z][A-Za-zéèêëàáâùúûüïîíìöôóò\-]+){0,3})(?=\s*[\n,\.])/,
+        // "gemeente Venloa" / "gemeente Nederweert" — most common in BDOK text
+        /\bgemeente\s+([A-Z][A-Za-zéèêëàáâùúûüïîíìöôóò][A-Za-zéèêëàáâùúûüïîíìöôóò\s\-]{1,40}?)(?=[\s,;\.\n])/,
+        // "te Plaatsnaam" from address line — fallback (plaatsnaam ≈ gemeente for small towns)
+        /\bte\s+([A-Z][A-Za-zéèêëàáâùúûüïîíìöôóò][A-Za-zéèêëàáâùúûüïîíìöôóò\-]+(?:\s?-\s?[A-Za-z]+)?)\b/,
     ];
     for (const pat of gemeentePatterns) {
         const m = fullText.match(pat);
-        if (m && m[1].trim().length > 2 && m[1].trim().length < 50) {
-            result.gemeente = m[1].trim();
-            break;
+        if (m) {
+            const name = m[1].trim();
+            // Skip generic words that aren't actual municipality names
+            const skip = /^(Bron|Naam|Locatie|Bevoegd|Gezag|Info|Data)$/i.test(name);
+            if (!skip && name.length > 2 && name.length < 50) {
+                result.gemeente = name;
+                break;
+            }
         }
     }
 

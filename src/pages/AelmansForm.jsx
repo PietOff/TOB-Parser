@@ -4,7 +4,7 @@ import { parseBdok, parseBodemrapportage, renderPdfPageToJpeg } from '../utils/b
 import { fillAelmansTemplate, downloadBlob } from '../utils/aelmansDocFiller';
 
 const PROVINCIES = ['Noord-Brabant', 'Limburg'];
-const UITVOERDERS = ['Synfra', 'BDOK'];
+const UITVOERDERS = ['Synfra/BDOK', 'Synfra', 'BDOK'];
 
 export default function AelmansForm() {
     const navigate = useNavigate();
@@ -119,7 +119,7 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
         }
     };
 
-    const canSubmit = files.quickscan && files.template && form.gemeente && !submitting;
+    const canSubmit = files.quickscan && files.template && !submitting;
 
     const handleSubmit = async () => {
         if (!canSubmit) return;
@@ -344,7 +344,7 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                     <button
                         onClick={handleSubmit}
                         disabled={!canSubmit}
-                        title={!files.quickscan ? 'Upload eerst de quick scan' : !files.template ? 'Upload eerst de basistemplate' : !form.gemeente ? 'Vul gemeente in' : ''}
+                        title={!files.quickscan ? 'Upload eerst de quick scan' : !files.template ? 'Upload eerst de basistemplate' : ''}
                         style={{
                             width: '100%',
                             padding: '0.85rem',
@@ -363,7 +363,7 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                     </button>
                     {!canSubmit && !submitting && (
                         <p style={{ textAlign: 'center', margin: '0.5rem 0 0', fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'var(--font)' }}>
-                            {!files.quickscan ? 'Quick scan vereist' : !files.template ? 'Basistemplate vereist' : 'Gemeente vereist'}
+                            {!files.quickscan ? 'Quick scan vereist' : 'Basistemplate vereist'}
                         </p>
                     )}
                 </div>
