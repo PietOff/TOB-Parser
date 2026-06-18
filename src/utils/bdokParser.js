@@ -160,19 +160,23 @@ export async function parseBdok(file, onProgress) {
         }
     }
 
-    // ── Grondwaterstand (GWS) from paragraph 2.1 ──
-    // The BDOK §2.1 shows a map with GWS bands; try to find a specific value in the text.
-    // Only match explicit "circa X m-mv" mentions, not map legend ranges.
+    // ── Grondwaterstand (GWS) from paragraph 2.1 / grondwaterstandenkaart ──
+    // BDOK grondwaterstandenkaart gives a range: "DN 2,5 - 4,5 m-mv" or "GHG 1,0 - 2,0 m-mv"
+    // Use the minimum (shallowest) value for conservative dewatering assessment.
     const gwsPatterns = [
+        // BDOK grondwaterstandenkaart range: "DN X - Y m-mv" / "GHG X - Y m-mv"
+        /\b(?:DN|GHG|GLG)\s*[:\s]*(\d+(?:[,\.]\d+)?)\s*[-–]\s*\d+(?:[,\.]\d+)?\s*m\s*-\s*mv/i,
+        // Single m-mv value near grondwater keywords
         /(?:grondwater(?:stand)?|GHG|gws)[^.]*?(?:circa\s+)?(\d+(?:[,\.]\d+)?)\s*m-mv/i,
+        // Fallback: section 2.1 context
         /(?:2\.1[^.]{0,300})(?:circa\s+)?(\d+(?:[,\.]\d+)?)\s*m[-\s]?(?:\+NAP|-mv)/is,
     ];
     for (const pat of gwsPatterns) {
         const m = fullText.match(pat);
         if (m) {
             const val = parseFloat(m[1].replace(',', '.'));
-            // Sanity check: GWS should be between 0.1 and 10 m-mv
-            if (!isNaN(val) && val >= 0.1 && val <= 10) {
+            // Sanity check: GWS should be between 0.1 and 15 m-mv
+            if (!isNaN(val) && val >= 0.1 && val <= 15) {
                 result.grondwaterstand = val.toFixed(1);
                 break;
             }

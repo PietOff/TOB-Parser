@@ -23,8 +23,11 @@
  *  55     "Synfra/BDOK."                      → uitvoerder (form, with dot)
  *  58     "XXX" in tracé paragraph            → sleuflengte (BDOK cover)
  *  70     "bodemfunctieklassenkaart (jaartal) van gemeente" → gemeente + year
+ *  64     "Op" (yellow highlight)              → strip highlight (cosmetic cleanup)
  *  74     "(benoemen, datum)"                 → pfasBkk (form, optional)
- *  79     "XXX" in grondwater paragraph       → grondwaterstand (BDOK §2.1)
+ *  79     "XXX" in "circa XXX m +NAP"         → grondwaterstand (BDOK §2.1)
+ *  80     " " space before "op meer dan"      → grondwaterstand m-mv
+ *  83     yellow/cyan conditional paragraph   → remove inapplicable GWO text
  *  39     revision table                      → remove, keep "Niet van toepassing."
  */
 import JSZip from 'jszip';
@@ -67,6 +70,36 @@ function replaceInCommentRange(xml, commentId, newText) {
         return `<w:t${attrs}><\/w:t>`;
     });
     return before + newRegion + after;
+}
+
+/** Remove all <w:r> runs with a specific highlight color within a comment range */
+function removeColoredRunsInRange(xml, commentId, highlightColor) {
+    const start = `<w:commentRangeStart w:id="${commentId}"/>`;
+    const end = `<w:commentRangeEnd w:id="${commentId}"/>`;
+    const si = xml.indexOf(start);
+    const ei = xml.indexOf(end);
+    if (si === -1 || ei === -1) return xml;
+    const before = xml.slice(0, si + start.length);
+    let region = xml.slice(si + start.length, ei);
+    const after = xml.slice(ei);
+    region = region.replace(/<w:r\b[^>]*>[\s\S]*?<\/w:r>/g, (match) =>
+        match.includes(`<w:highlight w:val="${highlightColor}"/>`) ? '' : match
+    );
+    return before + region + after;
+}
+
+/** Strip all <w:highlight> formatting within a comment range (removes the highlight, keeps text) */
+function removeHighlightsInRange(xml, commentId) {
+    const start = `<w:commentRangeStart w:id="${commentId}"/>`;
+    const end = `<w:commentRangeEnd w:id="${commentId}"/>`;
+    const si = xml.indexOf(start);
+    const ei = xml.indexOf(end);
+    if (si === -1 || ei === -1) return xml;
+    const before = xml.slice(0, si + start.length);
+    let region = xml.slice(si + start.length, ei);
+    const after = xml.slice(ei);
+    region = region.replace(/<w:highlight\b[^/]*\/>/g, '');
+    return before + region + after;
 }
 
 function xmlEsc(s) {
@@ -244,6 +277,27 @@ export async function fillAelmansTemplate(templateFile, values) {
 
     // Comment 79: "XXX" in "circa XXX m +NAP" groundwater paragraph → grondwaterstand
     if (gwsNL) xml = replaceInCommentRange(xml, 79, gwsNL);
+
+    // Comment 80: space between "bevindt zich" and "op meer dan 0,25 m-mv" → GWS in m-mv
+    if (gwsNL) xml = replaceInCommentRange(xml, 80, `circa ${gwsNL} m-mv`);
+
+    // Comment 83: conditional grondwateronderzoek paragraph
+    // Yellow = "geen GWO nodig" (GWS deep enough, >0.25m below excavation)
+    // Cyan  = "geen GWO nodig" (cable/pipe work, no GW contact)
+    // Remove the inapplicable version based on GWS vs ontgravingsdiepte
+    {
+        const gws83 = parseFloat(grondwaterstand);
+        const diepte83 = parseFloat(ontgravingsdiepte);
+        if (!isNaN(gws83) && !isNaN(diepte83)) {
+            const diff = gws83 - diepte83;
+            // > 0.25m below: yellow applies → remove cyan; otherwise remove yellow
+            const removeColor = diff > 0.25 ? 'cyan' : 'yellow';
+            xml = removeColoredRunsInRange(xml, 83, removeColor);
+        }
+    }
+
+    // Comment 64: terreininspectie — strip yellow highlight from "Op" run (cosmetic marker)
+    xml = removeHighlightsInRange(xml, 64);
 
     // Comment 90: second "Synfra/BDOK" (cyan conditional block) → uitvoerder
     if (uitvoerder) xml = replaceInCommentRange(xml, 90, uitvoerder);
