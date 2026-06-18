@@ -23,7 +23,9 @@
  *  55     "Synfra/BDOK."                      → uitvoerder (form, with dot)
  *  58     "XXX" in tracé paragraph            → sleuflengte (BDOK cover)
  *  70     "bodemfunctieklassenkaart (jaartal) van gemeente" → gemeente + year
+ *  74     "(benoemen, datum)"                 → pfasBkk (form, optional)
  *  79     "XXX" in grondwater paragraph       → grondwaterstand (BDOK §2.1)
+ *  39     revision table                      → remove, keep "Niet van toepassing."
  */
 import JSZip from 'jszip';
 
@@ -104,6 +106,7 @@ export async function fillAelmansTemplate(templateFile, values) {
         uitvoerder = '',
         amvNummer = '',
         bodemtype = '',         // e.g. "Landbouw/Natuur"
+        pfasBkk = '',           // PFAS BKK reference "(naam, datum)"
         jaar = new Date().getFullYear(),
         tekening = null,        // { blob, widthPx, heightPx } or null
     } = values;
@@ -188,6 +191,32 @@ export async function fillAelmansTemplate(templateFile, values) {
 
     // Comment 38: "gemeente" → gemeente lowercase
     if (gemeente) xml = replaceInCommentRange(xml, 38, gemeente.toLowerCase());
+
+    // Comment 39: Remove revision table — keep only "Niet van toepassing." paragraph
+    {
+        const startTag39 = '<w:commentRangeStart w:id="39"/>';
+        const endTag39 = '<w:commentRangeEnd w:id="39"/>';
+        const si = xml.indexOf(startTag39);
+        const ei = xml.indexOf(endTag39);
+        if (si !== -1 && ei !== -1) {
+            const before = xml.slice(0, si + startTag39.length);
+            let region = xml.slice(si + startTag39.length, ei);
+            const after = xml.slice(ei);
+            // Remove the revision table element entirely
+            region = region.replace(/<w:tbl\b[\s\S]*?<\/w:tbl>/g, '');
+            // Remove empty self-closing paragraphs left over
+            region = region.replace(/<w:p\b[^>]*\/>/g, '');
+            // Simplify the text: strip the "OF Onderhavige revisie..." alternative
+            region = region.replace(
+                /<w:t([^>]*)>Niet van toepassing OF Onderhavige revisie vervangt integraal voorgaande rapportversies\.\s*<\/w:t>/,
+                '<w:t$1>Niet van toepassing.<\/w:t>'
+            );
+            xml = before + region + after;
+        }
+    }
+
+    // Comment 74: "(benoemen, datum)" → PFAS BKK reference (3 runs: "(" + "benoemen, datum" + ")")
+    if (pfasBkk) xml = replaceInCommentRange(xml, 74, pfasBkk);
 
     // Comment 54: "-Gemeente naam." split across runs → "-gemeente."
     // The text is split as: "-" (yellow run) + tab + "G" (green run) + "emeente naam." (green run)

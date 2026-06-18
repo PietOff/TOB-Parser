@@ -22,6 +22,7 @@ export default function AelmansForm() {
         ontgravingsdiepte: '',
         grondwaterstand: '',
         bemaling: '',
+        pfasBkk: '',
     });
 
     const [files, setFiles] = useState({
@@ -159,6 +160,7 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                 amvNummer:         bdokData.amvNummer || '',
                 hasBodemrapportage: !!files.bodem,
                 bodemtype:         bdokData.bodemtype || '',
+                pfasBkk:           form.pfasBkk || '',
                 jaar:              new Date().getFullYear(),
                 tekening,          // { blob, widthPx, heightPx } or null
             });
@@ -331,6 +333,10 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                         </select>
                     </Field>
                 </div>
+
+                <Field label="PFAS BKK referentie (optioneel)">
+                    <input type="text" value={form.pfasBkk} onChange={set('pfasBkk')} placeholder="bijv. Bodem3000, 15-01-2025" style={inputStyle} />
+                </Field>
 
                 {/* Error */}
                 {error && (
