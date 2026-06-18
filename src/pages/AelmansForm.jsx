@@ -17,7 +17,6 @@ export default function AelmansForm() {
         gemeente: '',
         provincie: '',
         uitvoerder: '',
-        contactpersoon: '',
         sleuflengte: '',
         ontgravingsdiepte: '',
         grondwaterstand: '',
@@ -69,8 +68,6 @@ export default function AelmansForm() {
                     ontgravingsdiepte: data.ontgravingsdiepte || prev.ontgravingsdiepte,
                     grondwaterstand:   data.grondwaterstand   || prev.grondwaterstand,
                     bemaling:          data.bemaling          || prev.bemaling,
-                    // Pre-fill contactpersoon from aanvrager if not yet set
-                    contactpersoon:    prev.contactpersoon || data.aanvrager || '',
                     _bdokData:         data,
                 }));
                 const summary = [
@@ -155,7 +152,6 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                 isGroterDan25m3:   bdokData.isGroterDan25m3 ?? null,
                 grondwaterstand:   form.grondwaterstand,
                 bemaling:          form.bemaling,
-                contactpersoon:    form.contactpersoon,
                 uitvoerder:        form.uitvoerder || 'Synfra/BDOK',
                 amvNummer:         bdokData.amvNummer || '',
                 hasBodemrapportage: !!files.bodem,
@@ -300,10 +296,6 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                         </select>
                     </Field>
                 </div>
-
-                <Field label="Contactpersoon">
-                    <input type="text" value={form.contactpersoon} onChange={set('contactpersoon')} placeholder="Dhr./Mevr. Naam" style={inputStyle} />
-                </Field>
 
                 {/* Section: Technische gegevens */}
                 <SectionHeader>Technische gegevens</SectionHeader>

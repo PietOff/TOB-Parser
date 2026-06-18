@@ -5,8 +5,8 @@
  * with a Word comment that maps to a specific data source.
  *
  * Comment → placeholder → source:
- *  13/24  "M. Buss"                           → contactpersoon (form)
- *  15     "naam"                              → contactpersoon (form)
+ *  13/24  "M. Buss"                           → hardcoded "Dhr. R.D.T. Houben"
+ *  15     "naam"                              → hardcoded "Dhr. R.D.T. Houben"
  *  25     "100 meter"                         → sleuflengte (BDOK cover)
  *  26     "0,80 m-mv"                         → ontgravingsdiepte (BDOK cover)
  *  27     "&lt;25 m³ / &gt;25 m³"            → isGroterDan25m3 (BDOK cover)
@@ -135,7 +135,6 @@ export async function fillAelmansTemplate(templateFile, values) {
         isGroterDan25m3 = null,
         grondwaterstand = '',   // numeric string, e.g. "1.0"
         bemaling = '',
-        contactpersoon = '',
         uitvoerder = '',
         amvNummer = '',
         bodemtype = '',         // e.g. "Landbouw/Natuur"
@@ -168,14 +167,10 @@ export async function fillAelmansTemplate(templateFile, values) {
 
     // ── Comment-range targeted replacements ──────────────────────────────
 
-    // Comments 13 and 24: "M. Buss" → contactpersoon (opsteller rows)
-    if (contactpersoon) {
-        xml = replaceInCommentRange(xml, 13, contactpersoon);
-        xml = replaceInCommentRange(xml, 24, contactpersoon);
-    }
-
-    // Comment 15: "naam" → contactpersoon (signature row)
-    if (contactpersoon) xml = replaceInCommentRange(xml, 15, contactpersoon);
+    // Comments 13, 24, 15: always "Dhr. R.D.T. Houben"
+    xml = replaceInCommentRange(xml, 13, 'Dhr. R.D.T. Houben');
+    xml = replaceInCommentRange(xml, 24, 'Dhr. R.D.T. Houben');
+    xml = replaceInCommentRange(xml, 15, 'Dhr. R.D.T. Houben');
 
     // Comment 25: "100 meter" → sleuflengte
     if (sleufNL) xml = replaceInCommentRange(xml, 25, `${sleufNL} meter`);
