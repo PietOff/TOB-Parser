@@ -70,7 +70,13 @@ export default function AelmansForm() {
                     contactpersoon:    prev.contactpersoon || data.aanvrager || '',
                     _bdokData:         data,
                 }));
-                setParseStatus(prev => ({ ...prev, quickscan: '✓ Ingelezen' }));
+                const summary = [
+                    data.ontgravingsdiepte && `diepte: ${data.ontgravingsdiepte}m`,
+                    data.sleuflengte       && `lengte: ${data.sleuflengte}m`,
+data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}`,
+                    data.bemaling          && `bemaling: ${data.bemaling}`,
+                ].filter(Boolean).join(' · ');
+                setParseStatus(prev => ({ ...prev, quickscan: `✓ ${summary || 'Ingelezen'}` }));
             } catch (err) {
                 setParseStatus(prev => ({ ...prev, quickscan: `⚠ ${err.message}` }));
             } finally {

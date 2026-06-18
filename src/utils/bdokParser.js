@@ -63,11 +63,12 @@ export async function parseBdok(file, onProgress) {
     if (amvMatch) result.amvNummer = amvMatch[1];
 
     // ── Betalingskenmerk / project ID ──
-    const betalingMatch = fullText.match(/Betalingskenmerk:\s*(\d+)/i);
+    // pdfjs-dist may insert spaces around colons, so use \s*:\s* throughout
+    const betalingMatch = fullText.match(/Betalingskenmerk\s*:\s*(\d+)/i);
     if (betalingMatch) result.betalingskenmerk = betalingMatch[1];
 
     // ── Aanvrager ──
-    const aanvragerMatch = fullText.match(/Aanvrager:\s*([^\n]+)/);
+    const aanvragerMatch = fullText.match(/Aanvrager\s*:\s*(.+?)(?:\n|Datum|Tijd|$)/);
     if (aanvragerMatch) result.aanvrager = aanvragerMatch[1].trim();
 
     // ── Address from title / header ──
@@ -100,51 +101,51 @@ export async function parseBdok(file, onProgress) {
     }
 
     // ── Ontgravingsdiepte ──
-    // BDOK cover format: "Ontgravingsdiepte: 120 cm" (centimetres) or "X m-mv"
-    const ontgravingCm = fullText.match(/Ontgravingsdiepte:\s*(\d+(?:[,\.]\d+)?)\s*cm/i);
-    const ontgravingM = fullText.match(/Ontgravingsdiepte:\s*(\d+(?:[,\.]\d+)?)\s*m(?!\w)/i);
+    // BDOK cover: "Ontgravingsdiepte: 100 cm" — pdfjs-dist may add spaces around colons/units
+    // Try cm first (most common in BDOK), then direct metre value
+    const ontgravingCm = fullText.match(/Ontgravingsdiepte\s*:\s*(\d+(?:[,\.]\d+)?)\s*cm/i);
+    const ontgravingM  = fullText.match(/Ontgravingsdiepte\s*:\s*(\d+(?:[,\.]\d+)?)\s*m(?![\w])/i);
     if (ontgravingCm) {
         result.ontgravingsdiepte = (parseFloat(ontgravingCm[1]) / 100).toFixed(2);
     } else if (ontgravingM) {
         result.ontgravingsdiepte = parseFloat(ontgravingM[1].replace(',', '.')).toFixed(2);
     } else {
-        // Fallback to older patterns (m-mv mentions elsewhere)
-        const mMatch = fullText.match(/(?:graafdiepte|maximale\s+ontgravingsdiepte)[^\d]*(\d+(?:[,\.]\d+)?)\s*m(?:-mv)?/i);
-        if (mMatch) result.ontgravingsdiepte = mMatch[1].replace(',', '.');
+        const mMatch = fullText.match(/(?:graafdiepte|maximale\s+ontgravingsdiepte)\s*[^\d]*(\d+(?:[,\.]\d+)?)\s*m(?:-mv)?/i);
+        if (mMatch) result.ontgravingsdiepte = parseFloat(mMatch[1].replace(',', '.')).toFixed(2);
     }
 
     // ── Sleuflengte ──
-    // BDOK cover: "lengte: X m" — only meaningful if > 0 (0 means point location)
-    const sleufCoverMatch = fullText.match(/\blengte:\s*(\d+(?:[,\.]\d+)?)\s*m\b/i);
+    // BDOK cover line: "lengte: 2 m" — 0 means point location (not a tracé), skip those
+    const sleufCoverMatch = fullText.match(/\blengte\s*:\s*(\d+(?:[,\.]\d+)?)\s*m\b/i);
     if (sleufCoverMatch) {
         const len = parseFloat(sleufCoverMatch[1].replace(',', '.'));
         if (len > 0) result.sleuflengte = String(len);
     }
     if (!result.sleuflengte) {
-        // Try other patterns (tracélengte, sleuflengte mentions)
-        const sleufAlt = fullText.match(/(?:sleuflengte|tracélengte|tracé\s*lengte)[^\d]*(\d+(?:[,\.]\d+)?)\s*m(?:eter)?\b/i);
-        if (sleufAlt) result.sleuflengte = sleufAlt[1].replace(',', '.');
+        const sleufAlt = fullText.match(/(?:sleuflengte|trac[eé]lengte)\s*[^\d]*(\d+(?:[,\.]\d+)?)\s*m(?:eter)?\b/i);
+        if (sleufAlt) result.sleuflengte = String(parseFloat(sleufAlt[1].replace(',', '.')));
     }
 
     // ── >25 m³ ──
-    // BDOK cover: ">25 m3: Nee" — must check the Ja/Nee after the marker, not just presence
-    const m3CoverMatch = fullText.match(/>25\s*m[³3]:\s*(Ja|Nee)/i);
-    const m3TableMatch = fullText.match(/Graafactiviteit meer dan 25\s*m[³3]\?\s*(Ja|Nee)/i);
+    // BDOK cover: ">25 m³: Nee" — pdfjs-dist may split as "> 25 m 3 : Nee"
+    // Allow optional spaces between every component
+    const m3CoverMatch = fullText.match(/>\s*25\s*m\s*[³3]?\s*:\s*(Ja|Nee)/i);
+    const m3TableMatch = fullText.match(/Graafactiviteit meer dan\s+25\s*m\s*[³3]?\s*\?\s*(Ja|Nee)/i);
     if (m3CoverMatch) {
         result.isGroterDan25m3 = m3CoverMatch[1].toLowerCase() === 'ja';
     } else if (m3TableMatch) {
         result.isGroterDan25m3 = m3TableMatch[1].toLowerCase() === 'ja';
     }
 
-    // ── Bemaling — derived from "Contact met grondwater" question in Quickscan table ──
-    // Try inline (pdfjs-dist row-order extraction): "...werkzaamheden? Nee"
+    // ── Bemaling — derived from "Contact met grondwater" question ──
+    // pdfjs-dist row-order: question and answer on same line → "...werkzaamheden? Nee"
     const gwContactInline = fullText.match(/Contact met grondwater verwacht[^?]*\?\s*(Ja|Nee)/i);
     if (gwContactInline) {
         const isJa = gwContactInline[1].toLowerCase() === 'ja';
         result.bemaling = isJa ? 'Ter plaatse beoordelen' : 'Nee';
     } else {
-        // Fallback: positional — first value after "Ja/Nee" header in table
-        const jaNeeSectionMatch = fullText.match(/Ja\/Nee\s+((?:(?:Ja|Nee)\s*)+)/i);
+        // Fallback: column-separated table — first value after "Ja/Nee" header
+        const jaNeeSectionMatch = fullText.match(/Ja\s*\/\s*Nee\s+((?:(?:Ja|Nee)\s*)+)/i);
         if (jaNeeSectionMatch) {
             const firstVal = jaNeeSectionMatch[1].trim().split(/\s+/)[0];
             if (firstVal) result.bemaling = firstVal.toLowerCase() === 'ja' ? 'Ter plaatse beoordelen' : 'Nee';
