@@ -197,25 +197,28 @@ export async function fillAelmansTemplate(templateFile, values) {
     }
 
     // ── Conditional grondwateronderzoek paragraph ─────────────────────────
-    // Yellow paragraph = "geen GWO nodig" because GWS > 0.25m below excavation depth
-    // Cyan paragraph   = "geen GWO nodig" because cable work doesn't contact groundwater
-    // Remove whichever doesn't apply. Match at paragraph level to avoid partial-run issues.
+    // Yellow paragraph = depth argument (GWS > 0.25m below excavation)
+    // Cyan paragraph   = work-type argument (cable work, no groundwater contact)
+    // Remove whichever doesn't apply. Use indexOf to find the exact enclosing <w:p>.
     {
         const gws83  = parseFloat(grondwaterstand);
         const diep83 = parseFloat(ontgravingsdiepte);
         if (!isNaN(gws83) && !isNaN(diep83)) {
+            const removeParaContaining = (marker) => {
+                const idx = xml.indexOf(marker);
+                if (idx === -1) return;
+                const pStart = xml.lastIndexOf('<w:p ', idx);
+                const pEnd   = xml.indexOf('</w:p>', idx);
+                if (pStart !== -1 && pEnd !== -1) {
+                    xml = xml.slice(0, pStart) + xml.slice(pEnd + '</w:p>'.length);
+                }
+            };
             if (gws83 - diep83 > 0.25) {
-                // GWS is deep enough → yellow depth-argument applies → remove cyan paragraph
-                xml = xml.replace(
-                    /<w:p\b[\s\S]*?Omdat er geen werkzaamheden[\s\S]*?<\/w:p>/,
-                    ''
-                );
+                // GWS deep enough → yellow depth-argument applies → remove cyan paragraph
+                removeParaContaining('Omdat er geen werkzaamheden');
             } else {
-                // GWS is shallow → cyan work-type argument applies → remove yellow paragraph
-                xml = xml.replace(
-                    /<w:p\b[\s\S]*?Grondwateronderzoek dient[\s\S]*?<\/w:p>/,
-                    ''
-                );
+                // GWS shallow → cyan work-type argument applies → remove yellow paragraph
+                removeParaContaining('Grondwateronderzoek dient');
             }
         }
     }
