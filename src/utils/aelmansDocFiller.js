@@ -1,106 +1,34 @@
 /**
- * Aelmans docx template filler
+ * Aelmans docx template filler — pure text-based replacement.
  *
- * Uses comment ID ranges for precise replacement — each placeholder is annotated
- * with a Word comment that maps to a specific data source.
+ * Targets known placeholder strings directly in the Word XML.
+ * Works on any template version regardless of whether Word comments are present.
  *
- * Comment → placeholder → source:
- *  13/24  "M. Buss"                           → hardcoded "Dhr. R.D.T. Houben"
- *  15     "naam"                              → hardcoded "Dhr. R.D.T. Houben"
- *  25     "100 meter"                         → sleuflengte (BDOK cover)
- *  26     "0,80 m-mv"                         → ontgravingsdiepte (BDOK cover)
- *  27     "&lt;25 m³ / &gt;25 m³"            → isGroterDan25m3 (BDOK cover)
- *  28     "Circa 1,0 m-mv"                    → grondwaterstand (BDOK §2.1)
- *  29     "Ja / nee / ter plaatse beoordelen" → bemaling (calculated)
- *  31     "Gemeente"                          → gemeente (form)
- *  33     "xxx " (trailing space)             → sleuflengte (BDOK cover)
- *  34     "x"                                 → aantalBoringen (calculated)
- *  35     "0,0 - 1,0" (3 runs)               → boring depth range (calculated)
- *  36     "1"                                 → aantalMengmonsters (calculated)
- *  37/90  "Synfra/BDOK"                       → uitvoerder (form)
- *  38     "gemeente"                          → gemeente lowercase (form)
- *  54     "G"+"emeente naam."                 → gemeente (form)
- *  55     "Synfra/BDOK."                      → uitvoerder (form, with dot)
- *  58     "XXX" in tracé paragraph            → sleuflengte (BDOK cover)
- *  70     "bodemfunctieklassenkaart (jaartal) van gemeente" → gemeente + year
- *  64     "Op" (yellow highlight)              → strip highlight (cosmetic cleanup)
- *  74     "(benoemen, datum)"                 → pfasBkk (form, optional)
- *  79     "XXX" in "circa XXX m +NAP"         → grondwaterstand (BDOK §2.1)
- *  80     " " space before "op meer dan"      → grondwaterstand m-mv
- *  83     yellow/cyan conditional paragraph   → remove inapplicable GWO text
- *  39     revision table                      → remove, keep "Niet van toepassing."
+ * Placeholder → replacement:
+ *  "M. Buss"                                  → "Dhr. R.D.T. Houben" (all occurrences)
+ *  "naam"                                     → "Dhr. R.D.T. Houben" (collegiale toets)
+ *  "100 meter"                                → sleuflengte
+ *  " xxx meter" / "xxx "                      → sleuflengte (paragraph / table cell)
+ *  "0,80 m-mv"                                → ontgravingsdiepte
+ *  "&lt;25 m³ / &gt;25 m³"                   → correct side
+ *  "Circa 1,0 m-mv"                           → grondwaterstand
+ *  "Ja / nee / ter plaatse beoordelen"        → bemaling
+ *  "Gemeente" (standalone)                    → gemeente (bevoegd gezag cell)
+ *  "x" (standalone)                           → aantalBoringen
+ *  "0,0 - 1,0" (3-run split)                 → boring depth range
+ *  "1" (mengmonsters cell)                    → aantalMengmonsters
+ *  "Synfra/BDOK" / "Synfra/BDOK."            → uitvoerder
+ *  "G" + "emeente naam."                      → gemeente (split run, §1.3)
+ *  "(jaartal)"                                → current year (BKK text)
+ *  "van gemeente" in BKK sentence             → gemeente name
+ *  "Landbouw/Natuur"                          → bodemtype
+ *  "(benoemen, datum)"                        → pfasBkk
+ *  "XXX" (in "circa XXX m +NAP")             → grondwaterstand
+ *  Revision table                             → remove; keep "Niet van toepassing."
+ *  Yellow/cyan GWO paragraph                 → remove inapplicable version
+ *  AMV261626.001                              → amvNummer
  */
 import JSZip from 'jszip';
-
-/**
- * Replace all <w:t> text content within a comment's annotated range
- * @param {string} xml - full document XML
- * @param {number} commentId
- * @param {string} newText - replacement text (plain, will be XML-escaped if needed)
- * @returns {string} modified XML
- */
-function replaceInCommentRange(xml, commentId, newText) {
-    const start = `<w:commentRangeStart w:id="${commentId}"/>`;
-    const end = `<w:commentRangeEnd w:id="${commentId}"/>`;
-    const startIdx = xml.indexOf(start);
-    const endIdx = xml.indexOf(end);
-    if (startIdx === -1 || endIdx === -1) return xml;
-
-    const before = xml.slice(0, startIdx + start.length);
-    const region = xml.slice(startIdx + start.length, endIdx);
-    const after = xml.slice(endIdx);
-
-    const runs = [...region.matchAll(/<w:t([^>]*)>([^<]*)<\/w:t>/g)];
-    if (runs.length === 0) return xml;
-
-    if (runs.length === 1) {
-        const newRegion = region.replace(/<w:t([^>]*)>[^<]*<\/w:t>/, `<w:t$1>${xmlEsc(newText)}</w:t>`);
-        return before + newRegion + after;
-    }
-
-    // Multiple runs: replace first with newText, clear content-bearing subsequent runs
-    // (whitespace-only runs are left unchanged to preserve spacing)
-    let first = true;
-    const newRegion = region.replace(/<w:t([^>]*)>([^<]*)<\/w:t>/g, (match, attrs, text) => {
-        if (first) {
-            first = false;
-            return `<w:t${attrs}>${xmlEsc(newText)}</w:t>`;
-        }
-        if (!text.trim()) return match; // preserve whitespace-only spacing runs
-        return `<w:t${attrs}><\/w:t>`;
-    });
-    return before + newRegion + after;
-}
-
-/** Remove all <w:r> runs with a specific highlight color within a comment range */
-function removeColoredRunsInRange(xml, commentId, highlightColor) {
-    const start = `<w:commentRangeStart w:id="${commentId}"/>`;
-    const end = `<w:commentRangeEnd w:id="${commentId}"/>`;
-    const si = xml.indexOf(start);
-    const ei = xml.indexOf(end);
-    if (si === -1 || ei === -1) return xml;
-    const before = xml.slice(0, si + start.length);
-    let region = xml.slice(si + start.length, ei);
-    const after = xml.slice(ei);
-    region = region.replace(/<w:r\b[^>]*>[\s\S]*?<\/w:r>/g, (match) =>
-        match.includes(`<w:highlight w:val="${highlightColor}"/>`) ? '' : match
-    );
-    return before + region + after;
-}
-
-/** Strip all <w:highlight> formatting within a comment range (removes the highlight, keeps text) */
-function removeHighlightsInRange(xml, commentId) {
-    const start = `<w:commentRangeStart w:id="${commentId}"/>`;
-    const end = `<w:commentRangeEnd w:id="${commentId}"/>`;
-    const si = xml.indexOf(start);
-    const ei = xml.indexOf(end);
-    if (si === -1 || ei === -1) return xml;
-    const before = xml.slice(0, si + start.length);
-    let region = xml.slice(si + start.length, ei);
-    const after = xml.slice(ei);
-    region = region.replace(/<w:highlight\b[^/]*\/>/g, '');
-    return before + region + after;
-}
 
 function xmlEsc(s) {
     return String(s)
@@ -110,12 +38,15 @@ function xmlEsc(s) {
         .replace(/"/g, '&quot;');
 }
 
-/**
- * Fill the template docx with values from BDOK + form
- * @param {File} templateFile
- * @param {Object} values
- */
-/** Build the <w:drawing> inline image XML for a given relationship ID and EMU dimensions */
+/** Replace every <w:t>EXACT TEXT</w:t> occurrence (handles any w:t attributes) */
+function repT(xml, exact, replacement) {
+    return xml.replace(
+        new RegExp(`(<w:t[^>]*>)${exact}(<\\/w:t>)`, 'g'),
+        `$1${replacement}$2`
+    );
+}
+
+/** Build the <w:drawing> inline image XML for embedding in a paragraph */
 function inlineDrawingXml(rId, cxEmu, cyEmu) {
     return `<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="${cxEmu}" cy="${cyEmu}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="99" name="Tekening"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="99" name="Tekening"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cxEmu}" cy="${cyEmu}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>`;
 }
@@ -126,221 +57,195 @@ export async function fillAelmansTemplate(templateFile, values) {
     let xml = await zip.file('word/document.xml').async('string');
 
     const {
-        straatnaam = '',
-        huisnummer = '',
-        plaatsnaam = '',
-        gemeente = '',
-        sleuflengte = '',       // numeric string, e.g. "100"
-        ontgravingsdiepte = '', // numeric string, e.g. "0.80"
+        sleuflengte = '',
+        ontgravingsdiepte = '',
         isGroterDan25m3 = null,
-        grondwaterstand = '',   // numeric string, e.g. "1.0"
+        grondwaterstand = '',
         bemaling = '',
+        gemeente = '',
         uitvoerder = '',
         amvNummer = '',
-        bodemtype = '',         // e.g. "Landbouw/Natuur"
-        pfasBkk = '',           // PFAS BKK reference "(naam, datum)"
+        bodemtype = '',
+        pfasBkk = '',
+        hasBodemrapportage = false,
         jaar = new Date().getFullYear(),
-        tekening = null,        // { blob, widthPx, heightPx } or null
+        tekening = null,
     } = values;
 
-    // Dutch-format numbers (dot→comma)
     const nl = (s) => String(s).replace('.', ',');
-    const sleufNL = sleuflengte ? nl(sleuflengte) : '';
-    const diepteNL = ontgravingsdiepte ? nl(ontgravingsdiepte) : '';
-    const gwsNL = grondwaterstand ? nl(grondwaterstand) : '';
+    const sleufNL   = sleuflengte       ? nl(sleuflengte)       : '';
+    const diepteNL  = ontgravingsdiepte ? nl(ontgravingsdiepte) : '';
+    const gwsNL     = grondwaterstand   ? nl(grondwaterstand)   : '';
 
-    // Calculated boring depth (ontgravingsdiepte + 0.2)
     const boringDiepte = ontgravingsdiepte
         ? nl((parseFloat(ontgravingsdiepte) + 0.2).toFixed(1))
         : '1,0';
 
-    // Number of borings: <5m→1, 5-75m→2, >75m→ceil(len/50)
-    const len = parseFloat(sleuflengte);
-    const aantalBoringen = !isNaN(len)
-        ? (len < 5 ? '1' : len <= 75 ? '2' : String(Math.ceil(len / 50)))
+    const lenF = parseFloat(sleuflengte);
+    const aantalBoringen = !isNaN(lenF)
+        ? (lenF < 5 ? '1' : lenF <= 75 ? '2' : String(Math.ceil(lenF / 50)))
         : '';
-
-    // Number of mengmonsters: min 2 (boven+onder); more for long tracés
-    const aantalMengmonsters = !isNaN(len)
-        ? String(Math.max(2, Math.ceil(len / 50) * 2))
+    const aantalMengmonsters = !isNaN(lenF)
+        ? String(Math.max(2, Math.ceil(lenF / 50) * 2))
         : '2';
 
-    // ── Comment-range targeted replacements ──────────────────────────────
+    // ── Contactpersoon (always Dhr. R.D.T. Houben) ────────────────────────
+    xml = repT(xml, 'M\\. Buss', 'Dhr. R.D.T. Houben');
+    xml = repT(xml, 'naam',      'Dhr. R.D.T. Houben');
 
-    // Comments 13, 24, 15: always "Dhr. R.D.T. Houben"
-    xml = replaceInCommentRange(xml, 13, 'Dhr. R.D.T. Houben');
-    xml = replaceInCommentRange(xml, 24, 'Dhr. R.D.T. Houben');
-    xml = replaceInCommentRange(xml, 15, 'Dhr. R.D.T. Houben');
+    // ── Sleuflengte ────────────────────────────────────────────────────────
+    if (sleufNL) {
+        xml = repT(xml, '100 meter',   `${sleufNL} meter`);
+        xml = repT(xml, ' xxx meter',  ` ${sleufNL} meter`); // body paragraph (leading space)
+        xml = repT(xml, 'xxx ',        `${sleufNL} `);        // table cell (trailing space)
+    }
 
-    // Comment 25: "100 meter" → sleuflengte
-    if (sleufNL) xml = replaceInCommentRange(xml, 25, `${sleufNL} meter`);
+    // ── Ontgravingsdiepte ─────────────────────────────────────────────────
+    if (diepteNL) xml = repT(xml, '0,80 m-mv', `${diepteNL} m-mv`);
 
-    // Comment 26: "0,80 m-mv" → ontgravingsdiepte
-    if (diepteNL) xml = replaceInCommentRange(xml, 26, `${diepteNL} m-mv`);
-
-    // Comment 27: "<25 m³ / >25 m³" → pick correct side
+    // ── >25 m³ ────────────────────────────────────────────────────────────
     if (isGroterDan25m3 !== null) {
-        const correct = isGroterDan25m3 ? '&gt;25 m³' : '&lt;25 m³';
-        // This text is XML-escaped in the source, so replace at XML level
+        const target = isGroterDan25m3 ? '&gt;25 m³' : '&lt;25 m³';
+        xml = xml.replace(/<w:t([^>]*)>&lt;25 m³ \/ &gt;25 m³<\/w:t>/g, `<w:t$1>${target}</w:t>`);
+    }
+
+    // ── Grondwaterstand ───────────────────────────────────────────────────
+    if (gwsNL) {
+        xml = repT(xml, 'Circa 1,0 m-mv', `Circa ${gwsNL} m-mv`);
+        // "circa XXX m +NAP" — replace XXX with gwsNL
+        xml = xml.replace(/<w:t([^>]*)>XXX<\/w:t>/g, `<w:t$1>${xmlEsc(gwsNL)}</w:t>`);
+        // Space placeholder between "bevindt zich" and "op meer dan 0,25" in GWO sentence
         xml = xml.replace(
-            /(<w:commentRangeStart w:id="27"\/>.*?)<w:t[^>]*>&lt;25 m³ \/ &gt;25 m³<\/w:t>(.*?<w:commentRangeEnd w:id="27"\/>)/s,
-            `$1<w:t>${correct}</w:t>$2`
+            /(bevindt\s+zich[\s\S]{0,300}?<w:t[^>]*>) (<\/w:t>[\s\S]{0,300}?op meer dan 0,25)/s,
+            `$1circa ${xmlEsc(gwsNL)} m-mv$2`
         );
     }
 
-    // Comment 28: "Circa 1,0 m-mv" → grondwaterstand
-    if (gwsNL) xml = replaceInCommentRange(xml, 28, `Circa ${gwsNL} m-mv`);
+    // ── Bemaling ──────────────────────────────────────────────────────────
+    if (bemaling) xml = repT(xml, 'Ja / nee / ter plaatse beoordelen', xmlEsc(bemaling));
 
-    // Comment 29: "Ja / nee / ter plaatse beoordelen" → bemaling
-    if (bemaling) xml = replaceInCommentRange(xml, 29, bemaling);
+    // ── Gemeente (bevoegd gezag cell) ─────────────────────────────────────
+    if (gemeente) {
+        xml = repT(xml, 'Gemeente', xmlEsc(gemeente));
 
-    // Comment 31: "Gemeente" → gemeente
-    if (gemeente) xml = replaceInCommentRange(xml, 31, gemeente);
-
-    // Comment 33: "xxx " (tracé table cell, trailing space) → sleuflengte
-    if (sleufNL) xml = replaceInCommentRange(xml, 33, `${sleufNL} `);
-
-    // Comment 34: "x" → aantal boringen
-    if (aantalBoringen) xml = replaceInCommentRange(xml, 34, aantalBoringen);
-
-    // Comment 35: "0,0 - 1,0" across 3 runs → replace only the last run " 1,0"
-    if (boringDiepte) {
+        // "G" + "emeente naam." split across two runs (§1.3 source row)
+        // Replace G→gemeente, empty out "emeente naam."
         xml = xml.replace(
-            /(<w:commentRangeStart w:id="35"\/>.*?<w:t[^>]*>0,0 <\/w:t>.*?<w:t[^>]*>-<\/w:t>.*?<w:t[^>]*>) 1,0(<\/w:t>.*?<w:commentRangeEnd w:id="35"\/>)/s,
-            `$1 ${boringDiepte}$2`
+            /(<w:t[^>]*>)G(<\/w:t>)([\s\S]{0,600}?)(<w:t[^>]*>)emeente naam\.(<\/w:t>)/s,
+            `$1${xmlEsc(gemeente)}$2$3$4$5`
         );
-    }
+        // Clear the leftover "emeente naam." run
+        xml = xml.replace(/<w:t([^>]*)>emeente naam\.<\/w:t>/g, '<w:t$1><\/w:t>');
 
-    // Comment 36: "1" → aantal mengmonsters
-    if (aantalMengmonsters) xml = replaceInCommentRange(xml, 36, aantalMengmonsters);
+        // BKK sentence: "(jaartal) van gemeente" → year + actual gemeente
+        xml = xml.replace(
+            /\(jaartal\) van gemeente/g,
+            `(${jaar}) van ${xmlEsc(gemeente)}`
+        );
 
-    // Comment 37: "Synfra/BDOK" → uitvoerder (rapportage reference in bijlagen)
-    if (uitvoerder) xml = replaceInCommentRange(xml, 37, uitvoerder);
-
-    // Comment 38: "gemeente" → gemeente lowercase
-    if (gemeente) xml = replaceInCommentRange(xml, 38, gemeente.toLowerCase());
-
-    // Comment 39: Remove revision table — keep only "Niet van toepassing." paragraph
-    {
-        const startTag39 = '<w:commentRangeStart w:id="39"/>';
-        const endTag39 = '<w:commentRangeEnd w:id="39"/>';
-        const si = xml.indexOf(startTag39);
-        const ei = xml.indexOf(endTag39);
-        if (si !== -1 && ei !== -1) {
-            const before = xml.slice(0, si + startTag39.length);
-            let region = xml.slice(si + startTag39.length, ei);
-            const after = xml.slice(ei);
-            // Remove the revision table element entirely
-            region = region.replace(/<w:tbl\b[\s\S]*?<\/w:tbl>/g, '');
-            // Remove empty self-closing paragraphs left over
-            region = region.replace(/<w:p\b[^>]*\/>/g, '');
-            // Simplify the text: strip the "OF Onderhavige revisie..." alternative
-            region = region.replace(
-                /<w:t([^>]*)>Niet van toepassing OF Onderhavige revisie vervangt integraal voorgaande rapportversies\.\s*<\/w:t>/,
-                '<w:t$1>Niet van toepassing.<\/w:t>'
-            );
-            xml = before + region + after;
+        // Bijlage 3 title: "Bodeminformatie gemeente" → add gemeente name if bodemrapportage
+        if (hasBodemrapportage) {
+            xml = repT(xml, 'Bodeminformatie', `Bodeminformatie gemeente ${xmlEsc(gemeente)}`);
         }
     }
 
-    // Comment 74: "(benoemen, datum)" → PFAS BKK reference (3 runs: "(" + "benoemen, datum" + ")")
-    if (pfasBkk) xml = replaceInCommentRange(xml, 74, pfasBkk);
+    // ── Aantal boringen ───────────────────────────────────────────────────
+    if (aantalBoringen) xml = repT(xml, 'x', aantalBoringen);
 
-    // Comment 54: "-Gemeente naam." split across runs → "-gemeente."
-    // The text is split as: "-" (yellow run) + tab + "G" (green run) + "emeente naam." (green run)
-    // Replace only within the comment range
-    if (gemeente) {
+    // ── Boring depth range "0,0 - 1,0" (3-run split) ─────────────────────
+    // The template has three runs: "0,0 " | "-" | " 1,0"  — replace only the last
+    xml = xml.replace(
+        /(<w:t[^>]*>0,0 <\/w:t>[\s\S]*?<w:t[^>]*>-<\/w:t>[\s\S]*?<w:t[^>]*>) 1,0(<\/w:t>)/s,
+        `$1 ${boringDiepte}$2`
+    );
+
+    // ── Mengmonsters ─────────────────────────────────────────────────────
+    // Template cell contains exactly "1" — replace only in the specific cell context
+    // Use a targeted regex to avoid clobbering unrelated "1" values
+    if (aantalMengmonsters) {
         xml = xml.replace(
-            /(<w:commentRangeStart w:id="54"\/>.*?)(<w:t[^>]*>)G(<\/w:t><\/w:r><w:r[^>]*><w:rPr>(?:[^<]|<(?!\/w:rPr>))*<w:highlight w:val="green"\/>(?:[^<]|<(?!\/w:rPr>))*<\/w:rPr>)(<w:t[^>]*>)emeente naam\.(.*?<w:commentRangeEnd w:id="54"\/>)/s,
-            `$1$2${gemeente}$3$4$5`
+            /(<w:t[^>]*>)1(<\/w:t>[\s\S]{0,200}?mengmonster)/s,
+            `$1${aantalMengmonsters}$2`
         );
     }
 
-    // Comment 55: "Synfra/BDOK." → uitvoerder (with trailing dot)
-    if (uitvoerder) xml = replaceInCommentRange(xml, 55, `${uitvoerder}.`);
-
-    // Comment 58: "XXX" in "circa XXX meter lang" tracé paragraph → sleuflengte
-    if (sleufNL) xml = replaceInCommentRange(xml, 58, sleufNL);
-
-    // Comment 70: "bodemfunctieklassenkaart (jaartal) van gemeente" → with real year + gemeente
-    if (gemeente) {
-        xml = xml.replace(
-            /(<w:commentRangeStart w:id="70"\/>.*?<w:t[^>]*>bodemfunctieklassenkaart \()jaartal(\) van )gemeente(.*?<w:commentRangeEnd w:id="70"\/>)/s,
-            `$1${jaar}$2${gemeente}$3`
-        );
+    // ── Uitvoerder ────────────────────────────────────────────────────────
+    if (uitvoerder) {
+        xml = repT(xml, 'Synfra\\/BDOK\\.', `${xmlEsc(uitvoerder)}.`); // with dot first
+        xml = repT(xml, 'Synfra\\/BDOK',    xmlEsc(uitvoerder));
     }
 
-    // Comment 79: "XXX" in "circa XXX m +NAP" groundwater paragraph → grondwaterstand
-    if (gwsNL) xml = replaceInCommentRange(xml, 79, gwsNL);
+    // ── Bodemtype / BKK class ─────────────────────────────────────────────
+    if (bodemtype) xml = xml.split('Landbouw/Natuur').join(xmlEsc(bodemtype));
 
-    // Comment 80: space between "bevindt zich" and "op meer dan 0,25 m-mv" → GWS in m-mv
-    if (gwsNL) xml = replaceInCommentRange(xml, 80, `circa ${gwsNL} m-mv`);
+    // ── PFAS BKK reference ────────────────────────────────────────────────
+    if (pfasBkk) xml = xml.split('(benoemen, datum)').join(`(${xmlEsc(pfasBkk)})`);
 
-    // Comment 83: conditional grondwateronderzoek paragraph
-    // Yellow = "geen GWO nodig" (GWS deep enough, >0.25m below excavation)
-    // Cyan  = "geen GWO nodig" (cable/pipe work, no GW contact)
-    // Remove the inapplicable version based on GWS vs ontgravingsdiepte
-    {
-        const gws83 = parseFloat(grondwaterstand);
-        const diepte83 = parseFloat(ontgravingsdiepte);
-        if (!isNaN(gws83) && !isNaN(diepte83)) {
-            const diff = gws83 - diepte83;
-            // > 0.25m below: yellow applies → remove cyan; otherwise remove yellow
-            const removeColor = diff > 0.25 ? 'cyan' : 'yellow';
-            xml = removeColoredRunsInRange(xml, 83, removeColor);
+    // ── AMV project number ────────────────────────────────────────────────
+    if (amvNummer) xml = xml.split('AMV261626.001').join(amvNummer);
+
+    // ── Revision table: remove; keep only "Niet van toepassing." ──────────
+    const revisionText = 'Niet van toepassing OF Onderhavige revisie vervangt integraal voorgaande rapportversies. ';
+    const revIdx = xml.indexOf(revisionText);
+    if (revIdx !== -1) {
+        xml = xml.replace(revisionText, 'Niet van toepassing.');
+        const tblStart = xml.indexOf('<w:tbl', revIdx);
+        const tblEnd   = xml.indexOf('</w:tbl>', tblStart !== -1 ? tblStart : 0);
+        if (tblStart !== -1 && tblEnd !== -1) {
+            xml = xml.slice(0, tblStart) + xml.slice(tblEnd + '</w:tbl>'.length);
         }
     }
 
-    // Comment 64: terreininspectie — strip yellow highlight from "Op" run (cosmetic marker)
-    xml = removeHighlightsInRange(xml, 64);
-
-    // Comment 90: second "Synfra/BDOK" (cyan conditional block) → uitvoerder
-    if (uitvoerder) xml = replaceInCommentRange(xml, 90, uitvoerder);
-
-    // Comment 91: "Bodeminformatie" bijlage title → include gemeente if bodemrapportage provided
-    if (gemeente && values.hasBodemrapportage) {
-        xml = replaceInCommentRange(xml, 91, `Bodeminformatie gemeente ${gemeente}`);
+    // ── Conditional grondwateronderzoek paragraph ─────────────────────────
+    // Yellow paragraph = "geen GWO nodig" because GWS > 0.25m below excavation depth
+    // Cyan paragraph   = "geen GWO nodig" because cable work doesn't contact groundwater
+    // Remove whichever doesn't apply. Match at paragraph level to avoid partial-run issues.
+    {
+        const gws83  = parseFloat(grondwaterstand);
+        const diep83 = parseFloat(ontgravingsdiepte);
+        if (!isNaN(gws83) && !isNaN(diep83)) {
+            if (gws83 - diep83 > 0.25) {
+                // GWS is deep enough → yellow depth-argument applies → remove cyan paragraph
+                xml = xml.replace(
+                    /<w:p\b[\s\S]*?Omdat er geen werkzaamheden[\s\S]*?<\/w:p>/,
+                    ''
+                );
+            } else {
+                // GWS is shallow → cyan work-type argument applies → remove yellow paragraph
+                xml = xml.replace(
+                    /<w:p\b[\s\S]*?Grondwateronderzoek dient[\s\S]*?<\/w:p>/,
+                    ''
+                );
+            }
+        }
     }
 
-    // AMV nummer in header/title
-    if (amvNummer) {
-        xml = xml.split('AMV261626.001').join(amvNummer);
-    }
+    // ── Strip yellow highlight from "Op" in terreininspectie ──────────────
+    // ("Op" is cosmetically marked yellow; remove the highlight, keep the text)
+    xml = xml.replace(
+        /(<w:rPr>[\s\S]*?)<w:highlight w:val="yellow"\/>(<\/w:rPr><w:t[^>]*>Op<\/w:t>)/g,
+        '$1$2'
+    );
 
-    // Comment 71: BKK bodemtype — replace only the first run "Landbouw/Natuur",
-    // leave surrounding text "' (zie BDOK)." runs unchanged
-    if (bodemtype) {
-        xml = xml.replace(
-            /(<w:commentRangeStart w:id="71"\/>.*?<w:t[^>]*>)Landbouw\/Natuur(<\/w:t>)/s,
-            `$1${xmlEsc(bodemtype)}$2`
-        );
-    }
-
-    // ── Tekening embedding (comment 89 — Bijlage 1) ──────────────────────────
+    // ── Tekening (Bijlage 1) ──────────────────────────────────────────────
     if (tekening) {
         const tekeningRId = 'rId41';
         const imgArrayBuffer = await tekening.blob.arrayBuffer();
-
-        // Scale to max page width 160mm = 5 760 000 EMU, keeping aspect ratio
-        const maxCx = 5_760_000;
-        const ratio = tekening.heightPx / tekening.widthPx;
+        const maxCx = 5_760_000; // 160mm in EMU
         const cxEmu = maxCx;
-        const cyEmu = Math.round(maxCx * ratio);
+        const cyEmu = Math.round(maxCx * (tekening.heightPx / tekening.widthPx));
 
-        // Add image to zip
         zip.file('word/media/tekening.jpg', imgArrayBuffer);
 
-        // Add relationship
         let rels = await zip.file('word/_rels/document.xml.rels').async('string');
         const newRel = `<Relationship Id="${tekeningRId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tekening.jpg"/>`;
         rels = rels.replace('</Relationships>', `${newRel}</Relationships>`);
         zip.file('word/_rels/document.xml.rels', rels);
 
-        // Insert drawing run into the comment 89 paragraph (before commentRangeEnd)
-        const drawingRun = `<w:r>${inlineDrawingXml(tekeningRId, cxEmu, cyEmu)}</w:r>`;
+        // Insert after the "Bijlage 1" section heading paragraph
         xml = xml.replace(
-            '<w:commentRangeEnd w:id="89"/>',
-            `${drawingRun}<w:commentRangeEnd w:id="89"/>`
+            /(<w:t[^>]*>Bijlage 1<\/w:t>[\s\S]{0,300}?<\/w:p>)/s,
+            `$1<w:p><w:r>${inlineDrawingXml(tekeningRId, cxEmu, cyEmu)}</w:r></w:p>`
         );
     }
 
