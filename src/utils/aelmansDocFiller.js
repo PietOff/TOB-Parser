@@ -193,7 +193,11 @@ export async function fillAelmansTemplate(templateFile, values) {
     {
         const rtIdx = xml.indexOf('Revisie/versie');
         if (rtIdx !== -1) {
-            const tblStart = xml.lastIndexOf('<w:tbl', rtIdx);
+            // Use Math.max so we match <w:tbl> (no attrs) or <w:tbl ...> (with attrs)
+            // but NOT <w:tblPr>, <w:tblGrid> etc. which also start with '<w:tbl'
+            const t1 = xml.lastIndexOf('<w:tbl>', rtIdx);
+            const t2 = xml.lastIndexOf('<w:tbl ', rtIdx);
+            const tblStart = Math.max(t1, t2);
             const tblEnd   = xml.indexOf('</w:tbl>', rtIdx);
             if (tblStart !== -1 && tblEnd !== -1) {
                 xml = xml.slice(0, tblStart) + xml.slice(tblEnd + '</w:tbl>'.length);
