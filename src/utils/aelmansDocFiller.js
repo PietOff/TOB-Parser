@@ -185,14 +185,19 @@ export async function fillAelmansTemplate(templateFile, values) {
     if (amvNummer) xml = xml.split('AMV261626.001').join(amvNummer);
 
     // ── Revision table: remove; keep only "Niet van toepassing." ──────────
-    const revisionText = 'Niet van toepassing OF Onderhavige revisie vervangt integraal voorgaande rapportversies. ';
-    const revIdx = xml.indexOf(revisionText);
-    if (revIdx !== -1) {
-        xml = xml.replace(revisionText, 'Niet van toepassing.');
-        const tblStart = xml.indexOf('<w:tbl', revIdx);
-        const tblEnd   = xml.indexOf('</w:tbl>', tblStart !== -1 ? tblStart : 0);
-        if (tblStart !== -1 && tblEnd !== -1) {
-            xml = xml.slice(0, tblStart) + xml.slice(tblEnd + '</w:tbl>'.length);
+    // Simplify the instruction text first
+    xml = xml.split(
+        'Niet van toepassing OF Onderhavige revisie vervangt integraal voorgaande rapportversies. '
+    ).join('Niet van toepassing.');
+    // Remove the revision table, identified by its unique "Revisie/versie" header cell
+    {
+        const rtIdx = xml.indexOf('Revisie/versie');
+        if (rtIdx !== -1) {
+            const tblStart = xml.lastIndexOf('<w:tbl', rtIdx);
+            const tblEnd   = xml.indexOf('</w:tbl>', rtIdx);
+            if (tblStart !== -1 && tblEnd !== -1) {
+                xml = xml.slice(0, tblStart) + xml.slice(tblEnd + '</w:tbl>'.length);
+            }
         }
     }
 
@@ -207,7 +212,10 @@ export async function fillAelmansTemplate(templateFile, values) {
             const removeParaContaining = (marker) => {
                 const idx = xml.indexOf(marker);
                 if (idx === -1) return;
-                const pStart = xml.lastIndexOf('<w:p ', idx);
+                // Find the nearest <w:p> or <w:p ...> opening tag before the marker
+                const p1 = xml.lastIndexOf('<w:p>', idx);
+                const p2 = xml.lastIndexOf('<w:p ', idx);
+                const pStart = Math.max(p1, p2);
                 const pEnd   = xml.indexOf('</w:p>', idx);
                 if (pStart !== -1 && pEnd !== -1) {
                     xml = xml.slice(0, pStart) + xml.slice(pEnd + '</w:p>'.length);
@@ -222,13 +230,6 @@ export async function fillAelmansTemplate(templateFile, values) {
             }
         }
     }
-
-    // ── Strip yellow highlight from "Op" in terreininspectie ──────────────
-    // ("Op" is cosmetically marked yellow; remove the highlight, keep the text)
-    xml = xml.replace(
-        /(<w:rPr>[\s\S]*?)<w:highlight w:val="yellow"\/>(<\/w:rPr><w:t[^>]*>Op<\/w:t>)/g,
-        '$1$2'
-    );
 
     // ── Tekening (Bijlage 1) ──────────────────────────────────────────────
     if (tekening) {
