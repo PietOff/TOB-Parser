@@ -210,7 +210,7 @@ export async function parseBdok(file, onProgress) {
         if (!isNaN(len)) {
             if (len < 5) result.aantalBoringen = '1';
             else if (len <= 75) result.aantalBoringen = '2';
-            else result.aantalBoringen = String(Math.ceil(len / 50));
+            else result.aantalBoringen = String(Math.max(3, Math.ceil(len / 50)));
         }
     }
 

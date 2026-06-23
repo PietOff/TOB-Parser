@@ -27,6 +27,10 @@
  *  Revision table                             → remove; keep "Niet van toepassing."
  *  Yellow/cyan GWO paragraph                 → remove inapplicable version
  *  AMV261626.001                              → amvNummer
+ *  "(tekening invoegen opdrachtgever)"        → always removed (Bijlage 1)
+ *  "gemeente" (lowercase, Bijlage 3 title)   → gemeente name if bodemrapportage
+ *  Bijlage 3 section                         → removed when no bodemrapportage
+ *  "Gemeente naam." in §1.3                  → gemeente if bodemrapportage, else remove
  */
 import JSZip from 'jszip';
 
@@ -56,6 +60,19 @@ export async function fillAelmansTemplate(templateFile, values) {
     const zip = await JSZip.loadAsync(arrayBuffer);
     let xml = await zip.file('word/document.xml').async('string');
 
+    // Helper: remove the paragraph containing a text marker (first match)
+    const removeParaContaining = (marker) => {
+        const idx = xml.indexOf(marker);
+        if (idx === -1) return;
+        const p1 = xml.lastIndexOf('<w:p>', idx);
+        const p2 = xml.lastIndexOf('<w:p ', idx);
+        const pStart = Math.max(p1, p2);
+        const pEnd   = xml.indexOf('</w:p>', idx);
+        if (pStart !== -1 && pEnd !== -1) {
+            xml = xml.slice(0, pStart) + xml.slice(pEnd + '</w:p>'.length);
+        }
+    };
+
     const {
         sleuflengte = '',
         ontgravingsdiepte = '',
@@ -83,11 +100,11 @@ export async function fillAelmansTemplate(templateFile, values) {
 
     const lenF = parseFloat(sleuflengte);
     const aantalBoringen = !isNaN(lenF)
-        ? (lenF < 5 ? '1' : lenF <= 75 ? '2' : String(Math.ceil(lenF / 50)))
+        ? (lenF < 5 ? '1' : lenF <= 75 ? '2' : String(Math.max(3, Math.ceil(lenF / 50))))
         : '';
-    const aantalMengmonsters = !isNaN(lenF)
-        ? String(Math.max(2, Math.ceil(lenF / 50) * 2))
-        : '2';
+    // Max 7 grondmonsters per mengmonster; 1 boven + 1 onder per boring; minimum 2
+    const boringenInt = parseInt(aantalBoringen) || 2;
+    const aantalMengmonsters = String(Math.max(2, Math.ceil(boringenInt / 7) * 2));
 
     // ── Contactpersoon (always Dhr. R.D.T. Houben) ────────────────────────
     xml = repT(xml, 'M\\. Buss', 'Dhr. R.D.T. Houben');
@@ -114,11 +131,21 @@ export async function fillAelmansTemplate(templateFile, values) {
         xml = repT(xml, 'Circa 1,0 m-mv', `Circa ${gwsNL} m-mv`);
         // "circa XXX m +NAP" — replace XXX with gwsNL
         xml = xml.replace(/<w:t([^>]*)>XXX<\/w:t>/g, `<w:t$1>${xmlEsc(gwsNL)}</w:t>`);
-        // Space placeholder between "bevindt zich" and "op meer dan 0,25" in GWO sentence
+        // §2.9 sentence: "bevindt zich [SPACE/comment80] op meer dan 0,25 m-mv"
+        // → "bevindt zich op [GWS] m-mv, dit is op meer/minder dan 0,25 m-mv"
         xml = xml.replace(
             /(bevindt\s+zich[\s\S]{0,300}?<w:t[^>]*>) (<\/w:t>[\s\S]{0,300}?op meer dan 0,25)/s,
-            `$1circa ${xmlEsc(gwsNL)} m-mv$2`
+            `$1op ${xmlEsc(gwsNL)} m-mv, dit is $2`
         );
+        // If GWS is within 0.25m of excavation → change "meer" to "minder"
+        const gws29  = parseFloat(grondwaterstand);
+        const diep29 = parseFloat(ontgravingsdiepte);
+        if (!isNaN(gws29) && !isNaN(diep29) && gws29 - diep29 <= 0.25) {
+            xml = xml.replace(
+                /(bevindt\s+zich[\s\S]{0,400}?>)op meer (<\/w:t>)/s,
+                '$1op minder $2'
+            );
+        }
     }
 
     // ── Bemaling ──────────────────────────────────────────────────────────
@@ -128,15 +155,20 @@ export async function fillAelmansTemplate(templateFile, values) {
     if (gemeente) {
         xml = repT(xml, 'Gemeente', xmlEsc(gemeente));
 
-        // §1.3 source row: "Gemeente naam." — single run variant
-        xml = repT(xml, 'Gemeente naam\\.', `${xmlEsc(gemeente)}.`);
-        // §1.3 source row: "G" + "emeente naam." split across two runs
-        // Put gemeente + period in first run, empty the second run
-        xml = xml.replace(
-            /(<w:t[^>]*>)G(<\/w:t>)([\s\S]{0,600}?)(<w:t[^>]*>)emeente naam\.(<\/w:t>)/s,
-            `$1${xmlEsc(gemeente)}.$2$3$4$5`
-        );
-        xml = xml.replace(/<w:t([^>]*)>emeente naam\.<\/w:t>/g, '<w:t$1><\/w:t>');
+        // §1.3 source row: "Gemeente naam." — only when bodemrapportage provided
+        if (hasBodemrapportage) {
+            // Single run variant
+            xml = repT(xml, 'Gemeente naam\\.', `${xmlEsc(gemeente)}.`);
+            // Split run: "G" in first run + "emeente naam." in second run
+            xml = xml.replace(
+                /(<w:t[^>]*>)G(<\/w:t>)([\s\S]{0,600}?)(<w:t[^>]*>)emeente naam\.(<\/w:t>)/s,
+                `$1${xmlEsc(gemeente)}.$2$3$4$5`
+            );
+            xml = xml.replace(/<w:t([^>]*)>emeente naam\.<\/w:t>/g, '<w:t$1><\/w:t>');
+        } else {
+            // No bodemrapportage → remove the "Gemeente naam." list item from §1.3
+            removeParaContaining('emeente naam.');
+        }
 
         // BKK sentence: "(jaartal) van gemeente" → year + actual gemeente
         xml = xml.replace(
@@ -144,9 +176,27 @@ export async function fillAelmansTemplate(templateFile, values) {
             `(${jaar}) van ${xmlEsc(gemeente)}`
         );
 
-        // Bijlage 3 title: "Bodeminformatie gemeente" → add gemeente name if bodemrapportage
+        // Bijlage 3 title: "gemeente" (lowercase, green placeholder) → actual gemeente name
         if (hasBodemrapportage) {
-            xml = repT(xml, 'Bodeminformatie', `Bodeminformatie ${xmlEsc(gemeente)}`);
+            xml = repT(xml, 'gemeente', xmlEsc(gemeente));
+        }
+    }
+
+    // ── Bijlage 3: remove entirely when no bodemrapportage ─────────────────
+    if (!hasBodemrapportage) {
+        // Remove TOC entry paragraph (first occurrence of "Bijlage 3")
+        removeParaContaining('Bijlage 3');
+        // Remove actual Bijlage 3 section (heading + Bodeminformatie content)
+        const b3Idx = xml.indexOf('Bijlage 3');
+        const b4Idx = xml.indexOf('Bijlage 4');
+        if (b3Idx !== -1 && b4Idx !== -1) {
+            const bp1 = xml.lastIndexOf('<w:p>', b3Idx);
+            const bp2 = xml.lastIndexOf('<w:p ', b3Idx);
+            const bPStart = Math.max(bp1, bp2);
+            const bPEnd   = xml.lastIndexOf('</w:p>', b4Idx);
+            if (bPStart !== -1 && bPEnd !== -1) {
+                xml = xml.slice(0, bPStart) + xml.slice(bPEnd + '</w:p>'.length);
+            }
         }
     }
 
@@ -206,26 +256,17 @@ export async function fillAelmansTemplate(templateFile, values) {
         }
     }
 
+    // ── Bijlage 1: remove yellow "(tekening invoegen opdrachtgever)" placeholder ──
+    removeParaContaining('tekening invoegen opdrachtgever');
+
     // ── Conditional grondwateronderzoek paragraph ─────────────────────────
     // Yellow paragraph = depth argument (GWS > 0.25m below excavation)
     // Cyan paragraph   = work-type argument (cable work, no groundwater contact)
-    // Remove whichever doesn't apply. Use indexOf to find the exact enclosing <w:p>.
+    // Remove whichever doesn't apply.
     {
         const gws83  = parseFloat(grondwaterstand);
         const diep83 = parseFloat(ontgravingsdiepte);
         if (!isNaN(gws83) && !isNaN(diep83)) {
-            const removeParaContaining = (marker) => {
-                const idx = xml.indexOf(marker);
-                if (idx === -1) return;
-                // Find the nearest <w:p> or <w:p ...> opening tag before the marker
-                const p1 = xml.lastIndexOf('<w:p>', idx);
-                const p2 = xml.lastIndexOf('<w:p ', idx);
-                const pStart = Math.max(p1, p2);
-                const pEnd   = xml.indexOf('</w:p>', idx);
-                if (pStart !== -1 && pEnd !== -1) {
-                    xml = xml.slice(0, pStart) + xml.slice(pEnd + '</w:p>'.length);
-                }
-            };
             if (gws83 - diep83 > 0.25) {
                 // GWS deep enough → yellow depth-argument applies → remove cyan paragraph
                 removeParaContaining('Omdat er geen werkzaamheden');
