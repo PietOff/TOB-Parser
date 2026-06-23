@@ -51,8 +51,8 @@ function repT(xml, exact, replacement) {
 }
 
 /** Build the <w:drawing> inline image XML for embedding in a paragraph */
-function inlineDrawingXml(rId, cxEmu, cyEmu) {
-    return `<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="${cxEmu}" cy="${cyEmu}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="99" name="Tekening"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="99" name="Tekening"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cxEmu}" cy="${cyEmu}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>`;
+function inlineDrawingXml(rId, cxEmu, cyEmu, id = 99, name = 'Tekening') {
+    return `<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="${cxEmu}" cy="${cyEmu}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="${id}" name="${name}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${id}" name="${name}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cxEmu}" cy="${cyEmu}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>`;
 }
 
 export async function fillAelmansTemplate(templateFile, values) {
@@ -87,6 +87,7 @@ export async function fillAelmansTemplate(templateFile, values) {
         hasBodemrapportage = false,
         jaar = new Date().getFullYear(),
         tekening = null,
+        topoImages = null,
     } = values;
 
     const nl = (s) => String(s).replace('.', ',');
@@ -264,11 +265,6 @@ export async function fillAelmansTemplate(templateFile, values) {
         }
     }
 
-    // ── §2.2 Topotijdreis table: fill in year column headers ─────────────────
-    xml = xml.replace(/<w:t([^>]*)>Topotijdreis<\/w:t>/, '<w:t$1>Topotijdreis 1945</w:t>');
-    xml = xml.replace(/<w:t([^>]*)>Topotijdreis<\/w:t>/, '<w:t$1>Topotijdreis 1995</w:t>');
-    xml = xml.replace(/<w:t([^>]*)>Topotijdreis<\/w:t>/, '<w:t$1>Topotijdreis 2025</w:t>');
-
     // ── §2.9 sentence removal ─────────────────────────────────────────────────
     // Remove "De regionale grondwaterstromingsrichting..." (its own paragraph)
     removeParaContaining('regionale grondwaterstromings');
@@ -301,6 +297,59 @@ export async function fillAelmansTemplate(templateFile, values) {
                 // GWS shallow → cyan work-type argument applies → remove yellow paragraph
                 removeParaContaining('Grondwateronderzoek dient');
             }
+        }
+    }
+
+    // ── §2.2 Topotijdreis: insert map images into plaatje cells ──────────────
+    // The template caption row already has "Topotijdreis 1945/1995/2025" as separate runs;
+    // we only need to fill the image cells (first row of the table, pStyle "plaatje").
+    if (topoImages && topoImages.length === 3) {
+        const topoCapIdx = xml.indexOf('<w:t>Topotijdreis</w:t>');
+        if (topoCapIdx !== -1) {
+            const t1 = xml.lastIndexOf('<w:tbl>', topoCapIdx);
+            const t2 = xml.lastIndexOf('<w:tbl ', topoCapIdx);
+            const tblStart = Math.max(t1, t2);
+            const firstRowStart = xml.indexOf('<w:tr', tblStart);
+            const firstRowEnd   = xml.indexOf('</w:tr>', firstRowStart) + '</w:tr>'.length;
+            let firstRow = xml.slice(firstRowStart, firstRowEnd);
+
+            // Ensure PNG content type is registered in the package
+            let ct = await zip.file('[Content_Types].xml').async('string');
+            if (!ct.includes('image/png')) {
+                ct = ct.replace('</Types>', '<Default Extension="png" ContentType="image/png"/></Types>');
+                zip.file('[Content_Types].xml', ct);
+            }
+
+            let rels = await zip.file('word/_rels/document.xml.rels').async('string');
+            const cxEmu = 1_700_000; // ≈ 6 cm, fits all three columns
+            const cyEmu = 1_700_000;
+
+            for (let i = 0; i < 3; i++) {
+                const rId     = `rIdTP${i + 1}`;
+                const drId    = 101 + i; // drawing element IDs 101, 102, 103
+                const imgName = 'Topo' + (i + 1);
+                const imgFile = `word/media/topo_${i + 1}.png`;
+
+                const imgBuf = await topoImages[i].arrayBuffer();
+                zip.file(imgFile, imgBuf);
+
+                rels = rels.replace(
+                    '</Relationships>',
+                    `<Relationship Id="${rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/topo_${i + 1}.png"/></Relationships>`
+                );
+
+                // Replace the first EMPTY plaatje paragraph in firstRow with one holding the image.
+                // Only matches when </w:pPr> is immediately followed by (optional whitespace +) </w:p>,
+                // so after the first replacement the modified paragraph won't match again.
+                const drawing = inlineDrawingXml(rId, cxEmu, cyEmu, drId, imgName);
+                firstRow = firstRow.replace(
+                    /(<w:pStyle w:val="plaatje"\/>[\s\S]{0,200}?<\/w:pPr>)\s*<\/w:p>/s,
+                    '$1<w:r>' + drawing + '</w:r></w:p>'
+                );
+            }
+
+            zip.file('word/_rels/document.xml.rels', rels);
+            xml = xml.slice(0, firstRowStart) + firstRow + xml.slice(firstRowEnd);
         }
     }
 
