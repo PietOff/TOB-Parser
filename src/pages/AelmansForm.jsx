@@ -4,7 +4,7 @@ import { parseBdok, parseBodemrapportage, renderPdfPageToJpeg } from '../utils/b
 import { fillAelmansTemplate, downloadBlob } from '../utils/aelmansDocFiller';
 
 const PROVINCIES = ['Noord-Brabant', 'Limburg'];
-const UITVOERDERS = ['Synfra/BDOK', 'Synfra', 'BDOK'];
+const UITVOERDERS = ['Synfra', 'BDOK'];
 
 export default function AelmansForm() {
     const navigate = useNavigate();

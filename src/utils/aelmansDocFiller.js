@@ -128,13 +128,14 @@ export async function fillAelmansTemplate(templateFile, values) {
     if (gemeente) {
         xml = repT(xml, 'Gemeente', xmlEsc(gemeente));
 
-        // "G" + "emeente naam." split across two runs (§1.3 source row)
-        // Replace G→gemeente, empty out "emeente naam."
+        // §1.3 source row: "Gemeente naam." — single run variant
+        xml = repT(xml, 'Gemeente naam\\.', `${xmlEsc(gemeente)}.`);
+        // §1.3 source row: "G" + "emeente naam." split across two runs
+        // Put gemeente + period in first run, empty the second run
         xml = xml.replace(
             /(<w:t[^>]*>)G(<\/w:t>)([\s\S]{0,600}?)(<w:t[^>]*>)emeente naam\.(<\/w:t>)/s,
-            `$1${xmlEsc(gemeente)}$2$3$4$5`
+            `$1${xmlEsc(gemeente)}.$2$3$4$5`
         );
-        // Clear the leftover "emeente naam." run
         xml = xml.replace(/<w:t([^>]*)>emeente naam\.<\/w:t>/g, '<w:t$1><\/w:t>');
 
         // BKK sentence: "(jaartal) van gemeente" → year + actual gemeente
