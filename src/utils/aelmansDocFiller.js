@@ -145,7 +145,7 @@ export async function fillAelmansTemplate(templateFile, values) {
 
         // Bijlage 3 title: "Bodeminformatie gemeente" → add gemeente name if bodemrapportage
         if (hasBodemrapportage) {
-            xml = repT(xml, 'Bodeminformatie', `Bodeminformatie gemeente ${xmlEsc(gemeente)}`);
+            xml = repT(xml, 'Bodeminformatie', `Bodeminformatie ${xmlEsc(gemeente)}`);
         }
     }
 

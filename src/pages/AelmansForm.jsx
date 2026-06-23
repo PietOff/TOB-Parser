@@ -63,7 +63,7 @@ export default function AelmansForm() {
                     straatnaam:        data.straatnaam        || prev.straatnaam,
                     huisnummer:        data.huisnummer        || prev.huisnummer,
                     plaatsnaam:        data.plaatsnaam        || prev.plaatsnaam,
-                    gemeente:          data.gemeente          || prev.gemeente,
+                    gemeente:          (data.gemeente ? `Gemeente ${data.gemeente}` : '') || prev.gemeente,
                     sleuflengte:       data.sleuflengte       || prev.sleuflengte,
                     ontgravingsdiepte: data.ontgravingsdiepte || prev.ontgravingsdiepte,
                     grondwaterstand:   data.grondwaterstand   || prev.grondwaterstand,

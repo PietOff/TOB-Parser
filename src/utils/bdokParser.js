@@ -100,7 +100,8 @@ export async function parseBdok(file, onProgress) {
         if (m) {
             const name = m[1].trim();
             // Skip generic words that aren't actual municipality names
-            const skip = /^(Bron|Naam|Locatie|Bevoegd|Gezag|Info|Data)$/i.test(name);
+            // "Generieke" appears in BDOK as "Generieke achtergrondwaarden" — common false match
+            const skip = /^(Bron|Naam|Locatie|Bevoegd|Gezag|Info|Data|Generieke|Achtergrondwaarden|Bijzondere|Normen|Waarden|Klasse|Functieklasse)$/i.test(name);
             if (!skip && name.length > 2 && name.length < 50) {
                 result.gemeente = name;
                 break;
