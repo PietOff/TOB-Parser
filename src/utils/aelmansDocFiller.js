@@ -102,9 +102,9 @@ export async function fillAelmansTemplate(templateFile, values) {
     const aantalBoringen = !isNaN(lenF)
         ? (lenF < 5 ? '1' : lenF <= 75 ? '2' : String(Math.max(3, Math.ceil(lenF / 50))))
         : '';
-    // Max 7 grondmonsters per mengmonster; 1 boven + 1 onder per boring; minimum 2
+    // Minimum 2 mengmonsters; 1 per 7 boringen
     const boringenInt = parseInt(aantalBoringen) || 2;
-    const aantalMengmonsters = String(Math.max(2, Math.ceil(boringenInt / 7) * 2));
+    const aantalMengmonsters = String(Math.max(2, Math.ceil(boringenInt / 7)));
 
     // ── Contactpersoon (always Dhr. R.D.T. Houben) ────────────────────────
     xml = repT(xml, 'M\\. Buss', 'Dhr. R.D.T. Houben');
@@ -127,14 +127,20 @@ export async function fillAelmansTemplate(templateFile, values) {
     }
 
     // ── Grondwaterstand ───────────────────────────────────────────────────
+    // §2.1 "circa XXX meter lang" — first standalone XXX run → sleuflengte
+    if (sleufNL) {
+        xml = xml.replace(/<w:t([^>]*)>XXX<\/w:t>/, `<w:t$1>${xmlEsc(sleufNL)}</w:t>`);
+    }
+
     if (gwsNL) {
         xml = repT(xml, 'Circa 1,0 m-mv', `Circa ${gwsNL} m-mv`);
-        // "circa XXX m +NAP" — replace XXX with gwsNL
+        // §2.9 "circa XXX m +NAP" — remaining XXX runs → grondwaterstand
         xml = xml.replace(/<w:t([^>]*)>XXX<\/w:t>/g, `<w:t$1>${xmlEsc(gwsNL)}</w:t>`);
-        // §2.9 sentence: "bevindt zich [SPACE/comment80] op meer dan 0,25 m-mv"
-        // → "bevindt zich op [GWS] m-mv, dit is op meer/minder dan 0,25 m-mv"
+        // §2.9 GWS sentence: placeholder space (wrapped in commentRange 80) → GWS value
+        // Template: "bevindt zich [comment80 space] op meer dan 0,25 m-mv"
+        // Result:   "bevindt zich op [GWS] m-mv, dit is op meer/minder dan 0,25 m-mv"
         xml = xml.replace(
-            /(bevindt\s+zich[\s\S]{0,300}?<w:t[^>]*>) (<\/w:t>[\s\S]{0,300}?op meer dan 0,25)/s,
+            /(<w:commentRangeStart w:id="80"\/>[\s\S]{0,150}?<w:t[^>]*>) (<\/w:t>)/s,
             `$1op ${xmlEsc(gwsNL)} m-mv, dit is $2`
         );
         // If GWS is within 0.25m of excavation → change "meer" to "minder"
@@ -176,9 +182,11 @@ export async function fillAelmansTemplate(templateFile, values) {
             `(${jaar}) van ${xmlEsc(gemeente)}`
         );
 
-        // Bijlage 3 title: "gemeente" (lowercase, green placeholder) → actual gemeente name
+        // Bijlage 3 title: "gemeente" (lowercase, green placeholder) → "gemeente <city>"
+        // e.g. gemeente value "Gemeente Son en Breugel" → "gemeente Son en Breugel"
         if (hasBodemrapportage) {
-            xml = repT(xml, 'gemeente', xmlEsc(gemeente));
+            const cityOnly = gemeente.replace(/^Gemeente\s+/i, '');
+            xml = repT(xml, 'gemeente', 'gemeente ' + xmlEsc(cityOnly));
         }
     }
 
@@ -255,6 +263,25 @@ export async function fillAelmansTemplate(templateFile, values) {
             }
         }
     }
+
+    // ── §2.2 Topotijdreis table: fill in year column headers ─────────────────
+    xml = xml.replace(/<w:t([^>]*)>Topotijdreis<\/w:t>/, '<w:t$1>Topotijdreis 1945</w:t>');
+    xml = xml.replace(/<w:t([^>]*)>Topotijdreis<\/w:t>/, '<w:t$1>Topotijdreis 1995</w:t>');
+    xml = xml.replace(/<w:t([^>]*)>Topotijdreis<\/w:t>/, '<w:t$1>Topotijdreis 2025</w:t>');
+
+    // ── §2.9 sentence removal ─────────────────────────────────────────────────
+    // Remove "De regionale grondwaterstromingsrichting..." (its own paragraph)
+    removeParaContaining('regionale grondwaterstromings');
+    // Remove "De locatie is gelegen in het bodembeschermingsgebied 'Mergelland'." from
+    // within the next paragraph (which also contains sentences we want to keep).
+    // The sentence spans 3 runs; capture the 3rd run's opening tags to preserve the rest.
+    xml = xml.replace(
+        /<w:r[^>]*><w:t[^>]*>De locatie is gelegen in het bodembeschermingsgebied "<\/w:t><\/w:r><w:r[^>]*>(?:<w:rPr>[\s\S]*?<\/w:rPr>)?<w:t[^>]*>Mergelland<\/w:t><\/w:r>(<w:r[^>]*><w:t[^>]*>)"\. /s,
+        '$1'
+    );
+
+    // ── Remove yellow highlighting (template placeholder highlighting) ─────────
+    xml = xml.replace(/<w:highlight w:val="yellow"\/>/g, '');
 
     // ── Bijlage 1: remove yellow "(tekening invoegen opdrachtgever)" placeholder ──
     removeParaContaining('tekening invoegen opdrachtgever');
