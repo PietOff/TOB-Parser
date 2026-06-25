@@ -412,28 +412,28 @@ export async function fillAelmansTemplate(templateFile, values) {
         );
         zip.file('word/_rels/document.xml.rels', rels);
 
-        // Replace the placeholder paragraph "(tekening invoegen opdrachtgever)" with
-        // the actual image — this is more reliable than inserting after a heading.
+        const drawing = `<w:p><w:r>${inlineDrawingXml(tekeningRId, cxEmu, cyEmu)}</w:r></w:p>`;
+
+        // Primary: replace the placeholder paragraph containing "tekening invoegen opdrachtgever"
         const marker = 'tekening invoegen opdrachtgever';
         const midx = xml.indexOf(marker);
         if (midx !== -1) {
             const pStart = Math.max(xml.lastIndexOf('<w:p>', midx), xml.lastIndexOf('<w:p ', midx));
             const pEnd   = xml.indexOf('</w:p>', midx) + '</w:p>'.length;
-            if (pStart !== -1 && pEnd > 0) {
-                xml = xml.slice(0, pStart)
-                    + `<w:p><w:r>${inlineDrawingXml(tekeningRId, cxEmu, cyEmu)}</w:r></w:p>`
-                    + xml.slice(pEnd);
+            if (pStart !== -1 && pEnd > '</w:p>'.length) {
+                xml = xml.slice(0, pStart) + drawing + xml.slice(pEnd);
             }
         } else {
-            // Fallback: insert after "Bijlage 1" heading (second occurrence skips TOC)
+            // Fallback: insert after the paragraph that contains "Bijlage 1" (skip first = TOC)
+            // Uses indexOf on raw XML so it works even when text is split across runs.
             let b1Idx = xml.indexOf('Bijlage 1');
             if (b1Idx !== -1) b1Idx = xml.indexOf('Bijlage 1', b1Idx + 1);
-            if (b1Idx === -1) b1Idx = xml.indexOf('Bijlage 1'); // back to first if only one
+            if (b1Idx === -1) b1Idx = xml.indexOf('Bijlage 1');
             if (b1Idx !== -1) {
-                xml = xml.replace(
-                    /(<w:t[^>]*>Bijlage 1<\/w:t>[\s\S]{0,400}?<\/w:p>)/s,
-                    `$1<w:p><w:r>${inlineDrawingXml(tekeningRId, cxEmu, cyEmu)}</w:r></w:p>`
-                );
+                const pEnd = xml.indexOf('</w:p>', b1Idx) + '</w:p>'.length;
+                if (pEnd > '</w:p>'.length) {
+                    xml = xml.slice(0, pEnd) + drawing + xml.slice(pEnd);
+                }
             }
         }
     } else {
