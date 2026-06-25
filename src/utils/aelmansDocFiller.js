@@ -60,17 +60,6 @@ export async function fillAelmansTemplate(templateFile, values) {
     const zip = await JSZip.loadAsync(arrayBuffer);
     let xml = await zip.file('word/document.xml').async('string');
 
-    // DEBUG: show 250 chars before + after every "emeente" occurrence
-    {
-        const dbg = [];
-        let _i = 0;
-        while ((_i = xml.indexOf('emeente', _i)) !== -1) {
-            dbg.push(xml.slice(Math.max(0, _i - 250), _i + 150));
-            _i++;
-        }
-        console.log('[DEBUG emeente]', dbg);
-    }
-
     // Helper: remove the paragraph containing a text marker (first match)
     const removeParaContaining = (marker) => {
         const idx = xml.indexOf(marker);
@@ -171,48 +160,49 @@ export async function fillAelmansTemplate(templateFile, values) {
 
     // ── Gemeente ──────────────────────────────────────────────────────────
     if (gemeente) {
-        // §1.3 source row: "Gemeente naam." → "Gemeente <name>." — keep the "Gemeente" label.
-        // Must run BEFORE the standalone "Gemeente" replacement to avoid partial overwrites.
-        // Handle trailing period as optional; cover single-run and common split-run patterns.
-        const gemeenteLabel = `Gemeente ${xmlEsc(gemeente)}`;
+        // Normalize: strip leading "Gemeente " if already present in the value
+        // (AelmansForm auto-prefixes it, manual entry may or may not include it)
+        const gemeenteCity  = gemeente.replace(/^Gemeente\s+/i, '').trim();
+        const gemeenteLabel = `Gemeente ${xmlEsc(gemeenteCity)}`;
 
-        // Single run: "Gemeente naam." or "Gemeente naam"
+        // Step 1: normalize 3-run split "emeente " | "naam[.]" → "emeente naam[.]"
+        // (Word sometimes splits "Gemeente naam." as G | emeente  | naam.)
+        // After this step, the 2-run patterns below handle the rest.
+        xml = xml.replace(
+            /(<w:t[^>]*>)emeente (<\/w:t>)([\s\S]{0,300}?)(<w:t[^>]*>)naam(\.|)(<\/w:t>)/gs,
+            (_, t1, c1, mid, t2, dot, c2) => `${t1}emeente naam${dot}${c1}${mid}${t2}${c2}`
+        );
+
+        // Single run: "Gemeente naam[.]"
         xml = xml.replace(
             /<w:t([^>]*)>Gemeente naam(\.|)<\/w:t>/g,
             (_, attrs, dot) => `<w:t${attrs}>${gemeenteLabel}${dot}</w:t>`
-        );
-        // 3-run split: "G" | "emeente " (with trailing space) | "naam[.]"
-        xml = xml.replace(
-            /(<w:t[^>]*>)G(<\/w:t>)([\s\S]{0,400}?)(<w:t[^>]*>)emeente (<\/w:t>)([\s\S]{0,400}?)(<w:t[^>]*>)naam(\.|)(<\/w:t>)/gs,
-            (_, t1, c1, mid1, t2, c2, mid2, t3, dot, c3) =>
-                `${t1}${gemeenteLabel}${dot}${c1}${mid1}${t2}${c2}${mid2}${t3}${c3}`
         );
         // 2-run split: "G" | "emeente naam[.]"
         xml = xml.replace(
             /(<w:t[^>]*>)G(<\/w:t>)([\s\S]{0,400}?)(<w:t[^>]*>)emeente naam(\.|)(<\/w:t>)/gs,
             (_, t1, c1, mid, t2, dot, c2) => `${t1}${gemeenteLabel}${dot}${c1}${mid}${t2}${c2}`
         );
-        // Cleanup leftover "emeente " or "emeente naam" runs after partial matches
-        xml = xml.replace(/<w:t([^>]*)>emeente (?:naam)?\.?<\/w:t>/g, '<w:t$1></w:t>');
         // 2-run split: "Gemeente " | "naam[.]"
         xml = xml.replace(
             /(<w:t[^>]*>)Gemeente (<\/w:t>)([\s\S]{0,400}?)(<w:t[^>]*>)naam(\.|)(<\/w:t>)/gs,
             (_, t1, c1, mid, t2, dot, c2) => `${t1}${gemeenteLabel}${dot}${c1}${mid}${t2}${c2}`
         );
+        // Cleanup leftover "emeente naam" or "emeente " runs
+        xml = xml.replace(/<w:t([^>]*)>emeente(?: naam)?\.?<\/w:t>/g, '<w:t$1></w:t>');
 
-        // Bevoegd gezag cell: standalone "Gemeente" run
-        xml = repT(xml, 'Gemeente', xmlEsc(gemeente));
+        // Bevoegd gezag cell: standalone "Gemeente" → full label
+        xml = repT(xml, 'Gemeente', gemeenteLabel);
 
-        // BKK sentence: "(jaartal) van gemeente" → year + actual gemeente
+        // BKK sentence: "(jaartal) van gemeente" → year + city name
         xml = xml.replace(
             /\(jaartal\) van gemeente/g,
-            `(${jaar}) van ${xmlEsc(gemeente)}`
+            `(${jaar}) van ${xmlEsc(gemeenteCity)}`
         );
 
         // Bijlage 3 title: "gemeente" (lowercase) → "gemeente <city>"
         if (hasBodemrapportage) {
-            const cityOnly = gemeente.replace(/^Gemeente\s+/i, '');
-            xml = repT(xml, 'gemeente', 'gemeente ' + xmlEsc(cityOnly));
+            xml = repT(xml, 'gemeente', `gemeente ${xmlEsc(gemeenteCity)}`);
         }
     }
 
