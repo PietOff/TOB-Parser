@@ -389,12 +389,15 @@ export async function fillAelmansTemplate(templateFile, values) {
     }
 
     // ── Tekening (Bijlage 1) ──────────────────────────────────────────────
+    // Insert the JPEG image as a new paragraph directly after the "Bijlage 1" heading.
     if (tekening) {
         const tekeningRId = 'rIdTekening';
         const imgArrayBuffer = await tekening.blob.arrayBuffer();
         const maxCx = 5_760_000; // 160mm in EMU
         const cxEmu = maxCx;
         const cyEmu = Math.round(maxCx * (tekening.heightPx / tekening.widthPx));
+
+        console.log('[tekening] blob size:', imgArrayBuffer.byteLength, 'dims:', tekening.widthPx, 'x', tekening.heightPx, 'cxEmu:', cxEmu, 'cyEmu:', cyEmu);
 
         zip.file('word/media/tekening.jpg', imgArrayBuffer);
 
@@ -414,30 +417,27 @@ export async function fillAelmansTemplate(templateFile, values) {
 
         const drawing = `<w:p><w:r>${inlineDrawingXml(tekeningRId, cxEmu, cyEmu)}</w:r></w:p>`;
 
-        // Primary: replace the placeholder paragraph containing "tekening invoegen opdrachtgever"
-        const marker = 'tekening invoegen opdrachtgever';
-        const midx = xml.indexOf(marker);
-        if (midx !== -1) {
-            const pStart = Math.max(xml.lastIndexOf('<w:p>', midx), xml.lastIndexOf('<w:p ', midx));
-            const pEnd   = xml.indexOf('</w:p>', midx) + '</w:p>'.length;
-            if (pStart !== -1 && pEnd > '</w:p>'.length) {
-                xml = xml.slice(0, pStart) + drawing + xml.slice(pEnd);
+        // Find "Bijlage 1" heading (skip first occurrence which is usually the TOC entry)
+        // and insert the image paragraph directly after it.
+        let b1Idx = xml.indexOf('Bijlage 1');
+        const b1Idx2 = b1Idx !== -1 ? xml.indexOf('Bijlage 1', b1Idx + 1) : -1;
+        if (b1Idx2 !== -1) b1Idx = b1Idx2; // prefer second occurrence (actual heading, not TOC)
+        console.log('[tekening] Bijlage 1 idx (first):', xml.indexOf('Bijlage 1'), '(used):', b1Idx);
+
+        if (b1Idx !== -1) {
+            const pEnd = xml.indexOf('</w:p>', b1Idx) + '</w:p>'.length;
+            console.log('[tekening] pEnd:', pEnd, '(threshold:', '</w:p>'.length, ')');
+            if (pEnd > '</w:p>'.length) {
+                xml = xml.slice(0, pEnd) + drawing + xml.slice(pEnd);
+                console.log('[tekening] drawing inserted after Bijlage 1 heading');
             }
         } else {
-            // Fallback: insert after the paragraph that contains "Bijlage 1" (skip first = TOC)
-            // Uses indexOf on raw XML so it works even when text is split across runs.
-            let b1Idx = xml.indexOf('Bijlage 1');
-            if (b1Idx !== -1) b1Idx = xml.indexOf('Bijlage 1', b1Idx + 1);
-            if (b1Idx === -1) b1Idx = xml.indexOf('Bijlage 1');
-            if (b1Idx !== -1) {
-                const pEnd = xml.indexOf('</w:p>', b1Idx) + '</w:p>'.length;
-                if (pEnd > '</w:p>'.length) {
-                    xml = xml.slice(0, pEnd) + drawing + xml.slice(pEnd);
-                }
-            }
+            console.warn('[tekening] "Bijlage 1" not found in document XML');
         }
+
+        // Also remove placeholder paragraph if present (keep document clean)
+        removeParaContaining('tekening invoegen opdrachtgever');
     } else {
-        // No tekening — remove the placeholder paragraph
         removeParaContaining('tekening invoegen opdrachtgever');
     }
 
