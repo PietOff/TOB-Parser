@@ -60,19 +60,6 @@ export async function fillAelmansTemplate(templateFile, values) {
     const zip = await JSZip.loadAsync(arrayBuffer);
     let xml = await zip.file('word/document.xml').async('string');
 
-    // DEBUG: show every w:t text node that contains "naam" or "emeente" so we can
-    // see the exact run structure around the §1.3 gemeente placeholder
-    {
-        const debugGemeente = [];
-        let _i = 0;
-        const needle = 'naam';
-        while ((_i = xml.indexOf(needle, _i)) !== -1) {
-            debugGemeente.push(xml.slice(Math.max(0, _i - 150), _i + 100));
-            _i++;
-        }
-        console.log('[DEBUG gemeente] gemeente value:', values.gemeente);
-        console.log('[DEBUG gemeente] "naam" occurrences:', debugGemeente);
-    }
 
     // Helper: remove the paragraph containing a text marker (first match)
     const removeParaContaining = (marker) => {
@@ -184,15 +171,22 @@ export async function fillAelmansTemplate(templateFile, values) {
             /<w:t([^>]*)>Gemeente naam(\.|)<\/w:t>/g,
             (_, attrs, dot) => `<w:t${attrs}>${gemeenteLabel}${dot}</w:t>`
         );
-        // Split run "G" + "emeente naam." or "G" + "emeente naam"
+        // 3-run split: "G" | "emeente " (with trailing space) | "naam[.]"
         xml = xml.replace(
-            /(<w:t[^>]*>)G(<\/w:t>)([\s\S]{1,800}?)(<w:t[^>]*>)emeente naam(\.|)(<\/w:t>)/s,
+            /(<w:t[^>]*>)G(<\/w:t>)([\s\S]{0,400}?)(<w:t[^>]*>)emeente (<\/w:t>)([\s\S]{0,400}?)(<w:t[^>]*>)naam(\.|)(<\/w:t>)/gs,
+            (_, t1, c1, mid1, t2, c2, mid2, t3, dot, c3) =>
+                `${t1}${gemeenteLabel}${dot}${c1}${mid1}${t2}${c2}${mid2}${t3}${c3}`
+        );
+        // 2-run split: "G" | "emeente naam[.]"
+        xml = xml.replace(
+            /(<w:t[^>]*>)G(<\/w:t>)([\s\S]{0,400}?)(<w:t[^>]*>)emeente naam(\.|)(<\/w:t>)/gs,
             (_, t1, c1, mid, t2, dot, c2) => `${t1}${gemeenteLabel}${dot}${c1}${mid}${t2}${c2}`
         );
-        xml = xml.replace(/<w:t([^>]*)>emeente naam\.?<\/w:t>/g, '<w:t$1></w:t>');
-        // Split run "Gemeente " + "naam." or "Gemeente " + "naam"
+        // Cleanup leftover "emeente " or "emeente naam" runs after partial matches
+        xml = xml.replace(/<w:t([^>]*)>emeente (?:naam)?\.?<\/w:t>/g, '<w:t$1></w:t>');
+        // 2-run split: "Gemeente " | "naam[.]"
         xml = xml.replace(
-            /(<w:t[^>]*>)Gemeente (<\/w:t>)([\s\S]{1,800}?)(<w:t[^>]*>)naam(\.|)(<\/w:t>)/s,
+            /(<w:t[^>]*>)Gemeente (<\/w:t>)([\s\S]{0,400}?)(<w:t[^>]*>)naam(\.|)(<\/w:t>)/gs,
             (_, t1, c1, mid, t2, dot, c2) => `${t1}${gemeenteLabel}${dot}${c1}${mid}${t2}${c2}`
         );
 
