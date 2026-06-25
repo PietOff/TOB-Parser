@@ -160,23 +160,26 @@ export async function fillAelmansTemplate(templateFile, values) {
 
     // ── Gemeente ──────────────────────────────────────────────────────────
     if (gemeente) {
-        // §1.3 source row: always replace "Gemeente naam." — do this BEFORE the
-        // standalone "Gemeente" replacement to avoid partial overwrites.
-        // Single run variant
+        // §1.3 source row: "Gemeente naam." → "Gemeente <name>." — keep the "Gemeente" label.
+        // Must run BEFORE the standalone "Gemeente" replacement to avoid partial overwrites.
+        // Handle trailing period as optional; cover single-run and common split-run patterns.
+        const gemeenteLabel = `Gemeente ${xmlEsc(gemeente)}`;
+
+        // Single run: "Gemeente naam." or "Gemeente naam"
         xml = xml.replace(
-            /<w:t([^>]*)>Gemeente naam\.<\/w:t>/,
-            `<w:t$1>${xmlEsc(gemeente)}.</w:t>`
+            /<w:t([^>]*)>Gemeente naam(\.|)<\/w:t>/g,
+            (_, attrs, dot) => `<w:t${attrs}>${gemeenteLabel}${dot}</w:t>`
         );
-        // Split run "G" + "emeente naam."
+        // Split run "G" + "emeente naam." or "G" + "emeente naam"
         xml = xml.replace(
-            /(<w:t[^>]*>)G(<\/w:t>)([\s\S]{1,800}?)(<w:t[^>]*>)emeente naam\.(<\/w:t>)/s,
-            (_, t1, c1, mid, t2, c2) => `${t1}${xmlEsc(gemeente)}.${c1}${mid}${t2}${c2}`
+            /(<w:t[^>]*>)G(<\/w:t>)([\s\S]{1,800}?)(<w:t[^>]*>)emeente naam(\.|)(<\/w:t>)/s,
+            (_, t1, c1, mid, t2, dot, c2) => `${t1}${gemeenteLabel}${dot}${c1}${mid}${t2}${c2}`
         );
-        xml = xml.replace(/<w:t([^>]*)>emeente naam\.<\/w:t>/g, '<w:t$1></w:t>');
-        // Split run "Gemeente " + "naam."
+        xml = xml.replace(/<w:t([^>]*)>emeente naam\.?<\/w:t>/g, '<w:t$1></w:t>');
+        // Split run "Gemeente " + "naam." or "Gemeente " + "naam"
         xml = xml.replace(
-            /(<w:t[^>]*>)Gemeente (<\/w:t>)([\s\S]{1,800}?)(<w:t[^>]*>)naam\.(<\/w:t>)/s,
-            (_, t1, c1, mid, t2, c2) => `${t1}${xmlEsc(gemeente)}.${c1}${mid}${t2}${c2}`
+            /(<w:t[^>]*>)Gemeente (<\/w:t>)([\s\S]{1,800}?)(<w:t[^>]*>)naam(\.|)(<\/w:t>)/s,
+            (_, t1, c1, mid, t2, dot, c2) => `${t1}${gemeenteLabel}${dot}${c1}${mid}${t2}${c2}`
         );
 
         // Bevoegd gezag cell: standalone "Gemeente" run
