@@ -60,15 +60,6 @@ export async function fillAelmansTemplate(templateFile, values) {
     const zip = await JSZip.loadAsync(arrayBuffer);
     let xml = await zip.file('word/document.xml').async('string');
 
-    // DEBUG: show every text node containing "Synfra" so we can see the exact XML structure
-    const debugSynfra = [];
-    let _di = 0;
-    while ((_di = xml.indexOf('Synfra', _di)) !== -1) {
-        debugSynfra.push(xml.slice(Math.max(0, _di - 80), _di + 120));
-        _di++;
-    }
-    console.log('[DEBUG] Synfra occurrences in template XML:', debugSynfra);
-
     // Helper: remove the paragraph containing a text marker (first match)
     const removeParaContaining = (marker) => {
         const idx = xml.indexOf(marker);
@@ -245,12 +236,28 @@ export async function fillAelmansTemplate(templateFile, values) {
     // ── Uitvoerder ────────────────────────────────────────────────────────
     // Replace "Synfra/BDOK" with just the selected name everywhere it appears
     // (§1.3 list, Bijlage 2 heading, inhoudsopgave, etc.).
-    // Uses a broad pattern so it matches even when the text node contains more
-    // context, e.g. <w:t>Rapportage Synfra/BDOK</w:t> or <w:t>Synfra/BDOK.</w:t>.
+    // Word sometimes splits "Synfra/BDOK" across consecutive w:r runs, e.g.:
+    //   <w:t>Rapportage Synfra/</w:t> | <w:t>B</w:t> | <w:t>DOK</w:t>
+    // Handle single-run, 2-run, and 3-run split cases.
     if (uitvoerder && uitvoerder !== 'Synfra/BDOK') {
+        // Case 1: complete in one w:t
         xml = xml.replace(
             /(<w:t[^>]*>[^<]*)Synfra\/BDOK([^<]*<\/w:t>)/g,
             `$1${xmlEsc(uitvoerder)}$2`
+        );
+        // Case 2: "...Synfra/" ends run 1, "BDOK..." starts run 2
+        xml = xml.replace(
+            /(<w:t[^>]*>)([^<]*)Synfra\/(<\/w:t>)([\s\S]{0,600}?)(<w:t[^>]*>)BDOK([^<]*)(<\/w:t>)/gs,
+            (_, t1, pre, c1, mid, t2, suf, c2) =>
+                `${t1}${pre}${xmlEsc(uitvoerder)}${suf}${c1}${mid}${t2}${c2}`
+        );
+        // Case 3: 3-run split — "...Synfra/" | partial-BDOK (B/BD/BDO) | rest-of-BDOK (DOK/OK/K)...
+        xml = xml.replace(
+            /(<w:t[^>]*>)([^<]*)Synfra\/(<\/w:t>)([\s\S]{0,600}?)(<w:t[^>]*>)(B(?:D(?:O)?)?)(<\/w:t>)([\s\S]{0,600}?)(<w:t[^>]*>)(DOK|OK|K)([^<]*)(<\/w:t>)/gs,
+            (full, t1, pre, c1, mid1, t2, p1, c2, mid2, t3, p2, suf, c3) =>
+                p1 + p2 === 'BDOK'
+                    ? `${t1}${pre}${xmlEsc(uitvoerder)}${suf}${c1}${mid1}${t2}${c2}${mid2}${t3}${c3}`
+                    : full
         );
     }
 
