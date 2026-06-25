@@ -158,24 +158,29 @@ export async function fillAelmansTemplate(templateFile, values) {
     // ── Bemaling ──────────────────────────────────────────────────────────
     if (bemaling) xml = repT(xml, 'Ja / nee / ter plaatse beoordelen', xmlEsc(bemaling));
 
-    // ── Gemeente (bevoegd gezag cell) ─────────────────────────────────────
+    // ── Gemeente ──────────────────────────────────────────────────────────
     if (gemeente) {
-        xml = repT(xml, 'Gemeente', xmlEsc(gemeente));
+        // §1.3 source row: always replace "Gemeente naam." — do this BEFORE the
+        // standalone "Gemeente" replacement to avoid partial overwrites.
+        // Single run variant
+        xml = xml.replace(
+            /<w:t([^>]*)>Gemeente naam\.<\/w:t>/,
+            `<w:t$1>${xmlEsc(gemeente)}.</w:t>`
+        );
+        // Split run "G" + "emeente naam."
+        xml = xml.replace(
+            /(<w:t[^>]*>)G(<\/w:t>)([\s\S]{1,800}?)(<w:t[^>]*>)emeente naam\.(<\/w:t>)/s,
+            (_, t1, c1, mid, t2, c2) => `${t1}${xmlEsc(gemeente)}.${c1}${mid}${t2}${c2}`
+        );
+        xml = xml.replace(/<w:t([^>]*)>emeente naam\.<\/w:t>/g, '<w:t$1></w:t>');
+        // Split run "Gemeente " + "naam."
+        xml = xml.replace(
+            /(<w:t[^>]*>)Gemeente (<\/w:t>)([\s\S]{1,800}?)(<w:t[^>]*>)naam\.(<\/w:t>)/s,
+            (_, t1, c1, mid, t2, c2) => `${t1}${xmlEsc(gemeente)}.${c1}${mid}${t2}${c2}`
+        );
 
-        // §1.3 source row: "Gemeente naam." — only when bodemrapportage provided
-        if (hasBodemrapportage) {
-            // Single run variant
-            xml = repT(xml, 'Gemeente naam\\.', `${xmlEsc(gemeente)}.`);
-            // Split run: "G" in first run + "emeente naam." in second run
-            xml = xml.replace(
-                /(<w:t[^>]*>)G(<\/w:t>)([\s\S]{0,600}?)(<w:t[^>]*>)emeente naam\.(<\/w:t>)/s,
-                `$1${xmlEsc(gemeente)}.$2$3$4$5`
-            );
-            xml = xml.replace(/<w:t([^>]*)>emeente naam\.<\/w:t>/g, '<w:t$1><\/w:t>');
-        } else {
-            // No bodemrapportage → remove the "Gemeente naam." list item from §1.3
-            removeParaContaining('emeente naam.');
-        }
+        // Bevoegd gezag cell: standalone "Gemeente" run
+        xml = repT(xml, 'Gemeente', xmlEsc(gemeente));
 
         // BKK sentence: "(jaartal) van gemeente" → year + actual gemeente
         xml = xml.replace(
@@ -183,8 +188,7 @@ export async function fillAelmansTemplate(templateFile, values) {
             `(${jaar}) van ${xmlEsc(gemeente)}`
         );
 
-        // Bijlage 3 title: "gemeente" (lowercase, green placeholder) → "gemeente <city>"
-        // e.g. gemeente value "Gemeente Son en Breugel" → "gemeente Son en Breugel"
+        // Bijlage 3 title: "gemeente" (lowercase) → "gemeente <city>"
         if (hasBodemrapportage) {
             const cityOnly = gemeente.replace(/^Gemeente\s+/i, '');
             xml = repT(xml, 'gemeente', 'gemeente ' + xmlEsc(cityOnly));
@@ -229,9 +233,27 @@ export async function fillAelmansTemplate(templateFile, values) {
         );
     }
 
-    // ── Uitvoerder ────────────────────────────────────────────────────────
-    if (uitvoerder) {
-        xml = repT(xml, 'Synfra\\/BDOK\\.', `${xmlEsc(uitvoerder)}.`); // with dot first
+    // ── Uitvoerder (strike through the non-selected name) ────────────────
+    // If uitvoerder is "Synfra" or "BDOK", keep that name and strike the other.
+    // Each "Synfra/BDOK" run is split into two runs, one of which gets <w:strike/>.
+    if (uitvoerder === 'Synfra' || uitvoerder === 'BDOK') {
+        const withStrike = (rPr) =>
+            rPr ? rPr.replace('</w:rPr>', '<w:strike/></w:rPr>')
+                : '<w:rPr><w:strike/></w:rPr>';
+
+        xml = xml.replace(
+            /(<w:r(?:\s[^>]*)?>)((?:<w:rPr>[\s\S]*?<\/w:rPr>)?)(<w:t[^>]*>)Synfra\/BDOK(\.?)<\/w:t>\s*<\/w:r>/g,
+            (_, rOpen, rPr, tOpen, dot) => {
+                const tClose = '</w:t></w:r>';
+                if (uitvoerder === 'Synfra') {
+                    return `${rOpen}${rPr}${tOpen}Synfra/${tClose}${rOpen}${withStrike(rPr)}${tOpen}BDOK${dot}${tClose}`;
+                } else {
+                    return `${rOpen}${withStrike(rPr)}${tOpen}Synfra/${tClose}${rOpen}${rPr}${tOpen}BDOK${dot}${tClose}`;
+                }
+            }
+        );
+    } else if (uitvoerder) {
+        xml = repT(xml, 'Synfra\\/BDOK\\.', `${xmlEsc(uitvoerder)}.`);
         xml = repT(xml, 'Synfra\\/BDOK',    xmlEsc(uitvoerder));
     }
 
@@ -279,8 +301,7 @@ export async function fillAelmansTemplate(templateFile, values) {
     // ── Remove yellow highlighting (template placeholder highlighting) ─────────
     xml = xml.replace(/<w:highlight w:val="yellow"\/>/g, '');
 
-    // ── Bijlage 1: remove yellow "(tekening invoegen opdrachtgever)" placeholder ──
-    removeParaContaining('tekening invoegen opdrachtgever');
+    // "(tekening invoegen opdrachtgever)" placeholder is handled in the tekening block below.
 
     // ── Conditional grondwateronderzoek paragraph ─────────────────────────
     // Yellow paragraph = depth argument (GWS > 0.25m below excavation)
@@ -301,19 +322,20 @@ export async function fillAelmansTemplate(templateFile, values) {
     }
 
     // ── §2.2 Topotijdreis: insert map images into plaatje cells ──────────────
-    // The template caption row already has "Topotijdreis 1945/1995/2025" as separate runs;
-    // we only need to fill the image cells (first row of the table, pStyle "plaatje").
+    // Finds the table containing any "Topotijdreis" text, then replaces the first
+    // three empty paragraphs with pStyle "plaatje" (regardless of which row they're in).
     if (topoImages && topoImages.length === 3) {
-        const topoCapIdx = xml.indexOf('<w:t>Topotijdreis</w:t>');
-        if (topoCapIdx !== -1) {
-            const t1 = xml.lastIndexOf('<w:tbl>', topoCapIdx);
-            const t2 = xml.lastIndexOf('<w:tbl ', topoCapIdx);
-            const tblStart = Math.max(t1, t2);
-            const firstRowStart = xml.indexOf('<w:tr', tblStart);
-            const firstRowEnd   = xml.indexOf('</w:tr>', firstRowStart) + '</w:tr>'.length;
-            let firstRow = xml.slice(firstRowStart, firstRowEnd);
+        const topoMatch = /<w:t[^>]*>Topotijdreis[^<]*<\/w:t>/.exec(xml);
+        const topoTextIdx = topoMatch ? topoMatch.index : -1;
+        if (topoTextIdx !== -1) {
+            const tblStart = Math.max(
+                xml.lastIndexOf('<w:tbl>', topoTextIdx),
+                xml.lastIndexOf('<w:tbl ', topoTextIdx)
+            );
+            const tblEnd = xml.indexOf('</w:tbl>', tblStart) + '</w:tbl>'.length;
+            let tblXml = xml.slice(tblStart, tblEnd);
 
-            // Ensure PNG content type is registered in the package
+            // Ensure PNG content type is registered
             let ct = await zip.file('[Content_Types].xml').async('string');
             if (!ct.includes('image/png')) {
                 ct = ct.replace('</Types>', '<Default Extension="png" ContentType="image/png"/></Types>');
@@ -321,35 +343,33 @@ export async function fillAelmansTemplate(templateFile, values) {
             }
 
             let rels = await zip.file('word/_rels/document.xml.rels').async('string');
-            const cxEmu = 1_700_000; // ≈ 6 cm, fits all three columns
+            const cxEmu = 1_700_000; // ≈ 6 cm, fits three columns
             const cyEmu = 1_700_000;
 
             for (let i = 0; i < 3; i++) {
                 const rId     = `rIdTP${i + 1}`;
-                const drId    = 101 + i; // drawing element IDs 101, 102, 103
-                const imgName = 'Topo' + (i + 1);
+                const drId    = 101 + i;
+                const imgName = `Topo${i + 1}`;
                 const imgFile = `word/media/topo_${i + 1}.png`;
 
-                const imgBuf = await topoImages[i].arrayBuffer();
-                zip.file(imgFile, imgBuf);
-
+                zip.file(imgFile, await topoImages[i].arrayBuffer());
                 rels = rels.replace(
                     '</Relationships>',
                     `<Relationship Id="${rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/topo_${i + 1}.png"/></Relationships>`
                 );
 
-                // Replace the first EMPTY plaatje paragraph in firstRow with one holding the image.
-                // Only matches when </w:pPr> is immediately followed by (optional whitespace +) </w:p>,
-                // so after the first replacement the modified paragraph won't match again.
+                // Replace the first empty plaatje paragraph in the table.
+                // After each replacement the paragraph gains a drawing element (≫ 300 chars),
+                // so the next iteration naturally picks the next empty one.
                 const drawing = inlineDrawingXml(rId, cxEmu, cyEmu, drId, imgName);
-                firstRow = firstRow.replace(
-                    /(<w:pStyle w:val="plaatje"\/>[\s\S]{0,200}?<\/w:pPr>)\s*<\/w:p>/s,
+                tblXml = tblXml.replace(
+                    /(<w:pStyle w:val="plaatje"\/>[\s\S]{0,300}?<\/w:pPr>)\s*<\/w:p>/s,
                     '$1<w:r>' + drawing + '</w:r></w:p>'
                 );
             }
 
             zip.file('word/_rels/document.xml.rels', rels);
-            xml = xml.slice(0, firstRowStart) + firstRow + xml.slice(firstRowEnd);
+            xml = xml.slice(0, tblStart) + tblXml + xml.slice(tblEnd);
         }
     }
 
@@ -364,15 +384,39 @@ export async function fillAelmansTemplate(templateFile, values) {
         zip.file('word/media/tekening.jpg', imgArrayBuffer);
 
         let rels = await zip.file('word/_rels/document.xml.rels').async('string');
-        const newRel = `<Relationship Id="${tekeningRId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tekening.jpg"/>`;
-        rels = rels.replace('</Relationships>', `${newRel}</Relationships>`);
+        rels = rels.replace(
+            '</Relationships>',
+            `<Relationship Id="${tekeningRId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tekening.jpg"/></Relationships>`
+        );
         zip.file('word/_rels/document.xml.rels', rels);
 
-        // Insert after the "Bijlage 1" section heading paragraph
-        xml = xml.replace(
-            /(<w:t[^>]*>Bijlage 1<\/w:t>[\s\S]{0,300}?<\/w:p>)/s,
-            `$1<w:p><w:r>${inlineDrawingXml(tekeningRId, cxEmu, cyEmu)}</w:r></w:p>`
-        );
+        // Replace the placeholder paragraph "(tekening invoegen opdrachtgever)" with
+        // the actual image — this is more reliable than inserting after a heading.
+        const marker = 'tekening invoegen opdrachtgever';
+        const midx = xml.indexOf(marker);
+        if (midx !== -1) {
+            const pStart = Math.max(xml.lastIndexOf('<w:p>', midx), xml.lastIndexOf('<w:p ', midx));
+            const pEnd   = xml.indexOf('</w:p>', midx) + '</w:p>'.length;
+            if (pStart !== -1 && pEnd > 0) {
+                xml = xml.slice(0, pStart)
+                    + `<w:p><w:r>${inlineDrawingXml(tekeningRId, cxEmu, cyEmu)}</w:r></w:p>`
+                    + xml.slice(pEnd);
+            }
+        } else {
+            // Fallback: insert after "Bijlage 1" heading (second occurrence skips TOC)
+            let b1Idx = xml.indexOf('Bijlage 1');
+            if (b1Idx !== -1) b1Idx = xml.indexOf('Bijlage 1', b1Idx + 1);
+            if (b1Idx === -1) b1Idx = xml.indexOf('Bijlage 1'); // back to first if only one
+            if (b1Idx !== -1) {
+                xml = xml.replace(
+                    /(<w:t[^>]*>Bijlage 1<\/w:t>[\s\S]{0,400}?<\/w:p>)/s,
+                    `$1<w:p><w:r>${inlineDrawingXml(tekeningRId, cxEmu, cyEmu)}</w:r></w:p>`
+                );
+            }
+        }
+    } else {
+        // No tekening — remove the placeholder paragraph
+        removeParaContaining('tekening invoegen opdrachtgever');
     }
 
     zip.file('word/document.xml', xml);
