@@ -60,6 +60,20 @@ export async function fillAelmansTemplate(templateFile, values) {
     const zip = await JSZip.loadAsync(arrayBuffer);
     let xml = await zip.file('word/document.xml').async('string');
 
+    // DEBUG: show every w:t text node that contains "naam" or "emeente" so we can
+    // see the exact run structure around the §1.3 gemeente placeholder
+    {
+        const debugGemeente = [];
+        let _i = 0;
+        const needle = 'naam';
+        while ((_i = xml.indexOf(needle, _i)) !== -1) {
+            debugGemeente.push(xml.slice(Math.max(0, _i - 150), _i + 100));
+            _i++;
+        }
+        console.log('[DEBUG gemeente] gemeente value:', values.gemeente);
+        console.log('[DEBUG gemeente] "naam" occurrences:', debugGemeente);
+    }
+
     // Helper: remove the paragraph containing a text marker (first match)
     const removeParaContaining = (marker) => {
         const idx = xml.indexOf(marker);
