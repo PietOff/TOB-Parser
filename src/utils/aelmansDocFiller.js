@@ -60,6 +60,16 @@ export async function fillAelmansTemplate(templateFile, values) {
     const zip = await JSZip.loadAsync(arrayBuffer);
     let xml = await zip.file('word/document.xml').async('string');
 
+    // DEBUG: show 250 chars before + after every "emeente" occurrence
+    {
+        const dbg = [];
+        let _i = 0;
+        while ((_i = xml.indexOf('emeente', _i)) !== -1) {
+            dbg.push(xml.slice(Math.max(0, _i - 250), _i + 150));
+            _i++;
+        }
+        console.log('[DEBUG emeente]', dbg);
+    }
 
     // Helper: remove the paragraph containing a text marker (first match)
     const removeParaContaining = (marker) => {
