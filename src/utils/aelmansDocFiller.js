@@ -401,21 +401,28 @@ export async function fillAelmansTemplate(templateFile, values) {
 
         zip.file('word/media/tekening.jpg', imgArrayBuffer);
 
-        // Ensure JPEG content type is registered
+        // Register a PartName override for this specific file — more reliable than
+        // checking Default extensions, because the template may already have image/jpeg
+        // registered only for other files via Override entries.
         let ct = await zip.file('[Content_Types].xml').async('string');
-        if (!ct.includes('image/jpeg') && !ct.includes('"jpg"') && !ct.includes('"jpeg"')) {
-            ct = ct.replace('</Types>', '<Default Extension="jpg" ContentType="image/jpeg"/></Types>');
+        if (!ct.includes('/word/media/tekening.jpg')) {
+            ct = ct.replace('</Types>', '<Override PartName="/word/media/tekening.jpg" ContentType="image/jpeg"/></Types>');
             zip.file('[Content_Types].xml', ct);
         }
+        console.log('[tekening] [Content_Types] has tekening.jpg:', ct.includes('/word/media/tekening.jpg'));
 
         let rels = await zip.file('word/_rels/document.xml.rels').async('string');
-        rels = rels.replace(
-            '</Relationships>',
-            `<Relationship Id="${tekeningRId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tekening.jpg"/></Relationships>`
-        );
-        zip.file('word/_rels/document.xml.rels', rels);
+        if (!rels.includes(tekeningRId)) {
+            rels = rels.replace(
+                '</Relationships>',
+                `<Relationship Id="${tekeningRId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tekening.jpg"/></Relationships>`
+            );
+            zip.file('word/_rels/document.xml.rels', rels);
+        }
+        console.log('[tekening] rels has rIdTekening:', rels.includes(tekeningRId));
 
-        const drawing = `<w:p><w:r>${inlineDrawingXml(tekeningRId, cxEmu, cyEmu)}</w:r></w:p>`;
+        // Use a high unique drawing ID to avoid collisions with existing template drawings
+        const drawing = `<w:p><w:r>${inlineDrawingXml(tekeningRId, cxEmu, cyEmu, 9901, 'Tekening')}</w:r></w:p>`;
 
         // Find "Bijlage 1" heading (skip first occurrence which is usually the TOC entry)
         // and insert the image paragraph directly after it.
