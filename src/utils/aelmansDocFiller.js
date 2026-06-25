@@ -390,13 +390,20 @@ export async function fillAelmansTemplate(templateFile, values) {
 
     // ── Tekening (Bijlage 1) ──────────────────────────────────────────────
     if (tekening) {
-        const tekeningRId = 'rId41';
+        const tekeningRId = 'rIdTekening';
         const imgArrayBuffer = await tekening.blob.arrayBuffer();
         const maxCx = 5_760_000; // 160mm in EMU
         const cxEmu = maxCx;
         const cyEmu = Math.round(maxCx * (tekening.heightPx / tekening.widthPx));
 
         zip.file('word/media/tekening.jpg', imgArrayBuffer);
+
+        // Ensure JPEG content type is registered
+        let ct = await zip.file('[Content_Types].xml').async('string');
+        if (!ct.includes('image/jpeg') && !ct.includes('"jpg"') && !ct.includes('"jpeg"')) {
+            ct = ct.replace('</Types>', '<Default Extension="jpg" ContentType="image/jpeg"/></Types>');
+            zip.file('[Content_Types].xml', ct);
+        }
 
         let rels = await zip.file('word/_rels/document.xml.rels').async('string');
         rels = rels.replace(

@@ -127,16 +127,24 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
         try {
             const bdokData = form._bdokData || {};
 
-            // Resolve tekening image: PDF already pre-rendered, images read directly
+            // Resolve tekening image: PDF already pre-rendered, images converted to JPEG via Canvas
             let tekening = tekeningImage; // { blob, widthPx, heightPx } or null
             if (!tekening && files.tekening && !files.tekening.name.toLowerCase().endsWith('.pdf')) {
-                // Regular image file — create an Image to get dimensions
-                const imgUrl = URL.createObjectURL(files.tekening);
+                // Convert to JPEG via Canvas so Word always receives a valid JPEG regardless of input format
                 tekening = await new Promise((resolve) => {
+                    const imgUrl = URL.createObjectURL(files.tekening);
                     const img = new Image();
                     img.onload = () => {
-                        resolve({ blob: files.tekening, widthPx: img.naturalWidth, heightPx: img.naturalHeight });
-                        URL.revokeObjectURL(imgUrl);
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.naturalWidth;
+                        canvas.height = img.naturalHeight;
+                        canvas.getContext('2d').drawImage(img, 0, 0);
+                        canvas.toBlob((jpegBlob) => {
+                            URL.revokeObjectURL(imgUrl);
+                            resolve(jpegBlob
+                                ? { blob: jpegBlob, widthPx: img.naturalWidth, heightPx: img.naturalHeight }
+                                : null);
+                        }, 'image/jpeg', 0.92);
                     };
                     img.onerror = () => { URL.revokeObjectURL(imgUrl); resolve(null); };
                     img.src = imgUrl;
