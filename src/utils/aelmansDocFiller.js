@@ -424,12 +424,13 @@ export async function fillAelmansTemplate(templateFile, values) {
         // Use a high unique drawing ID to avoid collisions with existing template drawings
         const drawing = `<w:p><w:r>${inlineDrawingXml(tekeningRId, cxEmu, cyEmu, 9901, 'Tekening')}</w:r></w:p>`;
 
-        // Find "Bijlage 1" heading (skip first occurrence which is usually the TOC entry)
-        // and insert the image paragraph directly after it.
-        let b1Idx = xml.indexOf('Bijlage 1');
-        const b1Idx2 = b1Idx !== -1 ? xml.indexOf('Bijlage 1', b1Idx + 1) : -1;
-        if (b1Idx2 !== -1) b1Idx = b1Idx2; // prefer second occurrence (actual heading, not TOC)
-        console.log('[tekening] Bijlage 1 idx (first):', xml.indexOf('Bijlage 1'), '(used):', b1Idx);
+        // Find the actual "Bijlage 1" heading in the document body (not the TOC entry).
+        // The heading uses auto-numbering so the raw XML contains only "Bijlage" without " 1".
+        // Use lastIndexOf so we get the last "Bijlage" occurrence, which is the heading
+        // in the appendix section (after the TOC and main body).
+        const b1Idx = xml.lastIndexOf('Bijlage');
+        console.log('[tekening] lastIndexOf("Bijlage"):', b1Idx);
+        if (b1Idx !== -1) console.log('[tekening] context:', xml.slice(Math.max(0, b1Idx - 150), b1Idx + 150));
 
         if (b1Idx !== -1) {
             const pEnd = xml.indexOf('</w:p>', b1Idx) + '</w:p>'.length;
