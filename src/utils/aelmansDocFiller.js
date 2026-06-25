@@ -233,28 +233,16 @@ export async function fillAelmansTemplate(templateFile, values) {
         );
     }
 
-    // ── Uitvoerder (strike through the non-selected name) ────────────────
-    // If uitvoerder is "Synfra" or "BDOK", keep that name and strike the other.
-    // Each "Synfra/BDOK" run is split into two runs, one of which gets <w:strike/>.
-    if (uitvoerder === 'Synfra' || uitvoerder === 'BDOK') {
-        const withStrike = (rPr) =>
-            rPr ? rPr.replace('</w:rPr>', '<w:strike/></w:rPr>')
-                : '<w:rPr><w:strike/></w:rPr>';
-
+    // ── Uitvoerder ────────────────────────────────────────────────────────
+    // Replace "Synfra/BDOK" with just the selected name everywhere it appears
+    // (§1.3 list, Bijlage 2 heading, inhoudsopgave, etc.).
+    // Uses a broad pattern so it matches even when the text node contains more
+    // context, e.g. <w:t>Rapportage Synfra/BDOK</w:t> or <w:t>Synfra/BDOK.</w:t>.
+    if (uitvoerder && uitvoerder !== 'Synfra/BDOK') {
         xml = xml.replace(
-            /(<w:r(?:\s[^>]*)?>)((?:<w:rPr>[\s\S]*?<\/w:rPr>)?)(<w:t[^>]*>)Synfra\/BDOK(\.?)<\/w:t>\s*<\/w:r>/g,
-            (_, rOpen, rPr, tOpen, dot) => {
-                const tClose = '</w:t></w:r>';
-                if (uitvoerder === 'Synfra') {
-                    return `${rOpen}${rPr}${tOpen}Synfra/${tClose}${rOpen}${withStrike(rPr)}${tOpen}BDOK${dot}${tClose}`;
-                } else {
-                    return `${rOpen}${withStrike(rPr)}${tOpen}Synfra/${tClose}${rOpen}${rPr}${tOpen}BDOK${dot}${tClose}`;
-                }
-            }
+            /(<w:t[^>]*>[^<]*)Synfra\/BDOK([^<]*<\/w:t>)/g,
+            `$1${xmlEsc(uitvoerder)}$2`
         );
-    } else if (uitvoerder) {
-        xml = repT(xml, 'Synfra\\/BDOK\\.', `${xmlEsc(uitvoerder)}.`);
-        xml = repT(xml, 'Synfra\\/BDOK',    xmlEsc(uitvoerder));
     }
 
     // ── Bodemtype / BKK class ─────────────────────────────────────────────
