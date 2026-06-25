@@ -60,6 +60,15 @@ export async function fillAelmansTemplate(templateFile, values) {
     const zip = await JSZip.loadAsync(arrayBuffer);
     let xml = await zip.file('word/document.xml').async('string');
 
+    // DEBUG: show every text node containing "Synfra" so we can see the exact XML structure
+    const debugSynfra = [];
+    let _di = 0;
+    while ((_di = xml.indexOf('Synfra', _di)) !== -1) {
+        debugSynfra.push(xml.slice(Math.max(0, _di - 80), _di + 120));
+        _di++;
+    }
+    console.log('[DEBUG] Synfra occurrences in template XML:', debugSynfra);
+
     // Helper: remove the paragraph containing a text marker (first match)
     const removeParaContaining = (marker) => {
         const idx = xml.indexOf(marker);
