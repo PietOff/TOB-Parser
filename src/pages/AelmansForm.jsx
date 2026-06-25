@@ -86,12 +86,15 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
         }
 
         if (key === 'tekening' && file.name.toLowerCase().endsWith('.pdf')) {
+            console.log('[tekening] PDF uploaded:', file.name, file.size);
             setParseStatus(prev => ({ ...prev, tekening: 'PDF renderen...' }));
             try {
                 const result = await renderPdfPageToJpeg(file);
+                console.log('[tekening] renderPdfPageToJpeg OK:', result?.blob?.size, result?.widthPx, 'x', result?.heightPx);
                 setTekeningImage(result);
                 setParseStatus(prev => ({ ...prev, tekening: '✓ Omgezet naar afbeelding' }));
             } catch (err) {
+                console.error('[tekening] renderPdfPageToJpeg FAILED:', err);
                 setTekeningImage(null);
                 setParseStatus(prev => ({ ...prev, tekening: `⚠ ${err.message}` }));
             }
@@ -128,6 +131,7 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
             const bdokData = form._bdokData || {};
 
             // Resolve tekening image: PDF already pre-rendered, images converted to JPEG via Canvas
+            console.log('[submit] tekeningImage state:', tekeningImage, '| files.tekening:', files.tekening?.name);
             let tekening = tekeningImage; // { blob, widthPx, heightPx } or null
             if (!tekening && files.tekening && !files.tekening.name.toLowerCase().endsWith('.pdf')) {
                 // Convert to JPEG via Canvas so Word always receives a valid JPEG regardless of input format
