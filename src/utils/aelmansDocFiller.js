@@ -426,10 +426,12 @@ export async function fillAelmansTemplate(templateFile, values) {
 
         // Find the actual "Bijlage 1" heading in the document body (not the TOC entry).
         // The heading uses auto-numbering so the raw XML contains only "Bijlage" without " 1".
-        // Use lastIndexOf so we get the last "Bijlage" occurrence, which is the heading
-        // in the appendix section (after the TOC and main body).
-        const b1Idx = xml.lastIndexOf('Bijlage');
-        console.log('[tekening] lastIndexOf("Bijlage"):', b1Idx);
+        // All appendix headings (Bijlage 1, 2, 3, 4...) share the same paragraph style
+        // named "Bijlage", so lastIndexOf('Bijlage') would grab the LAST appendix heading
+        // instead of the first. The TOC entries use a different style, so the first
+        // occurrence of this style declaration is reliably the Bijlage 1 heading.
+        const b1Idx = xml.indexOf('w:pStyle w:val="Bijlage"');
+        console.log('[tekening] indexOf(pStyle="Bijlage"):', b1Idx);
         if (b1Idx !== -1) console.log('[tekening] context:', xml.slice(Math.max(0, b1Idx - 150), b1Idx + 150));
 
         if (b1Idx !== -1) {
