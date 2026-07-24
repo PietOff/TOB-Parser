@@ -339,11 +339,9 @@ export async function fillAelmansTemplate(templateFile, values) {
     // ── §2.2 Topotijdreis: insert map images into plaatje cells ──────────────
     // Finds the table containing any "Topotijdreis" text, then replaces the first
     // three empty paragraphs with pStyle "plaatje" (regardless of which row they're in).
-    console.log('[topo] topoImages:', topoImages ? topoImages.map(b => b?.size) : null);
     if (topoImages && topoImages.length === 3) {
         const topoMatch = /<w:t[^>]*>Topotijdreis[^<]*<\/w:t>/.exec(xml);
         const topoTextIdx = topoMatch ? topoMatch.index : -1;
-        console.log('[topo] "Topotijdreis" text found at index:', topoTextIdx);
         if (topoTextIdx !== -1) {
             const tblStart = Math.max(
                 xml.lastIndexOf('<w:tbl>', topoTextIdx),
@@ -351,11 +349,6 @@ export async function fillAelmansTemplate(templateFile, values) {
             );
             const tblEnd = xml.indexOf('</w:tbl>', tblStart) + '</w:tbl>'.length;
             let tblXml = xml.slice(tblStart, tblEnd);
-            const plaatjeCount = (tblXml.match(/<w:pStyle w:val="plaatje"\/>/g) || []).length;
-            console.log('[topo] table span:', tblStart, '-', tblEnd, '| "plaatje" paragraphs found:', plaatjeCount);
-            const stylesInTable = [...tblXml.matchAll(/<w:pStyle w:val="([^"]+)"\/>/g)].map(m => m[1]);
-            console.log('[topo] all paragraph styles in table:', JSON.stringify(stylesInTable));
-            console.log('[topo] raw table xml:', tblXml);
 
             // Ensure PNG content type is registered
             let ct = await zip.file('[Content_Types].xml').async('string');
@@ -384,12 +377,10 @@ export async function fillAelmansTemplate(templateFile, values) {
                 // After each replacement the paragraph gains a drawing element (≫ 300 chars),
                 // so the next iteration naturally picks the next empty one.
                 const drawing = inlineDrawingXml(rId, cxEmu, cyEmu, drId, imgName);
-                const before = tblXml;
                 tblXml = tblXml.replace(
-                    /(<w:pStyle w:val="plaatje"\/>[\s\S]{0,300}?<\/w:pPr>)\s*<\/w:p>/s,
+                    /(<w:pStyle w:val="plaatje"\s*\/>[\s\S]{0,300}?<\/w:pPr>)\s*<\/w:p>/s,
                     '$1<w:r>' + drawing + '</w:r></w:p>'
                 );
-                console.log(`[topo] image ${i + 1} inserted:`, tblXml !== before);
             }
 
             zip.file('word/_rels/document.xml.rels', rels);

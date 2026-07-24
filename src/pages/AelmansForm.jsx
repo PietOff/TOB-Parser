@@ -157,14 +157,11 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
 
             // Fetch topotijdreis map images (geocode address → ArcGIS export)
             let topoImages = null;
-            console.log('[topo] straatnaam:', form.straatnaam, '| plaatsnaam:', form.plaatsnaam);
             if (form.straatnaam && form.plaatsnaam) {
                 const addressQuery = [form.straatnaam, form.huisnummer, form.plaatsnaam]
                     .filter(Boolean).join(' ');
-                console.log('[topo] addressQuery:', addressQuery);
                 try {
                     topoImages = await fetchTopoImages(addressQuery);
-                    console.log('[topo] fetchTopoImages resolved:', topoImages?.map(b => b?.size));
                 } catch (e) {
                     console.warn('Topotijdreis ophalen mislukt:', e);
                 }
