@@ -1,6 +1,6 @@
 /**
  * Fetches historical map images from topotijdreis.nl (ArcGIS MapServer)
- * for a given Dutch address, for three years: 1943, 1995, 2021.
+ * for a given Dutch address, for three years: 1945, 1995, 2025.
  *
  * These are tiled map services — the export endpoint does not exist.
  * We fetch individual tiles, stitch them on a canvas, and crop to the bbox.
@@ -12,7 +12,7 @@
 const ARCGIS_BASE =
     'https://tiles.arcgis.com/tiles/nSZVuSZjHpEZZbRo/arcgis/rest/services';
 
-const YEARS = ['1943', '1995', '2021'];
+const YEARS = ['1945', '1995', '2025'];
 
 const TILE_ORIGIN_X = -30515500;
 const TILE_ORIGIN_Y =  31124000;
@@ -28,14 +28,24 @@ const RESOLUTIONS = [
 // while keeping source resolution high enough for a Word document image.
 const ZOOM = 10;
 
-async function geocodeRD(query) {
+async function geocodeRD(query, city) {
     const url =
         `https://api.pdok.nl/bzk/locatieserver/search/v3_1/free` +
-        `?q=${encodeURIComponent(query)}&rows=1&fq=type:adres`;
+        `?q=${encodeURIComponent(query)}&rows=10&fq=type:adres`;
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(`PDOK geocoder: HTTP ${resp.status}`);
     const json = await resp.json();
-    const doc = json?.response?.docs?.[0];
+    const docs = json?.response?.docs || [];
+    // PDOK's free-text search ranks purely on street+housenumber relevance and
+    // largely ignores the city term, so the top hit is often in the wrong town
+    // (e.g. a same-named street elsewhere). Prefer the candidate whose woonplaats
+    // actually matches the given city.
+    const cityLower = city?.trim().toLowerCase();
+    const doc = (cityLower && docs.find(d => d.woonplaatsnaam?.toLowerCase() === cityLower))
+        || docs[0];
+    if (cityLower && doc && doc.woonplaatsnaam?.toLowerCase() !== cityLower) {
+        console.warn(`Topotijdreis: geen adresmatch in "${city}", gebruik dichtstbijzijnde treffer: ${doc.weergavenaam}`);
+    }
     if (!doc?.centroide_rd) throw new Error(`Adres niet gevonden: ${query}`);
     const [x, y] = doc.centroide_rd
         .replace('POINT(', '').replace(')', '').split(' ').map(Number);
@@ -107,12 +117,13 @@ async function fetchTopoImage(year, centerX, centerY, halfSizeM, outputPx) {
 }
 
 /**
- * Geocodes the address and fetches three map images (1943, 1995, 2021).
+ * Geocodes the address and fetches three map images (1945, 1995, 2025).
  * @param {string} addressQuery  e.g. "Graafschappad 10 Son"
+ * @param {string} [city]  plaatsnaam, used to disambiguate same-named streets in other towns
  * @param {number} [halfSizeM=300]  half-width of the map extent in metres
- * @returns {Promise<Blob[]>}  [blob1943, blob1995, blob2021]
+ * @returns {Promise<Blob[]>}  [blob1945, blob1995, blob2025]
  */
-export async function fetchTopoImages(addressQuery, halfSizeM = 300) {
-    const { x, y } = await geocodeRD(addressQuery);
+export async function fetchTopoImages(addressQuery, city, halfSizeM = 300) {
+    const { x, y } = await geocodeRD(addressQuery, city);
     return Promise.all(YEARS.map(year => fetchTopoImage(year, x, y, halfSizeM, 400)));
 }

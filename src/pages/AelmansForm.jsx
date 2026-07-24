@@ -161,7 +161,7 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                 const addressQuery = [form.straatnaam, form.huisnummer, form.plaatsnaam]
                     .filter(Boolean).join(' ');
                 try {
-                    topoImages = await fetchTopoImages(addressQuery);
+                    topoImages = await fetchTopoImages(addressQuery, form.plaatsnaam);
                 } catch (e) {
                     console.warn('Topotijdreis ophalen mislukt:', e);
                 }
@@ -184,7 +184,7 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                 pfasBkk:           form.pfasBkk || '',
                 jaar:              new Date().getFullYear(),
                 tekening,          // { blob, widthPx, heightPx } or null
-                topoImages,        // [blob1943, blob1995, blob2021] or null
+                topoImages,        // [blob1945, blob1995, blob2025] or null
             });
 
             const address = [form.straatnaam, form.huisnummer, form.plaatsnaam].filter(Boolean).join(' ');
