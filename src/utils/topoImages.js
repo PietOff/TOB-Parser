@@ -6,7 +6,7 @@
  * We fetch individual tiles, stitch them on a canvas, and crop to the bbox.
  *
  * Tile grid parameters come from the service tileInfo (EPSG:28992 / RD New):
- *   origin (-30 515 500, 31 124 000), tile 256 px, 12 zoom levels (0–11).
+ *   origin (-30 515 500, 31 112 400), tile 256 px, 12 zoom levels (0–11).
  */
 
 const ARCGIS_BASE =
@@ -15,7 +15,7 @@ const ARCGIS_BASE =
 const YEARS = ['1945', '1995', '2025'];
 
 const TILE_ORIGIN_X = -30515500;
-const TILE_ORIGIN_Y =  31124000;
+const TILE_ORIGIN_Y =  31112400;
 const TILE_PX       = 256;
 
 // metres-per-pixel at each zoom level 0–11
