@@ -6,7 +6,11 @@
  * We fetch individual tiles, stitch them on a canvas, and crop to the bbox.
  *
  * Tile grid parameters come from the service tileInfo (EPSG:28992 / RD New):
- *   origin (-30 515 500, 31 112 400), tile 256 px, 12 zoom levels (0–11).
+ *   origin (-30 515 500, 31 112 399.999999993), tile 256 px, 12 zoom levels (0–11).
+ * These must match the server's tileInfo to full precision — origin and row/col
+ * indices are on the order of 1e7-1e8, so even a rounded resolution (e.g. 3.18
+ * instead of the true 3.1750063500127004) compounds into tens of kilometres of
+ * drift by the time it's multiplied across ~37,000 tile rows.
  */
 
 const ARCGIS_BASE =
@@ -15,18 +19,21 @@ const ARCGIS_BASE =
 const YEARS = ['1945', '1995', '2025'];
 
 const TILE_ORIGIN_X = -30515500;
-const TILE_ORIGIN_Y =  31112400;
+const TILE_ORIGIN_Y =  31112399.999999993;
 const TILE_PX       = 256;
 
-// metres-per-pixel at each zoom level 0–11
+// metres-per-pixel at each zoom level 0–11 (exact values from MapServer tileInfo.lods)
 const RESOLUTIONS = [
-    3251.21, 1625.60, 812.80, 406.40, 203.20, 101.60,
-      50.80,   25.40,  12.70,   6.35,   3.18,   1.59,
+    3251.206502413005,  1625.6032512065026, 812.8016256032513,
+     406.40081280162565, 203.20040640081282, 101.60020320040641,
+      50.800101600203206, 25.400050800101603, 12.700025400050801,
+       6.350012700025401,  3.1750063500127004, 1.5875031750063502,
 ];
 
-// Zoom level 10 (3.18 m/px) gives 1–2 tiles per axis for a typical 600 m extent
-// while keeping source resolution high enough for a Word document image.
-const ZOOM = 10;
+// Use the finest zoom level the service offers (level 11, ~1.59 m/px) for the
+// sharpest possible source imagery; a 600 m extent still only needs a handful
+// of 256px tiles per axis at this resolution.
+const ZOOM = RESOLUTIONS.length - 1;
 
 async function geocodeRD(query, city) {
     const url =
