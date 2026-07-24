@@ -353,6 +353,9 @@ export async function fillAelmansTemplate(templateFile, values) {
             let tblXml = xml.slice(tblStart, tblEnd);
             const plaatjeCount = (tblXml.match(/<w:pStyle w:val="plaatje"\/>/g) || []).length;
             console.log('[topo] table span:', tblStart, '-', tblEnd, '| "plaatje" paragraphs found:', plaatjeCount);
+            const stylesInTable = [...tblXml.matchAll(/<w:pStyle w:val="([^"]+)"\/>/g)].map(m => m[1]);
+            console.log('[topo] all paragraph styles in table:', JSON.stringify(stylesInTable));
+            console.log('[topo] raw table xml:', tblXml);
 
             // Ensure PNG content type is registered
             let ct = await zip.file('[Content_Types].xml').async('string');
