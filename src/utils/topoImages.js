@@ -127,10 +127,10 @@ async function fetchTopoImage(year, centerX, centerY, halfSizeM, outputPx) {
  * Geocodes the address and fetches three map images (1945, 1995, 2025).
  * @param {string} addressQuery  e.g. "Graafschappad 10 Son"
  * @param {string} [city]  plaatsnaam, used to disambiguate same-named streets in other towns
- * @param {number} [halfSizeM=300]  half-width of the map extent in metres
+ * @param {number} [halfSizeM=50]  half-width of the map extent in metres (default: 100m x 100m)
  * @returns {Promise<Blob[]>}  [blob1945, blob1995, blob2025]
  */
-export async function fetchTopoImages(addressQuery, city, halfSizeM = 300) {
+export async function fetchTopoImages(addressQuery, city, halfSizeM = 50) {
     const { x, y } = await geocodeRD(addressQuery, city);
     return Promise.all(YEARS.map(year => fetchTopoImage(year, x, y, halfSizeM, 400)));
 }
