@@ -16,7 +16,9 @@
 const ARCGIS_BASE =
     'https://tiles.arcgis.com/tiles/nSZVuSZjHpEZZbRo/arcgis/rest/services';
 
-const YEARS = ['1945', '1995', '2025'];
+// Also used by aelmansDocFiller to label the §2.2 caption cells, so the captions
+// can never drift out of sync with the images actually fetched.
+export const YEARS = ['1945', '1995', '2025'];
 
 const TILE_ORIGIN_X = -30515500;
 const TILE_ORIGIN_Y =  31112399.999999993;

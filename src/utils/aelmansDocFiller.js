@@ -33,6 +33,7 @@
  *  "Gemeente naam." in §1.3                  → gemeente if bodemrapportage, else remove
  */
 import JSZip from 'jszip';
+import { YEARS as TOPO_YEARS } from './topoImages';
 
 function xmlEsc(s) {
     return String(s)
@@ -334,6 +335,19 @@ export async function fillAelmansTemplate(templateFile, values) {
                 removeParaContaining('Grondwateronderzoek dient');
             }
         }
+    }
+
+    // ── §2.2 Topotijdreis: label the caption cells with their year ───────────
+    // The template's three caption cells all read plain "Topotijdreis" with no
+    // year, so append one to each in turn. Driven by the same YEARS constant the
+    // images are fetched with, so captions can't drift out of sync with content.
+    // Runs independently of the image insertion below: if the map fetch failed we
+    // still want correctly labelled (if empty) columns.
+    for (const topoYear of TOPO_YEARS) {
+        xml = xml.replace(
+            /<w:t([^>]*)>Topotijdreis<\/w:t>/,
+            `<w:t$1>Topotijdreis ${topoYear}</w:t>`
+        );
     }
 
     // ── §2.2 Topotijdreis: insert map images into plaatje cells ──────────────
