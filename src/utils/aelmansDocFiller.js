@@ -404,6 +404,7 @@ export async function fillAelmansTemplate(templateFile, values) {
 
     // ── Tekening (Bijlage 1) ──────────────────────────────────────────────
     // Insert the JPEG image as a new paragraph directly after the "Bijlage 1" heading.
+    console.log('[tek] tekening arg:', tekening ? `blob=${tekening.blob?.size} ${tekening.widthPx}x${tekening.heightPx}` : tekening);
     if (tekening) {
         const tekeningRId = 'rIdTekening';
         const imgArrayBuffer = await tekening.blob.arrayBuffer();
@@ -449,6 +450,12 @@ export async function fillAelmansTemplate(templateFile, values) {
             para.includes('w:instrText') ||
             para.includes('PAGEREF');
 
+        // True if `idx` sits inside a text box. Appendix divider pages are often built as
+        // text boxes; a paragraph inserted in there is clipped to the box and the image
+        // silently never shows up on the page.
+        const isInTextBox = (idx) =>
+            xml.lastIndexOf('<w:txbxContent>', idx) > xml.lastIndexOf('</w:txbxContent>', idx);
+
         // Returns [start, endExclusive] of the paragraph containing index `idx`.
         const paraBoundsAt = (idx) => {
             const start = Math.max(
@@ -462,6 +469,23 @@ export async function fillAelmansTemplate(templateFile, values) {
 
         let placed = false;
 
+        // ── diagnostics: what anchors exist in this template? ──
+        {
+            let n = 0;
+            for (let i = xml.indexOf('Onderzoekslocatie'); i !== -1; i = xml.indexOf('Onderzoekslocatie', i + 1)) {
+                const b = paraBoundsAt(i);
+                const para = b ? xml.slice(b[0], b[1]) : '';
+                console.log(`[tek] "Onderzoekslocatie" #${n++} @${i}`,
+                    '| toc:', b ? isTocPara(para) : 'n/a',
+                    '| bijlageStyle:', b ? /w:pStyle w:val="Bijlage"\s*\/?>/.test(para) : 'n/a',
+                    '| inTextBox:', isInTextBox(i),
+                    '| text:', para.replace(/<[^>]+>/g, '').slice(0, 60));
+            }
+            console.log('[tek] total "Onderzoekslocatie" hits:', n);
+            console.log('[tek] placeholder idx:', xml.indexOf('tekening invoegen opdrachtgever'));
+            console.log('[tek] "Bijlage 1" literal idx:', xml.indexOf('Bijlage 1'));
+        }
+
         // 1. Preferred: directly after the "Onderzoekslocatie" appendix heading.
         //    Require the "Bijlage" heading style on the first pass so a capitalised
         //    "Onderzoekslocatie" in ordinary body text can't win; fall back to any
@@ -474,9 +498,28 @@ export async function fillAelmansTemplate(templateFile, values) {
                 const [pStart, pEnd] = bounds;
                 const para = xml.slice(pStart, pEnd);
                 if (isTocPara(para)) continue;
+                if (isInTextBox(i)) continue;
                 if (requireHeadingStyle && !/w:pStyle w:val="Bijlage"\s*\/?>/.test(para)) continue;
                 xml = xml.slice(0, pEnd) + drawing + xml.slice(pEnd);
                 placed = true;
+                break;
+            }
+        }
+
+        // 1b. Heading only exists inside a text box (typical for appendix divider pages).
+        //     Inserting into the box would clip the image, so insert after the *body*
+        //     paragraph that hosts the box — the first </w:p> past the box's content.
+        if (!placed) {
+            for (let i = xml.indexOf('Onderzoekslocatie'); i !== -1; i = xml.indexOf('Onderzoekslocatie', i + 1)) {
+                if (!isInTextBox(i)) continue;
+                const boxEnd = xml.indexOf('</w:txbxContent>', i);
+                if (boxEnd === -1) continue;
+                const hostClose = xml.indexOf('</w:p>', boxEnd);
+                if (hostClose === -1) continue;
+                const at = hostClose + '</w:p>'.length;
+                xml = xml.slice(0, at) + drawing + xml.slice(at);
+                placed = true;
+                console.log('[tek] anchored after text-box host paragraph');
                 break;
             }
         }
@@ -506,6 +549,7 @@ export async function fillAelmansTemplate(templateFile, values) {
             }
         }
 
+        console.log('[tek] placed:', placed);
         if (!placed) {
             console.warn('[tekening] geen invoegpositie gevonden — tekening niet ingevoegd');
         }
@@ -515,6 +559,11 @@ export async function fillAelmansTemplate(templateFile, values) {
     } else {
         removeParaContaining('tekening invoegen opdrachtgever');
     }
+
+    // ── final survival check: did the tekening drawing make it into the saved XML? ──
+    console.log('[tek] FINAL rIdTekening in xml:', xml.includes('rIdTekening'),
+        '| total <w:drawing> elements:', (xml.match(/<w:drawing>/g) || []).length,
+        '| page breaks:', (xml.match(/<w:br w:type="page"\/>/g) || []).length);
 
     zip.file('word/document.xml', xml);
     return zip.generateAsync({
