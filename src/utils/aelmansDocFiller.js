@@ -430,69 +430,87 @@ export async function fillAelmansTemplate(templateFile, values) {
             zip.file('word/_rels/document.xml.rels', rels);
         }
 
-        // Use a high unique drawing ID to avoid collisions with existing template drawings
-        const drawing = `<w:p><w:r>${inlineDrawingXml(tekeningRId, cxEmu, cyEmu, 9901, 'Tekening')}</w:r></w:p>`;
+        // Use a high unique drawing ID to avoid collisions with existing template drawings.
+        // Leading page break: the drawing belongs on the page *after* the
+        // "Bijlage 1 / Onderzoekslocatie" heading, not directly beneath it.
+        const drawing =
+            `<w:p><w:r><w:br w:type="page"/></w:r>` +
+            `<w:r>${inlineDrawingXml(tekeningRId, cxEmu, cyEmu, 9901, 'Tekening')}</w:r></w:p>`;
 
-        // Anchor on the template's own "(tekening invoegen opdrachtgever)" placeholder
-        // and replace that whole paragraph with the image — the placeholder marks
-        // exactly where the drawing belongs.
+        // The image belongs on the page headed "Bijlage 1 / Onderzoekslocatie".
+        // "Bijlage 1" is auto-numbered so the raw XML only holds the title text, and the
+        // "Bijlage" paragraph style is also used by the Inhoudsopgave heading — so anchor
+        // on the title text itself and insert straight after that heading paragraph.
         //
-        // Do NOT anchor on the first pStyle="Bijlage" paragraph: the template reuses
-        // that same style for the "Inhoudsopgave" heading, so the first occurrence sits
-        // right after the table of contents and the image lands pages too early.
-        const phIdx = xml.indexOf('tekening invoegen opdrachtgever');
+        // The same title also appears in the table of contents; TOC entries are wrapped in
+        // hyperlink/PAGEREF field markup, so skip any paragraph carrying those.
+        const isTocPara = (para) =>
+            para.includes('<w:hyperlink') ||
+            para.includes('w:instrText') ||
+            para.includes('PAGEREF');
+
+        // Returns [start, endExclusive] of the paragraph containing index `idx`.
+        const paraBoundsAt = (idx) => {
+            const start = Math.max(
+                xml.lastIndexOf('<w:p>', idx),
+                xml.lastIndexOf('<w:p ', idx)
+            );
+            const close = xml.indexOf('</w:p>', idx);
+            if (start === -1 || close === -1) return null;
+            return [start, close + '</w:p>'.length];
+        };
+
         let placed = false;
 
-        // ── diagnostics ──
-        console.log('[tek] placeholder exact match idx:', phIdx);
-        for (const frag of ['tekening invoegen', 'invoegen', 'opdrachtgever', 'tekening']) {
-            console.log(`[tek] fragment "${frag}" idx:`, xml.indexOf(frag));
-        }
-        {
-            const st = /w:pStyle w:val="Bijlage"\s*\/?>/g;
-            let mm, n = 0;
-            while ((mm = st.exec(xml)) !== null) {
-                const pc = xml.indexOf('</w:p>', mm.index);
-                const txt = pc === -1 ? '(no close)' : xml.slice(mm.index, pc).replace(/<[^>]+>/g, '');
-                console.log(`[tek] Bijlage-style #${n++} @${mm.index} text: "${txt.slice(0, 80)}"`);
+        // 1. Preferred: directly after the "Onderzoekslocatie" appendix heading.
+        //    Require the "Bijlage" heading style on the first pass so a capitalised
+        //    "Onderzoekslocatie" in ordinary body text can't win; fall back to any
+        //    non-TOC paragraph with that text if the style isn't present.
+        for (const requireHeadingStyle of [true, false]) {
+            if (placed) break;
+            for (let i = xml.indexOf('Onderzoekslocatie'); i !== -1; i = xml.indexOf('Onderzoekslocatie', i + 1)) {
+                const bounds = paraBoundsAt(i);
+                if (!bounds) continue;
+                const [pStart, pEnd] = bounds;
+                const para = xml.slice(pStart, pEnd);
+                if (isTocPara(para)) continue;
+                if (requireHeadingStyle && !/w:pStyle w:val="Bijlage"\s*\/?>/.test(para)) continue;
+                xml = xml.slice(0, pEnd) + drawing + xml.slice(pEnd);
+                placed = true;
+                break;
             }
-            console.log('[tek] total Bijlage-styled paragraphs:', n);
         }
-        if (phIdx !== -1) {
-            const pStart = Math.max(
-                xml.lastIndexOf('<w:p>', phIdx),
-                xml.lastIndexOf('<w:p ', phIdx)
-            );
-            const pClose = xml.indexOf('</w:p>', phIdx);
-            if (pStart !== -1 && pClose !== -1) {
-                xml = xml.slice(0, pStart) + drawing + xml.slice(pClose + '</w:p>'.length);
+
+        // 2. Otherwise replace the "(tekening invoegen opdrachtgever)" placeholder in place.
+        if (!placed) {
+            const phIdx = xml.indexOf('tekening invoegen opdrachtgever');
+            const bounds = phIdx === -1 ? null : paraBoundsAt(phIdx);
+            if (bounds) {
+                xml = xml.slice(0, bounds[0]) + drawing + xml.slice(bounds[1]);
                 placed = true;
             }
         }
 
+        // 3. Last resort: first "Bijlage"-styled heading that isn't the Inhoudsopgave.
         if (!placed) {
-            // Fallback: first "Bijlage"-styled heading that isn't the Inhoudsopgave.
             const styleTag = /w:pStyle w:val="Bijlage"\s*\/?>/g;
             let m;
             while ((m = styleTag.exec(xml)) !== null) {
                 const pClose = xml.indexOf('</w:p>', m.index);
                 if (pClose === -1) continue;
-                const paraText = xml
-                    .slice(m.index, pClose)
-                    .replace(/<[^>]+>/g, '');
-                if (/inhoud/i.test(paraText)) continue; // skip the TOC heading
+                const paraText = xml.slice(m.index, pClose).replace(/<[^>]+>/g, '');
+                if (/inhoud/i.test(paraText)) continue;
                 xml = xml.slice(0, pClose + '</w:p>'.length) + drawing + xml.slice(pClose + '</w:p>'.length);
                 placed = true;
                 break;
             }
         }
 
-        console.log('[tek] placed:', placed, '| via:', phIdx !== -1 ? 'placeholder' : 'fallback');
         if (!placed) {
             console.warn('[tekening] geen invoegpositie gevonden — tekening niet ingevoegd');
         }
 
-        // Remove the placeholder if it survived (e.g. the fallback path was used)
+        // Remove the placeholder if it survived (i.e. path 1 or 3 was used)
         removeParaContaining('tekening invoegen opdrachtgever');
     } else {
         removeParaContaining('tekening invoegen opdrachtgever');
