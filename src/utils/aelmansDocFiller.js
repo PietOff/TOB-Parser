@@ -588,30 +588,7 @@ export async function fillAelmansTemplate(templateFile, values) {
         removeParaContaining('tekening invoegen opdrachtgever');
     }
 
-    // ── final survival check: did the tekening drawing make it into the saved XML? ──
-    console.log('[tek] FINAL rIdTekening in xml:', xml.includes('rIdTekening'),
-        '| total <w:drawing> elements:', (xml.match(/<w:drawing>/g) || []).length,
-        '| page breaks:', (xml.match(/<w:br w:type="page"\/>/g) || []).length);
-
     zip.file('word/document.xml', xml);
-
-    // ── verify the assembled package: media bytes, relationship and content type ──
-    if (tekening) {
-        const mediaEntry = zip.file('word/media/tekening.jpg');
-        if (!mediaEntry) {
-            console.error('[tek] PACKAGE: word/media/tekening.jpg MISSING from zip');
-        } else {
-            const bytes = await mediaEntry.async('uint8array');
-            const magic = [...bytes.slice(0, 3)].map(b => b.toString(16).padStart(2, '0')).join(' ');
-            console.log('[tek] PACKAGE media bytes:', bytes.length, '| magic:', magic, '(ffd8ff = valid JPEG)');
-        }
-        const ctFinal = await zip.file('[Content_Types].xml').async('string');
-        console.log('[tek] PACKAGE ct default jpg:', /<Default[^>]*Extension="jpg"/i.test(ctFinal),
-            '| override:', ctFinal.includes('/word/media/tekening.jpg'));
-        const relsFinal = await zip.file('word/_rels/document.xml.rels').async('string');
-        console.log('[tek] PACKAGE rel:', (relsFinal.match(/<Relationship[^>]*rIdTekening[^>]*>/) || ['NONE'])[0]);
-        console.log('[tek] PACKAGE drawing xml:', (xml.match(/<w:drawing>[\s\S]{0,700}?<\/w:drawing>/) || ['NONE'])[0].slice(0, 700));
-    }
 
     return zip.generateAsync({
         type: 'blob',
