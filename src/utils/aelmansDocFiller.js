@@ -442,6 +442,22 @@ export async function fillAelmansTemplate(templateFile, values) {
         // right after the table of contents and the image lands pages too early.
         const phIdx = xml.indexOf('tekening invoegen opdrachtgever');
         let placed = false;
+
+        // ── diagnostics ──
+        console.log('[tek] placeholder exact match idx:', phIdx);
+        for (const frag of ['tekening invoegen', 'invoegen', 'opdrachtgever', 'tekening']) {
+            console.log(`[tek] fragment "${frag}" idx:`, xml.indexOf(frag));
+        }
+        {
+            const st = /w:pStyle w:val="Bijlage"\s*\/?>/g;
+            let mm, n = 0;
+            while ((mm = st.exec(xml)) !== null) {
+                const pc = xml.indexOf('</w:p>', mm.index);
+                const txt = pc === -1 ? '(no close)' : xml.slice(mm.index, pc).replace(/<[^>]+>/g, '');
+                console.log(`[tek] Bijlage-style #${n++} @${mm.index} text: "${txt.slice(0, 80)}"`);
+            }
+            console.log('[tek] total Bijlage-styled paragraphs:', n);
+        }
         if (phIdx !== -1) {
             const pStart = Math.max(
                 xml.lastIndexOf('<w:p>', phIdx),
@@ -471,6 +487,7 @@ export async function fillAelmansTemplate(templateFile, values) {
             }
         }
 
+        console.log('[tek] placed:', placed, '| via:', phIdx !== -1 ? 'placeholder' : 'fallback');
         if (!placed) {
             console.warn('[tekening] geen invoegpositie gevonden — tekening niet ingevoegd');
         }
