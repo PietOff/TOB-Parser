@@ -411,8 +411,6 @@ export async function fillAelmansTemplate(templateFile, values) {
         const cxEmu = maxCx;
         const cyEmu = Math.round(maxCx * (tekening.heightPx / tekening.widthPx));
 
-        console.log('[tekening] blob size:', imgArrayBuffer.byteLength, 'dims:', tekening.widthPx, 'x', tekening.heightPx, 'cxEmu:', cxEmu, 'cyEmu:', cyEmu);
-
         zip.file('word/media/tekening.jpg', imgArrayBuffer);
 
         // Register a PartName override for this specific file — more reliable than
@@ -423,8 +421,6 @@ export async function fillAelmansTemplate(templateFile, values) {
             ct = ct.replace('</Types>', '<Override PartName="/word/media/tekening.jpg" ContentType="image/jpeg"/></Types>');
             zip.file('[Content_Types].xml', ct);
         }
-        console.log('[tekening] [Content_Types] has tekening.jpg:', ct.includes('/word/media/tekening.jpg'));
-
         let rels = await zip.file('word/_rels/document.xml.rels').async('string');
         if (!rels.includes(tekeningRId)) {
             rels = rels.replace(
@@ -433,33 +429,53 @@ export async function fillAelmansTemplate(templateFile, values) {
             );
             zip.file('word/_rels/document.xml.rels', rels);
         }
-        console.log('[tekening] rels has rIdTekening:', rels.includes(tekeningRId));
 
         // Use a high unique drawing ID to avoid collisions with existing template drawings
         const drawing = `<w:p><w:r>${inlineDrawingXml(tekeningRId, cxEmu, cyEmu, 9901, 'Tekening')}</w:r></w:p>`;
 
-        // Find the actual "Bijlage 1" heading in the document body (not the TOC entry).
-        // The heading uses auto-numbering so the raw XML contains only "Bijlage" without " 1".
-        // All appendix headings (Bijlage 1, 2, 3, 4...) share the same paragraph style
-        // named "Bijlage", so lastIndexOf('Bijlage') would grab the LAST appendix heading
-        // instead of the first. The TOC entries use a different style, so the first
-        // occurrence of this style declaration is reliably the Bijlage 1 heading.
-        const b1Idx = xml.indexOf('w:pStyle w:val="Bijlage"');
-        console.log('[tekening] indexOf(pStyle="Bijlage"):', b1Idx);
-        if (b1Idx !== -1) console.log('[tekening] context:', xml.slice(Math.max(0, b1Idx - 150), b1Idx + 150));
-
-        if (b1Idx !== -1) {
-            const pEnd = xml.indexOf('</w:p>', b1Idx) + '</w:p>'.length;
-            console.log('[tekening] pEnd:', pEnd, '(threshold:', '</w:p>'.length, ')');
-            if (pEnd > '</w:p>'.length) {
-                xml = xml.slice(0, pEnd) + drawing + xml.slice(pEnd);
-                console.log('[tekening] drawing inserted after Bijlage 1 heading');
+        // Anchor on the template's own "(tekening invoegen opdrachtgever)" placeholder
+        // and replace that whole paragraph with the image — the placeholder marks
+        // exactly where the drawing belongs.
+        //
+        // Do NOT anchor on the first pStyle="Bijlage" paragraph: the template reuses
+        // that same style for the "Inhoudsopgave" heading, so the first occurrence sits
+        // right after the table of contents and the image lands pages too early.
+        const phIdx = xml.indexOf('tekening invoegen opdrachtgever');
+        let placed = false;
+        if (phIdx !== -1) {
+            const pStart = Math.max(
+                xml.lastIndexOf('<w:p>', phIdx),
+                xml.lastIndexOf('<w:p ', phIdx)
+            );
+            const pClose = xml.indexOf('</w:p>', phIdx);
+            if (pStart !== -1 && pClose !== -1) {
+                xml = xml.slice(0, pStart) + drawing + xml.slice(pClose + '</w:p>'.length);
+                placed = true;
             }
-        } else {
-            console.warn('[tekening] "Bijlage 1" not found in document XML');
         }
 
-        // Also remove placeholder paragraph if present (keep document clean)
+        if (!placed) {
+            // Fallback: first "Bijlage"-styled heading that isn't the Inhoudsopgave.
+            const styleTag = /w:pStyle w:val="Bijlage"\s*\/?>/g;
+            let m;
+            while ((m = styleTag.exec(xml)) !== null) {
+                const pClose = xml.indexOf('</w:p>', m.index);
+                if (pClose === -1) continue;
+                const paraText = xml
+                    .slice(m.index, pClose)
+                    .replace(/<[^>]+>/g, '');
+                if (/inhoud/i.test(paraText)) continue; // skip the TOC heading
+                xml = xml.slice(0, pClose + '</w:p>'.length) + drawing + xml.slice(pClose + '</w:p>'.length);
+                placed = true;
+                break;
+            }
+        }
+
+        if (!placed) {
+            console.warn('[tekening] geen invoegpositie gevonden — tekening niet ingevoegd');
+        }
+
+        // Remove the placeholder if it survived (e.g. the fallback path was used)
         removeParaContaining('tekening invoegen opdrachtgever');
     } else {
         removeParaContaining('tekening invoegen opdrachtgever');
