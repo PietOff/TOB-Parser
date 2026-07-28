@@ -482,11 +482,44 @@ export async function fillAelmansTemplate(templateFile, values) {
                     '| text:', para.replace(/<[^>]+>/g, '').slice(0, 60));
             }
             console.log('[tek] total "Onderzoekslocatie" hits:', n);
-            console.log('[tek] placeholder idx:', xml.indexOf('tekening invoegen opdrachtgever'));
+            const phI = xml.indexOf('tekening invoegen opdrachtgever');
+            console.log('[tek] placeholder idx:', phI, '| inTextBox:', phI !== -1 && isInTextBox(phI));
             console.log('[tek] "Bijlage 1" literal idx:', xml.indexOf('Bijlage 1'));
+            // Context dumps so we can see which hit is the real appendix heading
+            let k = 0;
+            for (let i = xml.indexOf('Onderzoekslocatie'); i !== -1; i = xml.indexOf('Onderzoekslocatie', i + 1)) {
+                console.log(`[tek] ctx#${k++} @${i}:`, xml.slice(Math.max(0, i - 260), i + 160));
+            }
+            if (phI !== -1) {
+                console.log('[tek] ctx placeholder:', xml.slice(Math.max(0, phI - 400), phI + 200));
+            }
         }
 
-        // 1. Preferred: directly after the "Onderzoekslocatie" appendix heading.
+        // 0. Best signal: the "(tekening invoegen opdrachtgever)" placeholder marks the
+        //    appendix the drawing belongs to, so the nearest "Onderzoekslocatie" *before*
+        //    it is reliably the Bijlage 1 heading. The title also appears earlier in the
+        //    report body (§1), tens of thousands of characters away, and that earlier hit
+        //    would otherwise win — which is exactly what put the image on the wrong page.
+        {
+            const phIdx0 = xml.indexOf('tekening invoegen opdrachtgever');
+            if (phIdx0 !== -1) {
+                let anchorEnd = -1;
+                for (let i = xml.indexOf('Onderzoekslocatie'); i !== -1 && i < phIdx0; i = xml.indexOf('Onderzoekslocatie', i + 1)) {
+                    const b = paraBoundsAt(i);
+                    if (!b) continue;
+                    if (isTocPara(xml.slice(b[0], b[1]))) continue;
+                    if (isInTextBox(i)) continue;
+                    anchorEnd = b[1]; // keep the last valid one before the placeholder
+                }
+                if (anchorEnd !== -1) {
+                    xml = xml.slice(0, anchorEnd) + drawing + xml.slice(anchorEnd);
+                    placed = true;
+                    console.log('[tek] anchored on heading nearest the placeholder @', anchorEnd);
+                }
+            }
+        }
+
+        // 1. Otherwise: directly after the "Onderzoekslocatie" appendix heading.
         //    Require the "Bijlage" heading style on the first pass so a capitalised
         //    "Onderzoekslocatie" in ordinary body text can't win; fall back to any
         //    non-TOC paragraph with that text if the style isn't present.
