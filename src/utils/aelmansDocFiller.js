@@ -418,10 +418,19 @@ export async function fillAelmansTemplate(templateFile, values) {
         // checking Default extensions, because the template may already have image/jpeg
         // registered only for other files via Override entries.
         let ct = await zip.file('[Content_Types].xml').async('string');
+        let ctChanged = false;
+        // Register the extension the same way the (working) topotijdreis PNGs do — a
+        // Default entry is what Word actually relies on for media parts. The Override
+        // alone left Word unable to resolve the part, which renders as an empty frame.
+        if (!/<Default[^>]*Extension="jpg"/i.test(ct)) {
+            ct = ct.replace('</Types>', '<Default Extension="jpg" ContentType="image/jpeg"/></Types>');
+            ctChanged = true;
+        }
         if (!ct.includes('/word/media/tekening.jpg')) {
             ct = ct.replace('</Types>', '<Override PartName="/word/media/tekening.jpg" ContentType="image/jpeg"/></Types>');
-            zip.file('[Content_Types].xml', ct);
+            ctChanged = true;
         }
+        if (ctChanged) zip.file('[Content_Types].xml', ct);
         let rels = await zip.file('word/_rels/document.xml.rels').async('string');
         if (!rels.includes(tekeningRId)) {
             rels = rels.replace(
@@ -599,6 +608,25 @@ export async function fillAelmansTemplate(templateFile, values) {
         '| page breaks:', (xml.match(/<w:br w:type="page"\/>/g) || []).length);
 
     zip.file('word/document.xml', xml);
+
+    // ── verify the assembled package: media bytes, relationship and content type ──
+    if (tekening) {
+        const mediaEntry = zip.file('word/media/tekening.jpg');
+        if (!mediaEntry) {
+            console.error('[tek] PACKAGE: word/media/tekening.jpg MISSING from zip');
+        } else {
+            const bytes = await mediaEntry.async('uint8array');
+            const magic = [...bytes.slice(0, 3)].map(b => b.toString(16).padStart(2, '0')).join(' ');
+            console.log('[tek] PACKAGE media bytes:', bytes.length, '| magic:', magic, '(ffd8ff = valid JPEG)');
+        }
+        const ctFinal = await zip.file('[Content_Types].xml').async('string');
+        console.log('[tek] PACKAGE ct default jpg:', /<Default[^>]*Extension="jpg"/i.test(ctFinal),
+            '| override:', ctFinal.includes('/word/media/tekening.jpg'));
+        const relsFinal = await zip.file('word/_rels/document.xml.rels').async('string');
+        console.log('[tek] PACKAGE rel:', (relsFinal.match(/<Relationship[^>]*rIdTekening[^>]*>/) || ['NONE'])[0]);
+        console.log('[tek] PACKAGE drawing xml:', (xml.match(/<w:drawing>[\s\S]{0,700}?<\/w:drawing>/) || ['NONE'])[0].slice(0, 700));
+    }
+
     return zip.generateAsync({
         type: 'blob',
         mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
