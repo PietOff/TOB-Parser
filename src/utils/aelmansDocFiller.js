@@ -51,6 +51,19 @@ function repT(xml, exact, replacement) {
     );
 }
 
+/**
+ * Build a floating <w:drawing> anchored to the page, centred both ways and placed
+ * behind the text (behindDoc="1"). Used for the Bijlage 1 tekening so it fills the
+ * page independently of the surrounding text flow.
+ */
+function anchoredDrawingXml(rId, cxEmu, cyEmu, id = 99, name = 'Tekening') {
+    const A  = 'http://schemas.openxmlformats.org/drawingml/2006/main';
+    const WP = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing';
+    const PIC = 'http://schemas.openxmlformats.org/drawingml/2006/picture';
+    const R  = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+    return `<w:drawing><wp:anchor xmlns:wp="${WP}" distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251658240" behindDoc="1" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="page"><wp:align>center</wp:align></wp:positionH><wp:positionV relativeFrom="page"><wp:align>center</wp:align></wp:positionV><wp:extent cx="${cxEmu}" cy="${cyEmu}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapNone/><wp:docPr id="${id}" name="${name}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="${A}" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="${A}"><a:graphicData uri="${PIC}"><pic:pic xmlns:pic="${PIC}"><pic:nvPicPr><pic:cNvPr id="${id}" name="${name}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rId}" xmlns:r="${R}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cxEmu}" cy="${cyEmu}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing>`;
+}
+
 /** Build the <w:drawing> inline image XML for embedding in a paragraph */
 function inlineDrawingXml(rId, cxEmu, cyEmu, id = 99, name = 'Tekening') {
     return `<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="${cxEmu}" cy="${cyEmu}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="${id}" name="${name}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${id}" name="${name}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cxEmu}" cy="${cyEmu}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>`;
@@ -404,7 +417,6 @@ export async function fillAelmansTemplate(templateFile, values) {
 
     // ── Tekening (Bijlage 1) ──────────────────────────────────────────────
     // Insert the JPEG image as a new paragraph directly after the "Bijlage 1" heading.
-    console.log('[tek] tekening arg:', tekening ? `blob=${tekening.blob?.size} ${tekening.widthPx}x${tekening.heightPx}` : tekening);
     if (tekening) {
         const tekeningRId = 'rIdTekening';
         const imgArrayBuffer = await tekening.blob.arrayBuffer();
@@ -441,11 +453,14 @@ export async function fillAelmansTemplate(templateFile, values) {
         }
 
         // Use a high unique drawing ID to avoid collisions with existing template drawings.
-        // Leading page break: the drawing belongs on the page *after* the
-        // "Bijlage 1 / Onderzoekslocatie" heading, not directly beneath it.
+        //
+        // The page break gets its own paragraph so the drawing's host paragraph is
+        // unambiguously the first one on the new page — the anchor positions relative to
+        // whichever page it lives on. The image itself floats (behindDoc), centred on the
+        // page, so it doesn't depend on the surrounding text flow.
         const drawing =
-            `<w:p><w:r><w:br w:type="page"/></w:r>` +
-            `<w:r>${inlineDrawingXml(tekeningRId, cxEmu, cyEmu, 9901, 'Tekening')}</w:r></w:p>`;
+            `<w:p><w:r><w:br w:type="page"/></w:r></w:p>` +
+            `<w:p><w:r>${anchoredDrawingXml(tekeningRId, cxEmu, cyEmu, 9901, 'Tekening')}</w:r></w:p>`;
 
         // The image belongs on the page headed "Bijlage 1 / Onderzoekslocatie".
         // "Bijlage 1" is auto-numbered so the raw XML only holds the title text, and the
@@ -478,32 +493,6 @@ export async function fillAelmansTemplate(templateFile, values) {
 
         let placed = false;
 
-        // ── diagnostics: what anchors exist in this template? ──
-        {
-            let n = 0;
-            for (let i = xml.indexOf('Onderzoekslocatie'); i !== -1; i = xml.indexOf('Onderzoekslocatie', i + 1)) {
-                const b = paraBoundsAt(i);
-                const para = b ? xml.slice(b[0], b[1]) : '';
-                console.log(`[tek] "Onderzoekslocatie" #${n++} @${i}`,
-                    '| toc:', b ? isTocPara(para) : 'n/a',
-                    '| bijlageStyle:', b ? /w:pStyle w:val="Bijlage"\s*\/?>/.test(para) : 'n/a',
-                    '| inTextBox:', isInTextBox(i),
-                    '| text:', para.replace(/<[^>]+>/g, '').slice(0, 60));
-            }
-            console.log('[tek] total "Onderzoekslocatie" hits:', n);
-            const phI = xml.indexOf('tekening invoegen opdrachtgever');
-            console.log('[tek] placeholder idx:', phI, '| inTextBox:', phI !== -1 && isInTextBox(phI));
-            console.log('[tek] "Bijlage 1" literal idx:', xml.indexOf('Bijlage 1'));
-            // Context dumps so we can see which hit is the real appendix heading
-            let k = 0;
-            for (let i = xml.indexOf('Onderzoekslocatie'); i !== -1; i = xml.indexOf('Onderzoekslocatie', i + 1)) {
-                console.log(`[tek] ctx#${k++} @${i}:`, xml.slice(Math.max(0, i - 260), i + 160));
-            }
-            if (phI !== -1) {
-                console.log('[tek] ctx placeholder:', xml.slice(Math.max(0, phI - 400), phI + 200));
-            }
-        }
-
         // 0. Best signal: the "(tekening invoegen opdrachtgever)" placeholder marks the
         //    appendix the drawing belongs to, so the nearest "Onderzoekslocatie" *before*
         //    it is reliably the Bijlage 1 heading. The title also appears earlier in the
@@ -523,7 +512,6 @@ export async function fillAelmansTemplate(templateFile, values) {
                 if (anchorEnd !== -1) {
                     xml = xml.slice(0, anchorEnd) + drawing + xml.slice(anchorEnd);
                     placed = true;
-                    console.log('[tek] anchored on heading nearest the placeholder @', anchorEnd);
                 }
             }
         }
@@ -561,7 +549,6 @@ export async function fillAelmansTemplate(templateFile, values) {
                 const at = hostClose + '</w:p>'.length;
                 xml = xml.slice(0, at) + drawing + xml.slice(at);
                 placed = true;
-                console.log('[tek] anchored after text-box host paragraph');
                 break;
             }
         }
@@ -591,7 +578,6 @@ export async function fillAelmansTemplate(templateFile, values) {
             }
         }
 
-        console.log('[tek] placed:', placed);
         if (!placed) {
             console.warn('[tekening] geen invoegpositie gevonden — tekening niet ingevoegd');
         }
