@@ -3,6 +3,7 @@
  * Extracts key fields from BDOK Quickscan reports using pdfjs-dist
  */
 import * as pdfjsLib from 'pdfjs-dist';
+import { zoekUbiCode, volledigeUbiOmschrijving } from './ubiCodes';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
@@ -257,6 +258,14 @@ export async function parseBdok(file, onProgress) {
 //   Voldoende onderzocht
 // waarna elke rij bestaat uit een omschrijving, twee jaartallen en vijf
 // ja/nee-kolommen, bijv:  "brandweerkazerne 1991 onbekend Nee Nee Nee onbekend Nee"
+//
+// De rapportage kent géén UBI-codekolom, alleen de UBI-omschrijving — maar die
+// komt letterlijk uit de UBI-lijst, dus de code zoeken we op in ubiCodes.js.
+//
+// Een omschrijving die over meerdere regels loopt wordt correct samengevoegd (de
+// PDF tekent de hele cel achter elkaar). Breekt hij over een páginagrens, dan
+// belandt de staart elders in de tekststroom; volledigeUbiOmschrijving() plakt
+// hem weer aan de hand van de UBI-lijst.
 const ACT_KOPREGEL =
     /Activiteit\s+Start\s+Einde\s+Vervallen\s+Benoemd\s+Verontreinigd\s+Spoed\s+Voldoende\s+onderzocht/gi;
 // Waar een activiteitentabel ophoudt — de eerstvolgende kop in de rapportage
@@ -293,14 +302,19 @@ function parseActiviteiten(segment) {
         ACT_RIJ.lastIndex = 0;
         let rij;
         while ((rij = ACT_RIJ.exec(blok)) !== null) {
-            const activiteit = rij[1].replace(/\s+/g, ' ').trim();
-            if (!activiteit) continue;
+            const ruw = rij[1].replace(/\s+/g, ' ').trim();
+            if (!ruw) continue;
+            // Namen die door een paginawissel zijn afgekapt weer heel maken,
+            // daarna de UBI-code erbij zoeken (die staat niet in de rapportage).
+            const activiteit = volledigeUbiOmschrijving(ruw, segment);
+            // Start en Einde worden overgenomen zoals ze in de rapportage staan,
+            // dus ook een letterlijk "onbekend" — dat is informatie, geen lege cel.
             rijen.push({
                 locatie,
                 activiteit,
-                ubiCode: '',              // staat niet in de bodemrapportage
-                jaartalBegin: /^\d{4}$/.test(rij[2]) ? rij[2] : '',
-                jaartalEind:  /^\d{4}$/.test(rij[3]) ? rij[3] : '',
+                ubiCode: zoekUbiCode(activiteit),
+                jaartalBegin: rij[2],
+                jaartalEind:  rij[3],
             });
         }
     }
