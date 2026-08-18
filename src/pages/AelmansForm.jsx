@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { parseBdok, parseBodemrapportage, renderPdfPageToJpeg } from '../utils/bdokParser';
 import { fillAelmansTemplate, downloadBlob } from '../utils/aelmansDocFiller';
 import { fetchTopoImages } from '../utils/topoImages';
+import { zoekLocatiegegevens } from '../utils/pdokLocatie';
 
 const PROVINCIES = ['Noord-Brabant', 'Limburg'];
 const UITVOERDERS = ['Synfra', 'BDOK'];
@@ -23,6 +24,9 @@ export default function AelmansForm() {
         grondwaterstand: '',
         bemaling: '',
         pfasBkk: '',
+        bouwjaar: '',
+        stromingsrichting: '',
+        bodembeschermingsgebied: '',
     });
 
     const [files, setFiles] = useState({
@@ -71,6 +75,30 @@ export default function AelmansForm() {
                     bemaling:          data.bemaling          || prev.bemaling,
                     _bdokData:         data,
                 }));
+
+                // Gemeente, provincie en bouwjaar uit de BAG halen. De quickscan
+                // noemt de gemeente niet als veld, dus die werd uit de lopende tekst
+                // geraden — en dat gaat mis zodra plaats en gemeente verschillen
+                // (Haelen ligt in gemeente Leudal). De BAG weet het zeker.
+                const adres = [data.straatnaam, data.huisnummer, data.plaatsnaam]
+                    .filter(Boolean).join(' ');
+                if (adres) {
+                    setParseStatus(prev => ({ ...prev, quickscan: 'Gemeente en bouwjaar opzoeken...' }));
+                    try {
+                        const loc = await zoekLocatiegegevens(adres, data.plaatsnaam);
+                        if (loc) {
+                            setForm(prev => ({
+                                ...prev,
+                                gemeente:   loc.gemeente  ? `Gemeente ${loc.gemeente}` : prev.gemeente,
+                                provincie:  loc.provincie || prev.provincie,
+                                bouwjaar:   loc.bouwjaar  || prev.bouwjaar,
+                            }));
+                        }
+                    } catch (e) {
+                        console.warn('PDOK-lookup mislukt:', e);
+                    }
+                }
+
                 const summary = [
                     data.ontgravingsdiepte && `diepte: ${data.ontgravingsdiepte}m`,
                     data.sleuflengte       && `lengte: ${data.sleuflengte}m`,
@@ -189,6 +217,10 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                 bodemklasseOnder:  bdokData.bodemklasseOnder || '',
                 verdachteActiviteiten: form._bodemData?.verdachteActiviteiten || null,
                 pfasBkk:           form.pfasBkk || '',
+                bouwjaar:          form.bouwjaar || '',
+                bagZoekterm:       [form.straatnaam, form.huisnummer, form.plaatsnaam].filter(Boolean).join(' '),
+                stromingsrichting:       form.stromingsrichting || '',
+                bodembeschermingsgebied: form.bodembeschermingsgebied || '',
                 jaar:              new Date().getFullYear(),
                 tekening,          // { blob, widthPx, heightPx } or null
                 topoImages,        // [blob1945, blob1995, blob2025] or null
@@ -358,6 +390,23 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                         </select>
                     </Field>
                 </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    <Field label="Bouwjaar bebouwing">
+                        <input type="text" value={form.bouwjaar} onChange={set('bouwjaar')} placeholder="uit de BAG" style={inputStyle} />
+                    </Field>
+                    <Field label="Grondwaterstromingsrichting">
+                        <input type="text" value={form.stromingsrichting} onChange={set('stromingsrichting')} placeholder="bijv. noordwestelijke" style={inputStyle} />
+                    </Field>
+                </div>
+
+                <Field label="Bodembeschermingsgebied (leeg = niet van toepassing)">
+                    <input type="text" value={form.bodembeschermingsgebied} onChange={set('bodembeschermingsgebied')} placeholder="bijv. Mergelland, Roerdalslenk" list="bbg-opties" style={inputStyle} />
+                    <datalist id="bbg-opties">
+                        <option value="Mergelland" />
+                        <option value="Roerdalslenk" />
+                    </datalist>
+                </Field>
 
                 <Field label="PFAS BKK referentie (optioneel)">
                     <input type="text" value={form.pfasBkk} onChange={set('pfasBkk')} placeholder="bijv. Bodem3000, 15-01-2025" style={inputStyle} />

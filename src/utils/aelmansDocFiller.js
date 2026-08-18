@@ -109,6 +109,32 @@ export async function fillAelmansTemplate(templateFile, values) {
     const zip = await JSZip.loadAsync(arrayBuffer);
     let xml = await zip.file('word/document.xml').async('string');
 
+    // ── Missercontrole ────────────────────────────────────────────────────
+    // Een vervanging die niets raakt geeft gewoon de originele tekst terug, zonder
+    // fout. Daardoor zijn hier meerdere fouten maandenlang onopgemerkt gebleven:
+    // een spatie in `<w:highlight … />` die het patroon niet verwachtte, een
+    // w:commentRangeStart die bij een hersave verdween, een vast projectnummer dat
+    // in een nieuw sjabloon niet meer voorkwam. Steeds bleef er stilzwijgend een
+    // placeholder of een verkeerde waarde in de rapportage staan.
+    //
+    // `verwacht()` legt vast dat een vervanging geraakt moet hebben. Aan het eind
+    // volgt één waarschuwing met alles wat niet raakte, zodat een sjabloonwijziging
+    // zich meteen meldt in plaats van pas bij de controle van het eindresultaat.
+    const missers = [];
+    const verwacht = (naam, gelukt) => {
+        if (!gelukt) missers.push(naam);
+        return gelukt;
+    };
+    /** Voerde deze bewerking daadwerkelijk een wijziging door? */
+    const veranderde = (naam, voor) => verwacht(naam, voor !== xml);
+
+    /** repT, maar meldt het als het patroon nergens raakte */
+    const repTv = (naam, exact, vervanging) => {
+        const voor = xml;
+        xml = repT(xml, exact, vervanging);
+        veranderde(naam, voor);
+    };
+
     // Helper: remove the paragraph containing a text marker (first match)
     const removeParaContaining = (marker) => {
         const idx = xml.indexOf(marker);
@@ -120,6 +146,36 @@ export async function fillAelmansTemplate(templateFile, values) {
         if (pStart !== -1 && pEnd !== -1) {
             xml = xml.slice(0, pStart) + xml.slice(pEnd + '</w:p>'.length);
         }
+    };
+
+    /**
+     * Vul een waarde in achter een vast label in het sjabloon.
+     *
+     * Bedoeld voor velden waar het sjabloon de gegevens van zijn vorige casus
+     * meedraagt (namen, projectnummers): het label ligt vast, de waarde niet.
+     * Zoekt de run die exact het label bevat en vervangt de eerstvolgende run
+     * met echte inhoud — tussenliggende scheidingstekens (":") en lege runs
+     * worden overgeslagen. Geeft terug of het gelukt is.
+     */
+    const vulWaardeAchterLabel = (label, waarde) => {
+        const idx = xml.indexOf(`>${label}</w:t>`);
+        if (idx === -1) return false;
+        // Vanaf het einde van de label-run verder zoeken; de partiële run waarin
+        // het label staat kan het patroon hieronder niet meer matchen.
+        const staart = xml.slice(idx);
+        const re = /<w:t([^>]*)>([^<]*)<\/w:t>/g;
+        let m;
+        while ((m = re.exec(staart)) !== null) {
+            if (m.index > 4000) break;   // buiten dit veld geraakt
+            const inhoud = m[2].trim();
+            if (!inhoud || /^[:;\-–—.]+$/.test(inhoud)) continue;
+            const abs = idx + m.index;
+            xml = xml.slice(0, abs)
+                + `<w:t${m[1]}>${xmlEsc(waarde)}</w:t>`
+                + xml.slice(abs + m[0].length);
+            return true;
+        }
+        return false;
     };
 
     // Helper: remove the whole table containing a text marker (first match)
@@ -147,6 +203,10 @@ export async function fillAelmansTemplate(templateFile, values) {
         bodemklasseOnder = '',
         verdachteActiviteiten = null,
         pfasBkk = '',
+        stromingsrichting = '',
+        bodembeschermingsgebied = '',
+        bouwjaar = '',
+        bagZoekterm = '',
         hasBodemrapportage = false,
         jaar = new Date().getFullYear(),
         tekening = null,
@@ -170,12 +230,34 @@ export async function fillAelmansTemplate(templateFile, values) {
     const boringenInt = parseInt(aantalBoringen) || 2;
     const aantalMengmonsters = String(Math.max(2, Math.ceil(boringenInt / 7)));
 
-    // ── Contactpersoon (always Dhr. R.D.T. Houben) ────────────────────────
-    xml = repT(xml, 'M\\. Buss', 'Dhr. R.D.T. Houben');
-    xml = repT(xml, 'naam',      'Dhr. R.D.T. Houben');
-
     // ── Titelblad: "Opsteller rapportage" → "Opsteller" ───────────────────
-    xml = repT(xml, 'Opsteller rapportage', 'Opsteller');
+    // Moet vóór het invullen van de namen, want daar wordt "Opsteller" als label
+    // gebruikt om de waarde erachter te vinden.
+    repTv("titelblad: Opsteller", "Opsteller rapportage", "Opsteller");
+
+    // ── Contactpersoon / opsteller / collegiale toets ──────────────────────
+    // Altijd Dhr. R.D.T. Houben. Het sjabloon is een opgeslagen casus en draagt
+    // dus de naam van de vórige opsteller mee — Bladel had "M. Buss", Haelen
+    // "E. Heijdra". Zoeken op een vaste naam faalt daarom bij elk nieuw sjabloon
+    // (in de Haelen-rapportage bleef de verkeerde naam 3× staan). We zoeken nu op
+    // het label ernaast, want dat ligt vast, en vervangen de waarde erachter.
+    for (const label of [
+        'Contactpersoon Aelmans Milieu',  // titelblad
+        'Opsteller',                      // titelblad
+        'Collegiale toets',               // titelblad
+        'Contactpersoon Aelmans',         // samenvattingstabel
+    ]) {
+        verwacht(`naam bij "${label}"`, vulWaardeAchterLabel(label, 'Dhr. R.D.T. Houben'));
+    }
+
+    // ── Samenvatting: keuzelijsten terugzetten ────────────────────────────
+    // Ook hier draagt het sjabloon de ingevulde antwoorden van zijn vorige casus
+    // mee (Bladel "Klinkers", "N.v.t."). Dat leest als een antwoord terwijl het
+    // er geen is, dus zetten we de keuzelijst terug zodat de adviseur zelf kiest.
+    verwacht('samenvatting: Type verharding',
+        vulWaardeAchterLabel('Type verharding', 'Klinkers / Asfalt / Tegels / Onverhard'));
+    verwacht('samenvatting: Type materiaal i.v.m. VOS',
+        vulWaardeAchterLabel('Type materiaal i.v.m. VOS', 'Geen / Geen beperkingen'));
 
     // ── §2.4 Bekende bodemonderzoeken: verwijzing naar de samenvatting ────
     xml = repT(
@@ -184,6 +266,53 @@ export async function fillAelmansTemplate(templateFile, values) {
         'bodemonderzoeken plaatsgevonden, die voor onderhavig onderzoek relevant zijn. ' +
         'In onderstaande paragraaf is een summiere samenvatting van deze onderzoeken opgenomen.'
     );
+
+    // ── §2.2 Bouwjaar bebouwing (uit de BAG) ──────────────────────────────
+    // Nieuwe zin, komt als eigen alinea vóór "Hieronder is een overzicht…".
+    // "(BAG-viewer)" wordt een koppeling naar het adres in de BAG-viewer.
+    //
+    // De zin over de asbestverdachte periode staat er alleen bij als het pand van
+    // 1994 of later is. Asbest is in 1994 verboden; bij oudere bebouwing zou
+    // "geen aanwijzingen voor bouw en sloop in de asbestverdachte periode" een
+    // bewering zijn die we niet kunnen onderbouwen, dus die laten we dan aan de
+    // adviseur.
+    if (bouwjaar) {
+        const anker = xml.indexOf('Hieronder is een overzicht');
+        if (anker === -1) {
+            console.warn('[2.2] ankerzin niet gevonden — bouwjaarzin niet ingevoegd');
+        } else {
+            const pStart = Math.max(
+                xml.lastIndexOf('<w:p>', anker),
+                xml.lastIndexOf('<w:p ', anker)
+            );
+
+            const bagUrl = 'https://bagviewer.kadaster.nl/lvbag/bag-viewer/?searchQuery='
+                + encodeURIComponent(bagZoekterm || '');
+            let rels = await zip.file('word/_rels/document.xml.rels').async('string');
+            const relId = 'rIdBagViewer';
+            if (!rels.includes(relId)) {
+                rels = rels.replace(
+                    '</Relationships>',
+                    `<Relationship Id="${relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${xmlEsc(bagUrl)}" TargetMode="External"/></Relationships>`
+                );
+                zip.file('word/_rels/document.xml.rels', rels);
+            }
+
+            const asbestZin = parseInt(bouwjaar, 10) >= 1994
+                ? ' Er zijn geen aanwijzingen voor bouw en sloop in de asbestverdachte periode.'
+                : '';
+
+            const alinea =
+                '<w:p><w:r><w:t xml:space="preserve">De huidige bebouwing is in '
+                + `${xmlEsc(bouwjaar)} gerealiseerd (</w:t></w:r>`
+                + `<w:hyperlink r:id="${relId}" w:history="1">`
+                + '<w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr>'
+                + '<w:t>BAG-viewer</w:t></w:r></w:hyperlink>'
+                + `<w:r><w:t xml:space="preserve">).${asbestZin}</w:t></w:r></w:p>`;
+
+            if (pStart !== -1) xml = xml.slice(0, pStart) + alinea + xml.slice(pStart);
+        }
+    }
 
     // ── Sleuflengte ────────────────────────────────────────────────────────
     if (sleufNL) {
@@ -424,6 +553,33 @@ export async function fillAelmansTemplate(templateFile, values) {
                 console.warn('[2.5] tabelindeling niet herkend — verdachte activiteiten niet ingevuld');
             }
         }
+    } else {
+        // Geen bodemrapportage geüpload. De tabel blijft staan — "niets bekend" is
+        // iets anders dan "er zijn geen verdachte activiteiten" — maar de
+        // voorbeeldrijen van het sjabloon ("Adres / Ondergrondse brandstoftank /
+        // UBI631246") moeten eruit: dat is verzonnen data in een rapportage.
+        // De adviseur ziet zo een lege tabel om zelf in te vullen.
+        const markIdx = xml.indexOf('Ubi code');
+        if (markIdx !== -1) {
+            const tblStart = Math.max(xml.lastIndexOf('<w:tbl>', markIdx), xml.lastIndexOf('<w:tbl ', markIdx));
+            const tblEnd   = xml.indexOf('</w:tbl>', markIdx) + '</w:tbl>'.length;
+            const tbl      = xml.slice(tblStart, tblEnd);
+            const rows     = tbl.match(/<w:tr(?:\s[^>]*)?>[\s\S]*?<\/w:tr>/g) || [];
+
+            const isGroep    = (r) => /<w:gridSpan w:val="5"\s*\/>/.test(r);
+            const iOpmerking = rows.findIndex(r => isGroep(r) && /Opmerkingen/.test(fragText(r)));
+            const isKop      = (r) => /Ubi code/.test(fragText(r));
+
+            const leeg = rows.map((r, i) => {
+                const isData = !isGroep(r) && !isKop(r)
+                    && (r.match(/<w:tc>/g) || []).length === 5
+                    && (iOpmerking === -1 || i < iOpmerking);
+                return isData ? fillRow(r, ['', '', '', '', '']) : r;
+            }).join('');
+
+            const tblPrefix = tbl.slice(0, tbl.indexOf('<w:tr'));
+            xml = xml.slice(0, tblStart) + tblPrefix + leeg + '</w:tbl>' + xml.slice(tblEnd);
+        }
     }
 
     // ── §2.6 Bodemkwaliteitsklasse (uit BDOK §2.2, kolom "Generieke klasse") ─
@@ -485,27 +641,64 @@ export async function fillAelmansTemplate(templateFile, values) {
     }
 
     // ── §2.9 regionale grondwaterstromingsrichting ────────────────────────────
-    // "De regionale grondwaterstromingsrichting vindt in <richting> plaats." staat
-    // in dezelfde alinea als de grondwaterstandzin en loopt tot het einde daarvan.
-    // Die alinea in zijn geheel weghalen nam de grondwaterstandzin dus mee — vandaar
-    // dat die in gegenereerde rapportages ontbrak. Alleen de runs van deze zin eruit.
-    //
-    // De zin over het bodembeschermingsgebied blijft staan: of een locatie daarin
-    // ligt verschilt per locatie, dus dat is handwerk van de adviseur.
-    {
-        const idxStroming = xml.indexOf('De regionale grondwaterstromingsrichting');
-        if (idxStroming !== -1) {
-            const start = Math.max(
-                xml.lastIndexOf('<w:r>', idxStroming),
-                xml.lastIndexOf('<w:r ', idxStroming)
-            );
-            const eind = xml.indexOf('</w:p>', idxStroming);
-            if (start !== -1 && eind !== -1) xml = xml.slice(0, start) + xml.slice(eind);
-        }
+    // De zin blijft staan; alleen de richting wordt ingevuld. (Deze zin werd eerder
+    // verwijderd, maar dat was verkeerd — bij de controle van de Haelen-rapportage
+    // is hij met de hand teruggezet.) Het sjabloon draagt de richting van zijn
+    // vorige casus mee ("noordwestelijke richting"), dus die vervangen we door de
+    // opgegeven richting; zonder opgave wordt het "onbekende".
+    xml = xml.replace(
+        /(<w:t[^>]*>)[^<]*(?= richting<\/w:t>)[^<]*(<\/w:t>)/,
+        `$1${xmlEsc(stromingsrichting || 'onbekende')} richting$2`
+    );
+
+    // ── §2.9 restinstructie voor de adviseur ──────────────────────────────────
+    // "Raadplegen (of uit bdok)" en de grondwatertools-link zijn werkinstructies,
+    // geen rapporttekst — ze horen niet bij de klant terecht te komen. Elk een
+    // eigen alinea.
+    removeParaContaining('Raadplegen ');
+    removeParaContaining('grondwatertools.nl');
+
+    // ── §2.9 bodembeschermingsgebied ──────────────────────────────────────────
+    // Of een locatie in zo'n gebied ligt verschilt per locatie: het sjabloon heeft
+    // "Mergelland" (Zuid-Limburg), maar voor Haelen moest het "Roerdalslenk" zijn.
+    // Ingevuld → de naam vervangen; leeg → de hele zin weg, zodat alleen
+    // "De locatie is niet gelegen in een grondwaterwingebied…" overblijft.
+    if (bodembeschermingsgebied) {
+        xml = xml.replace(
+            /(<w:t[^>]*>De locatie is gelegen in het bodembeschermingsgebied “<\/w:t>[\s\S]{0,400}?<w:t[^>]*>)[^<]*(<\/w:t>)/,
+            `$1${xmlEsc(bodembeschermingsgebied)}$2`
+        );
+    } else {
+        xml = xml.replace(
+            /(<w:t[^>]*>)De locatie is gelegen in het bodembeschermingsgebied “<\/w:t>([\s\S]{0,400}?<w:t[^>]*>)[^<]*<\/w:t>([\s\S]{0,400}?<w:t[^>]*>)”\. /,
+            '$1</w:t>$2</w:t>$3'
+        );
     }
 
+    // ── §2.6 "(zie BDOK)" achter de klasse weghalen ───────────────────────────
+    // Verwijzing naar de bronrapportage; hoort niet in de lopende zin. Staat over
+    // vier runs verdeeld: "’ (" | "z" | "ie BDOK)" | "." → alleen "’" en "." blijven.
+    xml = xml.replace(
+        /(<w:t[^>]*>)’ \(<\/w:t>([\s\S]{0,400}?<w:t[^>]*>)z<\/w:t>([\s\S]{0,400}?<w:t[^>]*>)ie BDOK\)<\/w:t>/,
+        '$1’</w:t>$2</w:t>$3</w:t>'
+    );
+
+    // ── Bijlage 1: bronvermelding ─────────────────────────────────────────────
+    repTv("Bijlage 1 bronvermelding", "Bron: Google Maps", "Bron: Bodemloket.nl/Werktekening opdrachtgever");
+
+    // ── §2.6 kop (ook de regel in de inhoudsopgave) ───────────────────────────
+    repTv("§2.6 kop", "Bodemkwaliteitskaart/-functiekaart", "Bodemkwaliteits- en bodemfunctiekaart");
+
     // ── Remove yellow highlighting (template placeholder highlighting) ─────────
-    xml = xml.replace(/<w:highlight w:val="yellow"\/>/g, '');
+    // De `\s*` is wezenlijk: Word schrijft zelfsluitende tags met een spatie
+    // (`<w:highlight w:val="yellow" />`). Zonder die spatie in het patroon raakte
+    // dit nul van de 288 markeringen in het sjabloon en kwam elke rapportage er
+    // volledig geel uit.
+    {
+        const voor = xml;
+        xml = xml.replace(/<w:highlight w:val="yellow"\s*\/>/g, '');
+        veranderde('gele markering weghalen', voor);
+    }
 
     // "(tekening invoegen opdrachtgever)" placeholder is handled in the tekening block below.
 
@@ -780,6 +973,17 @@ export async function fillAelmansTemplate(templateFile, values) {
         removeParaContaining('tekening invoegen opdrachtgever');
     } else {
         removeParaContaining('tekening invoegen opdrachtgever');
+    }
+
+    // Vervangingen die nergens raakten. Bijna altijd betekent dit dat het sjabloon
+    // veranderd is — een hersave die tags anders schrijft, hernoemde tekst, of een
+    // sjabloon dat van een andere casus komt. Zonder deze melding blijft dat
+    // onzichtbaar tot iemand het eindresultaat naloopt.
+    if (missers.length) {
+        console.warn(
+            `[sjabloon] ${missers.length} vervanging(en) raakten niets — controleer of de `
+            + `template gewijzigd is:\n  • ${missers.join('\n  • ')}`
+        );
     }
 
     zip.file('word/document.xml', xml);
