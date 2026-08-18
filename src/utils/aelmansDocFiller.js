@@ -448,8 +448,20 @@ export async function fillAelmansTemplate(templateFile, values) {
     // ── PFAS BKK reference ────────────────────────────────────────────────
     if (pfasBkk) xml = xml.split('(benoemen, datum)').join(`(${xmlEsc(pfasBkk)})`);
 
-    // ── AMV project number ────────────────────────────────────────────────
-    if (amvNummer) xml = xml.split('AMV261626.001').join(amvNummer);
+    // ── AMV-projectnummer ─────────────────────────────────────────────────
+    // Het sjabloon is een opgeslagen casus, dus het draagt het projectnummer van
+    // díe casus met zich mee — nu AMV261632, op het titelblad (bookmark ProjectNr1)
+    // en in de samenvattingstabel (bookmark ProjectNr), allebei als losse run.
+    // Zoeken op één vast nummer werkte daarom niet: elk nieuw sjabloon brengt een
+    // ander nummer mee en dan bleef het oude nummer in de rapportage staan.
+    // Daarom vervangen we op de vórm van het nummer, zodat er altijd het nummer
+    // uit de BDOK komt te staan.
+    if (amvNummer) {
+        xml = xml.replace(
+            /(<w:t[^>]*>[^<]*?)AMV\d{6,}(?:\.\d+)?/g,
+            `$1${amvNummer}`
+        );
+    }
 
     // ── Revision table: remove; keep only "Niet van toepassing." ──────────
     // Simplify the instruction text first
