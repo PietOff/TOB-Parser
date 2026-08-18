@@ -275,10 +275,24 @@ export async function fillAelmansTemplate(templateFile, values) {
         xml = repT(xml, '\\(jaartal\\)', `(${jaar})`);
 
         // "gemeente" (kleine letter) → "gemeente <plaats>". Komt twee keer voor:
-        // in de §2.6 BKK-zin en in de titel van Bijlage 3. Onvoorwaardelijk, want
+        // in de §2.6 BKK-zin en in de bijlagenlijst. Onvoorwaardelijk, want
         // §2.6 staat er ook zonder bodemrapportage; Bijlage 3 wordt in dat geval
         // even verderop toch in zijn geheel verwijderd.
         xml = repT(xml, 'gemeente', `gemeente ${xmlEsc(gemeenteCity)}`);
+
+        // Titelblad van Bijlage 3: "Bodeminformatie" → "Bodeminformatie Gemeente <plaats>".
+        // De bijlagenlijst heeft hier al "gemeente <plaats>" staan, het titelblad niet.
+        // Beide staan als losse runs "Bodem" + "informatie"; alleen op het titelblad
+        // is dat een kale <w:t>informatie</w:t> (in de lijst staat er een spatie
+        // achter, dus met xml:space), zodat dit patroon precies één keer raakt.
+        // De negative lookahead houdt de <w:rPr>-capture binnen déze run: zonder
+        // die grens slokt hij de voorafgaande "Bodem"-run mee en wordt die tekst
+        // in de nieuwe run herhaald.
+        xml = xml.replace(
+            /(<w:r(?:\s[^>]*)?>((?:<w:rPr>(?:(?!<\/w:r>)[\s\S])*?<\/w:rPr>)?)<w:t>informatie<\/w:t><\/w:r>)/,
+            (_, run, rPr) =>
+                `${run}<w:r>${rPr}<w:t xml:space="preserve"> Gemeente ${xmlEsc(gemeenteCity)}</w:t></w:r>`
+        );
     }
 
     // ── Bijlage 3: remove entirely when no bodemrapportage ─────────────────
@@ -471,20 +485,45 @@ export async function fillAelmansTemplate(templateFile, values) {
 
     // "(tekening invoegen opdrachtgever)" placeholder is handled in the tekening block below.
 
-    // ── Conditional grondwateronderzoek paragraph ─────────────────────────
-    // Yellow paragraph = depth argument (GWS > 0.25m below excavation)
-    // Cyan paragraph   = work-type argument (cable work, no groundwater contact)
-    // Remove whichever doesn't apply.
+    // ── §2.9 slotalinea grondwateronderzoek ───────────────────────────────
+    // Twee vaste teksten; welke van de twee hangt af van de grondwaterstand ten
+    // opzichte van de ontgravingsdiepte.
+    //
+    // Deze alinea wordt ingevoegd in plaats van "de niet-passende variant uit het
+    // sjabloon verwijderen", want in de huidige template staan ze geen van beide
+    // meer — dat is precies waarom de slotalinea in gegenereerde rapportages
+    // ontbrak. Staan ze er ooit weer in, dan halen we ze eerst weg zodat de tekst
+    // hoe dan ook één keer voorkomt.
     {
-        const gws83  = parseFloat(grondwaterstand);
-        const diep83 = parseFloat(ontgravingsdiepte);
-        if (!isNaN(gws83) && !isNaN(diep83)) {
-            if (gws83 - diep83 > 0.25) {
-                // GWS deep enough → yellow depth-argument applies → remove cyan paragraph
-                removeParaContaining('Omdat er geen werkzaamheden');
+        const gws29  = parseFloat(grondwaterstand);
+        const diep29 = parseFloat(ontgravingsdiepte);
+        if (!isNaN(gws29) && !isNaN(diep29)) {
+            removeParaContaining('Grondwateronderzoek dient');
+            removeParaContaining('Omdat er geen werkzaamheden');
+
+            const grondwaterDieperDanOntgraving = gws29 - diep29 > 0.25;
+            const slotalinea = grondwaterDieperDanOntgraving
+                ? 'Grondwateronderzoek dient plaats te vinden, indien het freatisch '
+                  + 'grondwater zich op minder dan 0,25 meter minus de maximale '
+                  + 'ontgravingsdiepte bevindt. Dit is op de onderzoekslocatie niet het '
+                  + 'geval. Het uitvoeren van het grondwateronderzoek is derhalve niet '
+                  + 'noodzakelijk.'
+                : 'Omdat er geen werkzaamheden in het grondwater plaatsvinden voor de '
+                  + 'aanleg van kabels en leidingen, is grondwateronderzoek niet '
+                  + 'doelmatig. Meestal worden de werkzaamheden uitgesteld naar een '
+                  + 'drogere periode.';
+
+            // Achter de laatste alinea van §2.9 plaatsen
+            const anker = 'geregistreerde grondwateronttrekkingen plaats.';
+            const idx29 = xml.indexOf(anker);
+            const eind29 = idx29 === -1 ? -1 : xml.indexOf('</w:p>', idx29);
+            if (eind29 !== -1) {
+                const na = eind29 + '</w:p>'.length;
+                xml = xml.slice(0, na)
+                    + `<w:p><w:r><w:t xml:space="preserve">${xmlEsc(slotalinea)}</w:t></w:r></w:p>`
+                    + xml.slice(na);
             } else {
-                // GWS shallow → cyan work-type argument applies → remove yellow paragraph
-                removeParaContaining('Grondwateronderzoek dient');
+                console.warn('[2.9] ankerzin niet gevonden — slotalinea niet ingevoegd');
             }
         }
     }
