@@ -110,7 +110,14 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                     setParseStatus(prev => ({ ...prev, bodem: msg }))
                 );
                 setForm(prev => ({ ...prev, _bodemData: data }));
-                setParseStatus(prev => ({ ...prev, bodem: '✓ Ingelezen' }));
+                const va = data.verdachteActiviteiten;
+                const n  = va.onderzoekslocatie.length + va.omgeving.length;
+                setParseStatus(prev => ({
+                    ...prev,
+                    bodem: n
+                        ? `✓ ${n} verdachte activiteit${n === 1 ? '' : 'en'}`
+                        : '✓ Geen verdachte activiteiten',
+                }));
             } catch (err) {
                 setParseStatus(prev => ({ ...prev, bodem: `⚠ ${err.message}` }));
             } finally {
@@ -178,6 +185,9 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                 amvNummer:         bdokData.amvNummer || '',
                 hasBodemrapportage: !!files.bodem,
                 bodemtype:         bdokData.bodemtype || '',
+                bodemklasseBoven:  bdokData.bodemklasseBoven || '',
+                bodemklasseOnder:  bdokData.bodemklasseOnder || '',
+                verdachteActiviteiten: form._bodemData?.verdachteActiviteiten || null,
                 pfasBkk:           form.pfasBkk || '',
                 jaar:              new Date().getFullYear(),
                 tekening,          // { blob, widthPx, heightPx } or null

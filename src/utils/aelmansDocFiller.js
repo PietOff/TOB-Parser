@@ -21,7 +21,11 @@
  *  "G" + "emeente naam."                      → gemeente (split run, §1.3)
  *  "(jaartal)"                                → current year (BKK text)
  *  "van gemeente" in BKK sentence             → gemeente name
- *  "Landbouw/Natuur"                          → bodemtype
+ *  "Opsteller rapportage"                     → "Opsteller"
+ *  §2.4 slotzin                               → + verwijzing naar samenvatting
+ *  §2.5 tabel Verdachte activiteiten          → gevuld uit de bodemrapportage,
+ *                                               of verwijderd als er geen zijn
+ *  "Landbouw/Natuur"                          → generieke klasse uit BDOK §2.2
  *  "(benoemen, datum)"                        → pfasBkk
  *  "XXX" (in "circa XXX m +NAP")             → grondwaterstand
  *  Revision table                             → remove; keep "Niet van toepassing."
@@ -49,6 +53,37 @@ function repT(xml, exact, replacement) {
         new RegExp(`(<w:t[^>]*>)${exact}(<\\/w:t>)`, 'g'),
         `$1${replacement}$2`
     );
+}
+
+/** Alle zichtbare tekst van een XML-fragment (alle <w:t>-inhoud aaneengeplakt) */
+function fragText(frag) {
+    return (frag.match(/<w:t[^>]*>[^<]*<\/w:t>/g) || [])
+        .map(t => t.replace(/^<w:t[^>]*>/, '').replace(/<\/w:t>$/, ''))
+        .join('');
+}
+
+/**
+ * Zet de tekst van één tabelcel, met behoud van de opmaak van die cel:
+ * de bestaande runs gaan eruit en de nieuwe run erft de <w:rPr> uit de <w:pPr>.
+ */
+function setCellText(tc, text) {
+    const leeg = tc.replace(/<w:r(?: [^>]*)?>[\s\S]*?<\/w:r>/g, '');
+    if (!text) return leeg;
+    const m = /<w:pPr>[\s\S]*?(<w:rPr>[\s\S]*?<\/w:rPr>)\s*<\/w:pPr>/.exec(leeg);
+    return leeg.replace(
+        '</w:p>',
+        `<w:r>${m ? m[1] : ''}<w:t xml:space="preserve">${xmlEsc(text)}</w:t></w:r></w:p>`
+    );
+}
+
+/** Vul een tabelrij-sjabloon met celwaarden (één waarde per kolom) */
+function fillRow(rowXml, waarden) {
+    const delen = rowXml.split('</w:tc>');
+    let out = '';
+    for (let i = 0; i < delen.length - 1; i++) {
+        out += setCellText(delen[i], waarden[i] || '') + '</w:tc>';
+    }
+    return out + delen[delen.length - 1];
 }
 
 /**
@@ -87,6 +122,17 @@ export async function fillAelmansTemplate(templateFile, values) {
         }
     };
 
+    // Helper: remove the whole table containing a text marker (first match)
+    const removeTableContaining = (marker) => {
+        const idx = xml.indexOf(marker);
+        if (idx === -1) return;
+        const tblStart = Math.max(xml.lastIndexOf('<w:tbl>', idx), xml.lastIndexOf('<w:tbl ', idx));
+        const tblEnd   = xml.indexOf('</w:tbl>', idx);
+        if (tblStart !== -1 && tblEnd !== -1) {
+            xml = xml.slice(0, tblStart) + xml.slice(tblEnd + '</w:tbl>'.length);
+        }
+    };
+
     const {
         sleuflengte = '',
         ontgravingsdiepte = '',
@@ -97,6 +143,9 @@ export async function fillAelmansTemplate(templateFile, values) {
         uitvoerder = '',
         amvNummer = '',
         bodemtype = '',
+        bodemklasseBoven = '',
+        bodemklasseOnder = '',
+        verdachteActiviteiten = null,
         pfasBkk = '',
         hasBodemrapportage = false,
         jaar = new Date().getFullYear(),
@@ -124,6 +173,17 @@ export async function fillAelmansTemplate(templateFile, values) {
     // ── Contactpersoon (always Dhr. R.D.T. Houben) ────────────────────────
     xml = repT(xml, 'M\\. Buss', 'Dhr. R.D.T. Houben');
     xml = repT(xml, 'naam',      'Dhr. R.D.T. Houben');
+
+    // ── Titelblad: "Opsteller rapportage" → "Opsteller" ───────────────────
+    xml = repT(xml, 'Opsteller rapportage', 'Opsteller');
+
+    // ── §2.4 Bekende bodemonderzoeken: verwijzing naar de samenvatting ────
+    xml = repT(
+        xml,
+        'bodemonderzoeken plaatsgevonden, die voor onderhavig onderzoek relevant zijn\\.',
+        'bodemonderzoeken plaatsgevonden, die voor onderhavig onderzoek relevant zijn. ' +
+        'In onderstaande paragraaf is een summiere samenvatting van deze onderzoeken opgenomen.'
+    );
 
     // ── Sleuflengte ────────────────────────────────────────────────────────
     if (sleufNL) {
@@ -286,8 +346,86 @@ export async function fillAelmansTemplate(templateFile, values) {
         );
     }
 
-    // ── Bodemtype / BKK class ─────────────────────────────────────────────
-    if (bodemtype) xml = xml.split('Landbouw/Natuur').join(xmlEsc(bodemtype));
+    // ── §2.5 Historisch verdachte activiteiten ────────────────────────────
+    // De sjabloontabel heeft vijf kolommen (Locatie | Activiteit | Ubi code |
+    // Jaartal begin | Jaartal eind) en twee groepskoppen die de datarijen splitsen
+    // in "Onderzoekslocatie" en "Omgeving onderzoekslocatie (< 25 meter)".
+    // Zonder bodemrapportage blijft het sjabloon ongemoeid: dan is er niets bekend,
+    // en dat is iets anders dan "er zijn geen verdachte activiteiten".
+    if (verdachteActiviteiten) {
+        const opLocatie  = verdachteActiviteiten.onderzoekslocatie || [];
+        const inOmgeving = verdachteActiviteiten.omgeving || [];
+
+        if (!opLocatie.length && !inOmgeving.length) {
+            // Niets bekend → inleidende zin vervangen, tabel en bijschrift eruit
+            xml = repT(
+                xml,
+                'In onderstaande tabel zijn de verdachte activiteiten ter plaatse van de '
+                + 'onderzoekslocatie en directe omgeving hiervan \\(&lt;25 meter\\) weergegeven\\.',
+                'Er zijn geen verdachte activiteiten ter plaatse of nabij het tracé bekend.'
+            );
+            removeParaContaining(': Verdachte activiteiten');
+            removeTableContaining('Ubi code');
+        } else {
+            const markIdx  = xml.indexOf('Ubi code');
+            const tblStart = Math.max(xml.lastIndexOf('<w:tbl>', markIdx), xml.lastIndexOf('<w:tbl ', markIdx));
+            const tblEnd   = xml.indexOf('</w:tbl>', markIdx) + '</w:tbl>'.length;
+            const tbl      = xml.slice(tblStart, tblEnd);
+            const rows     = tbl.match(/<w:tr(?:\s[^>]*)?>[\s\S]*?<\/w:tr>/g) || [];
+
+            // Groepskoppen beslaan alle vijf kolommen; datarijen hebben vijf cellen
+            const isGroep    = (r) => /<w:gridSpan w:val="5"\s*\/>/.test(r);
+            const iOnderzoek = rows.findIndex(r => isGroep(r) && /Onderzoekslocatie/.test(fragText(r)));
+            const iOmgeving  = rows.findIndex(r => isGroep(r) && /Omgeving onderzoekslocatie/.test(fragText(r)));
+            const iOpmerking = rows.findIndex(r => isGroep(r) && /Opmerkingen/.test(fragText(r)));
+
+            // Sjabloonrij: bij voorkeur een lege datarij, anders de voorbeeldrij
+            const dataRijen = rows.filter(r => !isGroep(r) && (r.match(/<w:tc>/g) || []).length === 5);
+            const sjabloon  = dataRijen.find(r => !fragText(r).trim()) || dataRijen[1] || dataRijen[0];
+
+            if (iOnderzoek !== -1 && iOmgeving !== -1 && iOpmerking !== -1 && sjabloon) {
+                // Een groep zonder activiteiten houdt één lege rij, zodat de
+                // tabelindeling herkenbaar blijft.
+                const bouw = (lijst) => (lijst.length ? lijst : [{}]).map(a => fillRow(sjabloon, [
+                    a.locatie      || '',
+                    a.activiteit   || '',
+                    a.ubiCode      || '',
+                    a.jaartalBegin || '',
+                    a.jaartalEind  || '',
+                ]));
+                const nieuweRijen = [
+                    ...rows.slice(0, iOnderzoek + 1),
+                    ...bouw(opLocatie),
+                    rows[iOmgeving],
+                    ...bouw(inOmgeving),
+                    ...rows.slice(iOpmerking),
+                ].join('');
+                const tblPrefix = tbl.slice(0, tbl.indexOf('<w:tr'));
+                xml = xml.slice(0, tblStart) + tblPrefix + nieuweRijen + '</w:tbl>' + xml.slice(tblEnd);
+            } else {
+                console.warn('[2.5] tabelindeling niet herkend — verdachte activiteiten niet ingevuld');
+            }
+        }
+    }
+
+    // ── §2.6 Bodemkwaliteitsklasse (uit BDOK §2.2, kolom "Generieke klasse") ─
+    // Sjabloonzin, opgesplitst over runs:
+    //   "...bodemkwaliteit van de |boven- en ondergrond| voldoet aan |de klasse ‘|
+    //    Landbouw/Natuur|’ (|z|ie BDOK)|."
+    // Zijn boven- en ondergrond dezelfde klasse, dan blijft de zin ongewijzigd.
+    // Verschillen ze, dan wordt hij per laag uitgeschreven.
+    {
+        const boven = bodemklasseBoven || bodemtype;
+        const onder = bodemklasseOnder || boven;
+        if (boven && onder !== boven) {
+            xml = repT(xml, 'boven- en ondergrond', 'bovengrond');
+            xml = xml.split('Landbouw/Natuur').join(
+                `${xmlEsc(boven)}’ en van de ondergrond aan de klasse ‘${xmlEsc(onder)}`
+            );
+        } else if (boven) {
+            xml = xml.split('Landbouw/Natuur').join(xmlEsc(boven));
+        }
+    }
 
     // ── PFAS BKK reference ────────────────────────────────────────────────
     if (pfasBkk) xml = xml.split('(benoemen, datum)').join(`(${xmlEsc(pfasBkk)})`);

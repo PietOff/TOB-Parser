@@ -22,6 +22,22 @@ export async function extractPdfText(file, onProgress) {
     return { pages, fullText: pages.join('\n') };
 }
 
+/** Bodemkwaliteitsklassen zoals ze in de BDOK-tabel voorkomen (regex-alternatie) */
+const BKK_KLASSEN =
+    'Achtergrondwaarde|Landbouw\\s*/\\s*Natuur|Wonen|Industrie|Niet\\s+toepasbaar|Uitgesloten|Onbekend';
+
+/**
+ * Zet een BDOK-klasse om naar de schrijfwijze die de Aelmans-rapportage gebruikt.
+ * De BDOK noemt de schoonste klasse "Achtergrondwaarde"; in de TOB heet die
+ * "Landbouw/Natuur".
+ */
+function normaliseerKlasse(raw) {
+    const s = String(raw).replace(/\s+/g, ' ').trim();
+    if (/^achtergrondwaarde$/i.test(s))          return 'Landbouw/Natuur';
+    if (/^landbouw\s*\/\s*natuur$/i.test(s))     return 'Landbouw/Natuur';
+    return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 /**
  * Parse BDOK Quickscan and extract fields needed for AelmansForm
  * Returns an object with all extractable fields
@@ -48,7 +64,9 @@ export async function parseBdok(file, onProgress) {
         ontgravingsdiepte: '',
         isGroterDan25m3: null,    // true/false/null
         grondwaterstand: '',      // numeric string m-mv
-        bodemtype: '',            // Landbouw/Natuur etc.
+        bodemtype: '',            // = bodemklasseBoven (backwards compat)
+        bodemklasseBoven: '',     // BDOK §2.2 generieke klasse bovengrond
+        bodemklasseOnder: '',     // BDOK §2.2 generieke klasse ondergrond
         typeVerharding: '',
         // Calculated
         boringDiepte: '',         // ontgravingsdiepte + 0,2
@@ -184,14 +202,19 @@ export async function parseBdok(file, onProgress) {
         }
     }
 
-    // ── Bodemtype / background value ──
-    if (/landbouw\s*\/?\s*natuur/i.test(fullText)) {
-        result.bodemtype = 'Landbouw/Natuur';
-    } else if (/\bwonen\b/i.test(fullText)) {
-        result.bodemtype = 'Wonen';
-    } else if (/\bindustrie\b/i.test(fullText)) {
-        result.bodemtype = 'Industrie';
-    }
+    // ── Bodemkwaliteitsklasse — BDOK §2.2, kolom "Generieke klasse" ──
+    // De tabel bevat per laag een specifieke en een generieke klasse:
+    //   Bovengrond specifieke klasse gemeente | Generieke klasse | Achtergrondwaarde
+    //   Ondergrond specifieke klasse gemeente | Generieke klasse | Achtergrondwaarde
+    // Eerste treffer = bovengrond, tweede = ondergrond.
+    // Nooit de hele tekst afzoeken op klassenamen: de kaartlegenda op diezelfde
+    // pagina noemt álle klassen ("Wonen", "Industrie", ...) en wint dan altijd.
+    const generiek = [...fullText.matchAll(
+        new RegExp(`Generieke\\s+klasse\\s+(${BKK_KLASSEN})`, 'gi')
+    )].map(m => normaliseerKlasse(m[1]));
+    result.bodemklasseBoven = generiek[0] || '';
+    result.bodemklasseOnder = generiek[1] || generiek[0] || '';
+    result.bodemtype        = result.bodemklasseBoven;
 
     // ── Type verharding ──
     const verhardingMatch = fullText.match(/(?:type\s+verharding|verhardingstype)[:\s]+([^\n,]{3,50})/i);
@@ -228,6 +251,62 @@ export async function parseBdok(file, onProgress) {
     return result;
 }
 
+// ── Verdachte (verontreinigende) activiteiten uit de bodemrapportage ─────────
+// De rapportage toont per bodemlocatie een tabel met de kopregel:
+//   Activiteit | Start | Einde | Vervallen | Benoemd | Verontreinigd | Spoed |
+//   Voldoende onderzocht
+// waarna elke rij bestaat uit een omschrijving, twee jaartallen en vijf
+// ja/nee-kolommen, bijv:  "brandweerkazerne 1991 onbekend Nee Nee Nee onbekend Nee"
+const ACT_KOPREGEL =
+    /Activiteit\s+Start\s+Einde\s+Vervallen\s+Benoemd\s+Verontreinigd\s+Spoed\s+Voldoende\s+onderzocht/gi;
+// Waar een activiteitentabel ophoudt — de eerstvolgende kop in de rapportage
+const ACT_EINDE =
+    /Matrix|Geconstateerde\s+verontreinigingen|Besluiten|Sanering|Overige\s+beschikbare|Gegevens\s+binnen|Disclaimer|Locatienaam/i;
+const ACT_JAAR   = '(?:\\d{4}|onbekend)';
+const ACT_JANEE  = '(?:Ja|Nee|onbekend|n\\.v\\.t\\.)';
+const ACT_RIJ = new RegExp(
+    `([A-Za-zÀ-ÿ0-9][^\\n]*?)\\s+(${ACT_JAAR})\\s+(${ACT_JAAR})` +
+    `\\s+${ACT_JANEE}\\s+${ACT_JANEE}\\s+${ACT_JANEE}\\s+${ACT_JANEE}\\s+${ACT_JANEE}`,
+    'gi'
+);
+
+/**
+ * Haal alle activiteitenrijen uit één gebiedsdeel van de rapportage.
+ * Elke rij wordt gekoppeld aan het adres van de bodemlocatie waar hij onder valt
+ * (het "Adres <x> Woonplaats"-veld dat vlak boven de tabel staat).
+ */
+function parseActiviteiten(segment) {
+    const rijen = [];
+    ACT_KOPREGEL.lastIndex = 0;
+    let kop;
+    while ((kop = ACT_KOPREGEL.exec(segment)) !== null) {
+        // Adres van de dichtstbijzijnde locatie vóór deze tabel
+        let locatie = '';
+        const adressen = [...segment.slice(0, kop.index).matchAll(/Adres\s+(.+?)\s+Woonplaats/gi)];
+        if (adressen.length) locatie = adressen[adressen.length - 1][1].trim();
+
+        // Alleen tot aan de eerstvolgende kop lezen
+        const rest = segment.slice(kop.index + kop[0].length);
+        const stop = rest.search(ACT_EINDE);
+        const blok = stop === -1 ? rest : rest.slice(0, stop);
+
+        ACT_RIJ.lastIndex = 0;
+        let rij;
+        while ((rij = ACT_RIJ.exec(blok)) !== null) {
+            const activiteit = rij[1].replace(/\s+/g, ' ').trim();
+            if (!activiteit) continue;
+            rijen.push({
+                locatie,
+                activiteit,
+                ubiCode: '',              // staat niet in de bodemrapportage
+                jaartalBegin: /^\d{4}$/.test(rij[2]) ? rij[2] : '',
+                jaartalEind:  /^\d{4}$/.test(rij[3]) ? rij[3] : '',
+            });
+        }
+    }
+    return rijen;
+}
+
 /**
  * Parse bodemrapportage PDF and extract soil investigation info
  */
@@ -245,8 +324,31 @@ export async function parseBodemrapportage(file, onProgress) {
         gemeente: '',
         soortOnderzoek: '',
         conclusie: '',
+        // { onderzoekslocatie: [...], omgeving: [...] } — §2.5 van de rapportage
+        verdachteActiviteiten: { onderzoekslocatie: [], omgeving: [] },
         _fullText: fullText,
     };
+
+    // ── Verdachte activiteiten, gesplitst naar gebied ──
+    // "Gegevens binnen het geselecteerde gebied"            → onderzoekslocatie
+    // "Gegevens binnen de 25.00-meter contour rond ..."     → omgeving (<25 m)
+    {
+        const iSel  = fullText.search(/Gegevens\s+binnen\s+het\s+geselecteerde\s+gebied/i);
+        const iBuf  = fullText.search(/Gegevens\s+binnen\s+de\s+[\d.,]+\s*-?\s*meter\s+contour/i);
+        const iEnd  = fullText.search(/\bDisclaimer\b/i);
+        const einde = (a) => {
+            const kandidaten = [iBuf, iEnd].filter(i => i > a);
+            return kandidaten.length ? Math.min(...kandidaten) : fullText.length;
+        };
+        if (iSel !== -1) {
+            result.verdachteActiviteiten.onderzoekslocatie =
+                parseActiviteiten(fullText.slice(iSel, einde(iSel)));
+        }
+        if (iBuf !== -1) {
+            result.verdachteActiviteiten.omgeving =
+                parseActiviteiten(fullText.slice(iBuf, iEnd > iBuf ? iEnd : fullText.length));
+        }
+    }
 
     // Rapportnummer
     const rapportMatch = fullText.match(/(?:rapport(?:nummer)?|kenmerk)[:\s]+([A-Z0-9\-\.]{4,30})/i);
