@@ -211,22 +211,25 @@ export async function fillAelmansTemplate(templateFile, values) {
         xml = repT(xml, 'Circa 1,0 m-mv', `Circa ${gwsNL} m-mv`);
         // §2.9 "circa XXX m +NAP" — remaining XXX runs → grondwaterstand
         xml = xml.replace(/<w:t([^>]*)>XXX<\/w:t>/g, `<w:t$1>${xmlEsc(gwsNL)}</w:t>`);
-        // §2.9 GWS sentence: placeholder space (wrapped in commentRange 80) → GWS value
-        // Template: "bevindt zich [comment80 space] op meer dan 0,25 m-mv"
-        // Result:   "bevindt zich op [GWS] m-mv, dit is op meer/minder dan 0,25 m-mv"
-        xml = xml.replace(
-            /(<w:commentRangeStart w:id="80"\/>[\s\S]{0,150}?<w:t[^>]*>) (<\/w:t>)/s,
-            `$1op ${xmlEsc(gwsNL)} m-mv, dit is $2`
-        );
-        // If GWS is within 0.25m of excavation → change "meer" to "minder"
+        // §2.9 grondwaterstandzin. Het sjabloon zegt standaard:
+        //   "De grondwaterstand op de onderzoekslocatie bevindt zich op meer dan
+        //    0,25 m -mv onder de ontgravingsdiepte."
+        // Daar hoort de gemeten stand in, en meer/minder hangt af van hoe diep het
+        // grondwater onder de ontgraving zit:
+        //   "... bevindt zich op 2,5 m-mv, dit is op meer dan 0,25 m -mv onder ..."
+        // "op meer dan 0,25 m" is in het sjabloon één run, dus die vervangen volstaat.
+        // (Dit liep eerder via een w:commentRangeStart die bij het opnieuw opslaan van
+        // de template is verdwenen — daardoor werd de stand nooit ingevuld.)
         const gws29  = parseFloat(grondwaterstand);
         const diep29 = parseFloat(ontgravingsdiepte);
-        if (!isNaN(gws29) && !isNaN(diep29) && gws29 - diep29 <= 0.25) {
-            xml = xml.replace(
-                /(bevindt\s+zich[\s\S]{0,400}?>)op meer (<\/w:t>)/s,
-                '$1op minder $2'
-            );
-        }
+        const grondwaterRuimOnderOntgraving =
+            !isNaN(gws29) && !isNaN(diep29) ? gws29 - diep29 > 0.25 : true;
+        xml = repT(
+            xml,
+            'op meer dan 0,25 m',
+            `op ${xmlEsc(gwsNL)} m-mv, dit is op ` +
+            `${grondwaterRuimOnderOntgraving ? 'meer' : 'minder'} dan 0,25 m`
+        );
     }
 
     // ── Bemaling ──────────────────────────────────────────────────────────
@@ -469,16 +472,25 @@ export async function fillAelmansTemplate(templateFile, values) {
         }
     }
 
-    // ── §2.9 sentence removal ─────────────────────────────────────────────────
-    // Remove "De regionale grondwaterstromingsrichting..." (its own paragraph)
-    removeParaContaining('regionale grondwaterstromings');
-    // Remove "De locatie is gelegen in het bodembeschermingsgebied 'Mergelland'." from
-    // within the next paragraph (which also contains sentences we want to keep).
-    // The sentence spans 3 runs; capture the 3rd run's opening tags to preserve the rest.
-    xml = xml.replace(
-        /<w:r[^>]*><w:t[^>]*>De locatie is gelegen in het bodembeschermingsgebied "<\/w:t><\/w:r><w:r[^>]*>(?:<w:rPr>[\s\S]*?<\/w:rPr>)?<w:t[^>]*>Mergelland<\/w:t><\/w:r>(<w:r[^>]*><w:t[^>]*>)"\. /s,
-        '$1'
-    );
+    // ── §2.9 regionale grondwaterstromingsrichting ────────────────────────────
+    // "De regionale grondwaterstromingsrichting vindt in <richting> plaats." staat
+    // in dezelfde alinea als de grondwaterstandzin en loopt tot het einde daarvan.
+    // Die alinea in zijn geheel weghalen nam de grondwaterstandzin dus mee — vandaar
+    // dat die in gegenereerde rapportages ontbrak. Alleen de runs van deze zin eruit.
+    //
+    // De zin over het bodembeschermingsgebied blijft staan: of een locatie daarin
+    // ligt verschilt per locatie, dus dat is handwerk van de adviseur.
+    {
+        const idxStroming = xml.indexOf('De regionale grondwaterstromingsrichting');
+        if (idxStroming !== -1) {
+            const start = Math.max(
+                xml.lastIndexOf('<w:r>', idxStroming),
+                xml.lastIndexOf('<w:r ', idxStroming)
+            );
+            const eind = xml.indexOf('</w:p>', idxStroming);
+            if (start !== -1 && eind !== -1) xml = xml.slice(0, start) + xml.slice(eind);
+        }
+    }
 
     // ── Remove yellow highlighting (template placeholder highlighting) ─────────
     xml = xml.replace(/<w:highlight w:val="yellow"\/>/g, '');
@@ -486,44 +498,36 @@ export async function fillAelmansTemplate(templateFile, values) {
     // "(tekening invoegen opdrachtgever)" placeholder is handled in the tekening block below.
 
     // ── §2.9 slotalinea grondwateronderzoek ───────────────────────────────
-    // Twee vaste teksten; welke van de twee hangt af van de grondwaterstand ten
-    // opzichte van de ontgravingsdiepte.
-    //
-    // Deze alinea wordt ingevoegd in plaats van "de niet-passende variant uit het
-    // sjabloon verwijderen", want in de huidige template staan ze geen van beide
-    // meer — dat is precies waarom de slotalinea in gegenereerde rapportages
-    // ontbrak. Staan ze er ooit weer in, dan halen we ze eerst weg zodat de tekst
-    // hoe dan ook één keer voorkomt.
+    // Beide varianten staan in het sjabloon in dezelfde alinea, achter elkaar:
+    // eerst de gele tekst ("Grondwateronderzoek dient ..."), daarna de cyaan tekst
+    // ("Omdat er geen werkzaamheden ..."). Die alinea in zijn geheel verwijderen
+    // haalde dus allebei de teksten weg — daarom ontbrak de slotalinea helemaal.
+    // Nu blijft de passende variant staan met zijn eigen opmaak, en gaan alleen de
+    // runs van de andere eruit.
+    //   grondwater ruim onder de ontgraving (> 0,25 m) → geel
+    //   grondwater binnen 0,25 m van de ontgraving     → cyaan
     {
-        const gws29  = parseFloat(grondwaterstand);
-        const diep29 = parseFloat(ontgravingsdiepte);
-        if (!isNaN(gws29) && !isNaN(diep29)) {
-            removeParaContaining('Grondwateronderzoek dient');
-            removeParaContaining('Omdat er geen werkzaamheden');
+        const gws83  = parseFloat(grondwaterstand);
+        const diep83 = parseFloat(ontgravingsdiepte);
+        if (!isNaN(gws83) && !isNaN(diep83)) {
+            const idxGeel  = xml.indexOf('Grondwateronderzoek dient');
+            const idxCyaan = xml.indexOf('Omdat er geen werkzaamheden');
+            const runStart = (i) =>
+                Math.max(xml.lastIndexOf('<w:r>', i), xml.lastIndexOf('<w:r ', i));
 
-            const grondwaterDieperDanOntgraving = gws29 - diep29 > 0.25;
-            const slotalinea = grondwaterDieperDanOntgraving
-                ? 'Grondwateronderzoek dient plaats te vinden, indien het freatisch '
-                  + 'grondwater zich op minder dan 0,25 meter minus de maximale '
-                  + 'ontgravingsdiepte bevindt. Dit is op de onderzoekslocatie niet het '
-                  + 'geval. Het uitvoeren van het grondwateronderzoek is derhalve niet '
-                  + 'noodzakelijk.'
-                : 'Omdat er geen werkzaamheden in het grondwater plaatsvinden voor de '
-                  + 'aanleg van kabels en leidingen, is grondwateronderzoek niet '
-                  + 'doelmatig. Meestal worden de werkzaamheden uitgesteld naar een '
-                  + 'drogere periode.';
-
-            // Achter de laatste alinea van §2.9 plaatsen
-            const anker = 'geregistreerde grondwateronttrekkingen plaats.';
-            const idx29 = xml.indexOf(anker);
-            const eind29 = idx29 === -1 ? -1 : xml.indexOf('</w:p>', idx29);
-            if (eind29 !== -1) {
-                const na = eind29 + '</w:p>'.length;
-                xml = xml.slice(0, na)
-                    + `<w:p><w:r><w:t xml:space="preserve">${xmlEsc(slotalinea)}</w:t></w:r></w:p>`
-                    + xml.slice(na);
+            if (idxGeel === -1 || idxCyaan === -1) {
+                console.warn('[2.9] slotalinea-varianten niet gevonden — niets aangepast');
             } else {
-                console.warn('[2.9] ankerzin niet gevonden — slotalinea niet ingevoegd');
+                const startGeel  = runStart(idxGeel);
+                const startCyaan = runStart(idxCyaan);
+                if (gws83 - diep83 > 0.25) {
+                    // Gele tekst houden → cyaan run (één run) verwijderen
+                    const eindCyaan = xml.indexOf('</w:r>', idxCyaan) + '</w:r>'.length;
+                    xml = xml.slice(0, startCyaan) + xml.slice(eindCyaan);
+                } else if (startGeel < startCyaan) {
+                    // Cyaan tekst houden → alle gele runs ervoor verwijderen
+                    xml = xml.slice(0, startGeel) + xml.slice(startCyaan);
+                }
             }
         }
     }
