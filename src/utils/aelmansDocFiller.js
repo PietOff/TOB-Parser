@@ -268,16 +268,17 @@ export async function fillAelmansTemplate(templateFile, values) {
         // Bevoegd gezag cell: standalone "Gemeente" → full label
         xml = repT(xml, 'Gemeente', gemeenteLabel);
 
-        // BKK sentence: "(jaartal) van gemeente" → year + city name
-        xml = xml.replace(
-            /\(jaartal\) van gemeente/g,
-            `(${jaar}) van ${xmlEsc(gemeenteCity)}`
-        );
+        // §2.6 BKK-zin: "(jaartal)" → huidig jaar.
+        // Word zet dit als een eigen run neer ("...klassenkaart " | "(jaartal)" |
+        // " van " | "gemeente"), dus zoeken op de doorlopende zin vindt nooit iets —
+        // de run zelf moet vervangen worden.
+        xml = repT(xml, '\\(jaartal\\)', `(${jaar})`);
 
-        // Bijlage 3 title: "gemeente" (lowercase) → "gemeente <city>"
-        if (hasBodemrapportage) {
-            xml = repT(xml, 'gemeente', `gemeente ${xmlEsc(gemeenteCity)}`);
-        }
+        // "gemeente" (kleine letter) → "gemeente <plaats>". Komt twee keer voor:
+        // in de §2.6 BKK-zin en in de titel van Bijlage 3. Onvoorwaardelijk, want
+        // §2.6 staat er ook zonder bodemrapportage; Bijlage 3 wordt in dat geval
+        // even verderop toch in zijn geheel verwijderd.
+        xml = repT(xml, 'gemeente', `gemeente ${xmlEsc(gemeenteCity)}`);
     }
 
     // ── Bijlage 3: remove entirely when no bodemrapportage ─────────────────
