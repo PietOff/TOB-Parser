@@ -31,6 +31,17 @@ export default function Navbar() {
                         </svg>
                         Projecten
                     </button>
+                    <button
+                        className={`nav-link${isActive('/gef') ? ' nav-link-active' : ''}`}
+                        onClick={() => navigate('/gef')}
+                    >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M12 2v20"/>
+                            <path d="M5 8l7-6 7 6"/>
+                            <path d="M5 16h14"/>
+                        </svg>
+                        GEF naar CSV
+                    </button>
                     {isAdmin && (
                         <button
                             className={`nav-link${isActive('/beheer') ? ' nav-link-active' : ''}`}

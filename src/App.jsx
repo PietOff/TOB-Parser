@@ -8,6 +8,7 @@ import ProjectDetail from './pages/ProjectDetail';
 import ProjectsManager from './pages/ProjectsManager';
 import ProjectSelect from './pages/ProjectSelect';
 import AelmansForm from './pages/AelmansForm';
+import GefTool from './pages/GefTool';
 import './index.css';
 
 // Protect private routes from unauthenticated users
@@ -100,6 +101,14 @@ export default function App() {
                         element={
                             <PrivateRoute>
                                 <AelmansForm />
+                            </PrivateRoute>
+                        }
+                    />
+                    <Route
+                        path="/gef"
+                        element={
+                            <PrivateRoute>
+                                <GefTool />
                             </PrivateRoute>
                         }
                     />
