@@ -196,6 +196,34 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
         try {
             const bdokData = form._bdokData || {};
 
+            // Bouwjaar en pandidentificatie alsnog ophalen als ze nog leeg zijn.
+            // De BAG-bevraging draait bij het uploaden van de quickscan, en die
+            // slaat over zodra dat bestand geen straat en huisnummer geeft — wat
+            // bij een BDOK-quickscan geregeld het geval is. Vul jij het adres
+            // daarna met de hand in, dan was er niets dat de bevraging opnieuw
+            // startte en bleef §2.2 op "XXXX" staan.
+            let bouwjaar = form.bouwjaar;
+            let bagPandId = form._bagPandId || '';
+            if (!bouwjaar && form.straatnaam && form.huisnummer) {
+                try {
+                    const loc = await zoekLocatiegegevens(
+                        [form.straatnaam, form.huisnummer, form.plaatsnaam].filter(Boolean).join(' '),
+                        form.plaatsnaam
+                    );
+                    if (loc) {
+                        bouwjaar  = loc.bouwjaar || '';
+                        bagPandId = loc.pandId   || bagPandId;
+                        setForm(prev => ({
+                            ...prev,
+                            bouwjaar:   prev.bouwjaar || loc.bouwjaar || '',
+                            _bagPandId: prev._bagPandId || loc.pandId || '',
+                        }));
+                    }
+                } catch (e) {
+                    console.warn('PDOK-lookup bij genereren mislukt:', e);
+                }
+            }
+
             // Resolve tekening image: PDF already pre-rendered, images converted to JPEG via Canvas
             let tekening = tekeningImage; // { blob, widthPx, heightPx } or null
             if (!tekening && files.tekening && !files.tekening.name.toLowerCase().endsWith('.pdf')) {
@@ -247,9 +275,9 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                 amvNummer:         bdokData.amvNummer || '',
                 hasBodemrapportage: !!files.bodem,
                 verdachteActiviteiten: form._bodemData?.verdachteActiviteiten || null,
-                bouwjaar:          form.bouwjaar || '',
+                bouwjaar:          bouwjaar || '',
                 bagZoekterm:       [form.straatnaam, form.huisnummer, form.plaatsnaam].filter(Boolean).join(' '),
-                bagPandId:         form._bagPandId || '',
+                bagPandId:         bagPandId,
                 stromingsrichting:       form.stromingsrichting || '',
                 bodembeschermingsgebied: form.bodembeschermingsgebied || '',
                 tekening,          // { blob, widthPx, heightPx } or null
