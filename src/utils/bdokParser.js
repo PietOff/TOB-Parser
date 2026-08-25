@@ -60,7 +60,11 @@ export async function parseBdok(file, onProgress) {
         // Project fields
         amvNummer: '',
         betalingskenmerk: '',
+        netwerkplannummer: '',    // staat op de titelregel van een Synfra-bodemcheck
         aanvrager: '',
+        // RD-middelpunt van het geselecteerde gebied; bron voor plaats en gemeente
+        rdX: null,
+        rdY: null,
         sleuflengte: '',
         ontgravingsdiepte: '',
         isGroterDan25m3: null,    // true/false/null
@@ -104,6 +108,32 @@ export async function parseBdok(file, onProgress) {
             result.plaatsnaam = m[3].trim();
             break;
         }
+    }
+
+    // De Synfra-bodemcheck ("Bodemcheck-Huisaansluitingen") heeft geen
+    // "Locatie:"-label. De titelregel is: "Huisaansluitingen  <straat> <nr>
+    // <netwerkplannummer>", zonder plaatsnaam. Die plaats halen we later uit het
+    // RD-middelpunt hieronder.
+    if (!result.straatnaam) {
+        const m = fullText.match(
+            /Huisaansluitingen\s+([A-Za-zÀ-ÿ'’\-\.]+(?:\s+[A-Za-zÀ-ÿ'’\-\.]+)*?)\s+(\d{1,5}[a-zA-Z]?)\s+(\d{8,})/
+        );
+        if (m) {
+            result.straatnaam         = m[1].trim();
+            result.huisnummer         = m[2].trim();
+            result.netwerkplannummer  = m[3];
+        }
+    }
+
+    // ── RD-middelpunt ──
+    // Beide rapportvormen noemen "Middelpunt: X … Y … meter". Dat is het enige
+    // houvast voor de plaats en de gemeente in een Synfra-bodemcheck, en het is een
+    // betere bron dan een naam uit lopende tekst: de omgekeerde zoekopdracht van de
+    // Locatieserver geeft er het exacte adres bij.
+    const rdMatch = fullText.match(/Middelpunt\s*:?\s*X\s*(\d+(?:[,.]\d+)?)\s+Y\s*(\d+(?:[,.]\d+)?)/i);
+    if (rdMatch) {
+        result.rdX = parseFloat(rdMatch[1].replace(',', '.'));
+        result.rdY = parseFloat(rdMatch[2].replace(',', '.'));
     }
 
     // ── Gemeente ──
@@ -158,7 +188,10 @@ export async function parseBdok(file, onProgress) {
     // BDOK cover: ">25 m³: Nee" — pdfjs-dist may split as "> 25 m 3 : Nee"
     // Allow optional spaces between every component
     const m3CoverMatch = fullText.match(/>\s*25\s*m\s*[³3]?\s*:\s*(Ja|Nee)/i);
-    const m3TableMatch = fullText.match(/Graafactiviteit meer dan\s+25\s*m\s*[³3]?\s*\?\s*(Ja|Nee)/i);
+    // De Synfra-bodemcheck schrijft er een dubbele punt achter het vraagteken:
+    // "Graafactiviteit meer dan 25 m3?: Nee". Zonder die `:?` raakte dit niets en
+    // bleef het antwoord leeg.
+    const m3TableMatch = fullText.match(/Graafactiviteit meer dan\s+25\s*m\s*[³3]?\s*\?\s*:?\s*(Ja|Nee)/i);
     if (m3CoverMatch) {
         result.isGroterDan25m3 = m3CoverMatch[1].toLowerCase() === 'ja';
     } else if (m3TableMatch) {

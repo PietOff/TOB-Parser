@@ -85,16 +85,21 @@ function fillRow(rowXml, waarden) {
 }
 
 /**
- * Build a floating <w:drawing> anchored to the page, centred both ways and placed
- * behind the text (behindDoc="1"). Used for the Bijlage 1 tekening so it fills the
- * page independently of the surrounding text flow.
+ * Build a floating <w:drawing> with wrapping "achter tekst" (`behindDoc="1"` plus
+ * `wrapNone`) — de tekening ligt dan onder de tekst en duwt niets weg.
+ *
+ * `vanaf` en `vAlign` bepalen waar hij hangt: standaard gecentreerd op de pagina
+ * (de tekening vult dan zijn eigen bijlagepagina), of `vanaf: 'margin'` met
+ * `vAlign: 'top'` om hem bovenaan het tekstgebied te zetten, zodat de pijl, de
+ * noordpijl en de bronregel eronder zichtbaar blijven.
  */
-function anchoredDrawingXml(rId, cxEmu, cyEmu, id = 99, name = 'Tekening') {
+function anchoredDrawingXml(rId, cxEmu, cyEmu, id = 99, name = 'Tekening',
+                            { vanaf = 'page', vAlign = 'center', hAlign = 'center' } = {}) {
     const A  = 'http://schemas.openxmlformats.org/drawingml/2006/main';
     const WP = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing';
     const PIC = 'http://schemas.openxmlformats.org/drawingml/2006/picture';
     const R  = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
-    return `<w:drawing><wp:anchor xmlns:wp="${WP}" distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251658240" behindDoc="1" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="page"><wp:align>center</wp:align></wp:positionH><wp:positionV relativeFrom="page"><wp:align>center</wp:align></wp:positionV><wp:extent cx="${cxEmu}" cy="${cyEmu}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapNone/><wp:docPr id="${id}" name="${name}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="${A}" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="${A}"><a:graphicData uri="${PIC}"><pic:pic xmlns:pic="${PIC}"><pic:nvPicPr><pic:cNvPr id="${id}" name="${name}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rId}" xmlns:r="${R}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cxEmu}" cy="${cyEmu}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing>`;
+    return `<w:drawing><wp:anchor xmlns:wp="${WP}" distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251658240" behindDoc="1" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="${vanaf}"><wp:align>${hAlign}</wp:align></wp:positionH><wp:positionV relativeFrom="${vanaf}"><wp:align>${vAlign}</wp:align></wp:positionV><wp:extent cx="${cxEmu}" cy="${cyEmu}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapNone/><wp:docPr id="${id}" name="${name}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="${A}" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="${A}"><a:graphicData uri="${PIC}"><pic:pic xmlns:pic="${PIC}"><pic:nvPicPr><pic:cNvPr id="${id}" name="${name}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rId}" xmlns:r="${R}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cxEmu}" cy="${cyEmu}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing>`;
 }
 
 /** Build the <w:drawing> inline image XML for embedding in a paragraph */
@@ -327,8 +332,9 @@ export async function fillAelmansTemplate(templateFile, values) {
     // er geen is, dus zetten we de keuzelijst terug zodat de adviseur zelf kiest.
     verwacht('samenvatting: Type verharding',
         vulWaardeAchterLabel('Type verharding', 'Klinkers / Asfalt / Tegels / Onverhard'));
+    // Type materiaal i.v.m. VOS is geen keuze maar een vast antwoord.
     verwacht('samenvatting: Type materiaal i.v.m. VOS',
-        vulWaardeAchterLabel('Type materiaal i.v.m. VOS', 'Wel/geen beperkingen'));
+        vulWaardeAchterLabel('Type materiaal i.v.m. VOS', 'Geen beperkingen'));
 
     // ── §2.4 Bekende bodemonderzoeken: verwijzing naar de samenvatting ────
     xml = repT(
@@ -371,6 +377,19 @@ export async function fillAelmansTemplate(templateFile, values) {
             const koppeling = /(<w:instrText[^>]*>\s*HYPERLINK\s+")[^"]*(")/;
             verwacht('§2.2 BAG-viewer koppeling', koppeling.test(xml));
             xml = xml.replace(koppeling, `$1${xmlEsc(bagUrl)}$2`);
+
+            // Niet elk sjabloon heeft de asbestzin achter de bouwjaarzin staan. Zit
+            // hij niet in dezelfde alinea, dan zetten we hem er zelf achter — anders
+            // ontbreekt hij stilzwijgend in de rapportage.
+            const zinIdx = xml.indexOf('De huidige bebouwing is in');
+            const alineaEind = xml.indexOf('</w:p>', zinIdx);
+            const alinea = alineaEind === -1 ? '' : xml.slice(zinIdx, alineaEind);
+            if (alineaEind !== -1 && !alinea.includes('asbestverdachte periode')) {
+                xml = xml.slice(0, alineaEind)
+                    + '<w:r><w:t xml:space="preserve"> Er zijn geen aanwijzingen voor '
+                    + 'bouw en sloop in de asbestverdachte periode.</w:t></w:r>'
+                    + xml.slice(alineaEind);
+            }
         } else if (bouwjaar) {
             // Ouder sjabloon zonder de zin: er zelf een alinea bij zetten, met
             // dezelfde opbouw als het nieuwe sjabloon gebruikt.
@@ -767,11 +786,55 @@ export async function fillAelmansTemplate(templateFile, values) {
     // "(tekening invoegen opdrachtgever)" placeholder is handled in the tekening block below.
 
     // ── §2.9 slotalinea grondwateronderzoek ───────────────────────────────
-    // Het sjabloon zet beide varianten achter elkaar in dezelfde alinea, met "OF"
-    // ertussen: eerst de gele tekst ("Grondwateronderzoek dient ..."), dan de cyaan
-    // ("Omdat er geen werkzaamheden ..."). Allebei blijven staan — de opdrachtgever
-    // wil deze paragraaf precies zo, en de controleur kiest zelf. De tool koos hier
-    // eerder op grond van grondwaterstand min ontgravingsdiepte; dat is eruit.
+    // De paragraaf hoort beide varianten achter elkaar te hebben, met "OF" ertussen:
+    // eerst de gele tekst ("Grondwateronderzoek dient ..."), dan de cyaan ("Omdat er
+    // geen werkzaamheden ..."). Allebei blijven staan — de opdrachtgever wil deze
+    // paragraaf precies zo, en de controleur kiest zelf.
+    //
+    // Niets doen is hier niet genoeg. Een eerdere versie van deze tool gooide de
+    // niet-passende variant wég, en het sjabloon is een opgeslagen casus: elk
+    // sjabloon dat uit zo'n rapportage is voortgekomen mist die tekst dus blijvend,
+    // mét het "OF". Daarom zetten we een ontbrekende variant terug.
+    {
+        const GEEL = 'Grondwateronderzoek dient plaats te vinden, indien het freatisch '
+            + 'grondwater zich op minder dan 0,25 meter onder de maximale '
+            + 'ontgravingsdiepte bevindt. Dit is op de onderzoekslocatie niet het '
+            + 'geval. Het uitvoeren van het grondwateronderzoek is derhalve niet '
+            + 'noodzakelijk.';
+        const CYAAN = 'Omdat er geen werkzaamheden in het grondwater plaatsvinden voor '
+            + 'de aanleg van kabels en leidingen, is grondwateronderzoek niet '
+            + 'doelmatig. Meestal worden de werkzaamheden uitgesteld naar een drogere '
+            + 'periode.';
+        const markeer = (tekst, kleur) =>
+            `<w:r><w:rPr><w:highlight w:val="${kleur}"/></w:rPr>`
+            + `<w:t xml:space="preserve">${xmlEsc(tekst)}</w:t></w:r>`;
+        const scheiding = '<w:r><w:br/><w:t>OF</w:t><w:br/></w:r>';
+        const runStart = (i) =>
+            Math.max(xml.lastIndexOf('<w:r>', i), xml.lastIndexOf('<w:r ', i));
+
+        const iGeel  = xml.indexOf('Grondwateronderzoek dient');
+        const iCyaan = xml.indexOf('Omdat er geen werkzaamheden');
+
+        if (iGeel === -1 && iCyaan === -1) {
+            verwacht('§2.9 slotvarianten aanwezig', false);
+        } else if (iCyaan === -1) {
+            const eind = xml.indexOf('</w:p>', iGeel);
+            if (verwacht('§2.9 cyaan variant terugzetten', eind !== -1)) {
+                xml = xml.slice(0, eind) + scheiding + markeer(CYAAN, 'cyan') + xml.slice(eind);
+            }
+        } else if (iGeel === -1) {
+            const start = runStart(iCyaan);
+            if (verwacht('§2.9 gele variant terugzetten', start !== -1)) {
+                xml = xml.slice(0, start) + markeer(GEEL, 'yellow') + scheiding + xml.slice(start);
+            }
+        } else {
+            // Beide staan er; alleen nog kijken of het "OF" ertussen niet ontbreekt.
+            const start = runStart(iCyaan);
+            if (start !== -1 && !/>OF</.test(xml.slice(Math.max(0, start - 800), start))) {
+                xml = xml.slice(0, start) + scheiding + xml.slice(start);
+            }
+        }
+    }
 
     // ── §2.2 Topotijdreis: label the caption cells with their year ───────────
     // The template's three caption cells all read plain "Topotijdreis" with no
@@ -885,17 +948,20 @@ export async function fillAelmansTemplate(templateFile, values) {
             `<w:p><w:r><w:br w:type="page"/></w:r></w:p>` +
             `<w:p><w:r>${anchoredDrawingXml(tekeningRId, cxEmu, cyEmu, 9901, 'Tekening')}</w:r></w:p>`;
 
-        // Meelopende variant voor de bijlagepagina die de pijl "onderzoekslocatie",
-        // de noordpijl en de bronregel al bevat: die drie horen ónder de
-        // werktekening op dezelfde pagina te staan. Dus geen eigen paginaovergang en
-        // niet zwevend, maar inline in een eigen alinea — dan schuift de rest
-        // vanzelf eronder.
+        // Variant voor de bijlagepagina die de pijl "onderzoekslocatie", de
+        // noordpijl en de bronregel al bevat: die drie horen ónder de werktekening
+        // op dezelfde pagina te staan. Dus geen eigen paginaovergang, en de tekening
+        // hangt bovenaan het tekstgebied.
+        //
+        // Terugloop "achter tekst" (behindDoc + wrapNone), zoals gevraagd: de
+        // tekening duwt niets weg en ligt onder de tekst, zodat hij meteen zichtbaar
+        // is en met de hand te verslepen blijft.
         //
         // Maat: de pagina is A4 met marges 33/25 mm, dus de tekstkolom is 152 mm
         // breed. In de hoogte houden we 150 mm aan, zodat er onder de tekening
         // ruimte overblijft voor de pijl (13 mm), de noordpijl (32 mm) en de
-        // bronregel — anders duwt de tekening ze alsnog naar de volgende pagina.
-        const inlineTekening = (() => {
+        // bronregel.
+        const paginaTekening = (() => {
             const maxBreedte = 5_470_000; // 152 mm in EMU
             const maxHoogte  = 5_400_000; // 150 mm in EMU
             const verhouding = tekening.heightPx / tekening.widthPx;
@@ -905,7 +971,9 @@ export async function fillAelmansTemplate(templateFile, values) {
                 cy = maxHoogte;
                 cx = Math.round(maxHoogte / verhouding);
             }
-            return `<w:p><w:r>${inlineDrawingXml(tekeningRId, cx, cy, 9901, 'Tekening')}</w:r></w:p>`;
+            const drawingXml = anchoredDrawingXml(tekeningRId, cx, cy, 9901, 'Tekening',
+                { vanaf: 'margin', vAlign: 'top' });
+            return `<w:p><w:r>${drawingXml}</w:r></w:p>`;
         })();
 
         // The image belongs on the page headed "Bijlage 1 / Onderzoekslocatie".
@@ -955,7 +1023,7 @@ export async function fillAelmansTemplate(templateFile, values) {
                     xml.lastIndexOf('<w:p ', dStart)
                 );
                 if (pStart === -1) continue;
-                xml = xml.slice(0, pStart) + inlineTekening + xml.slice(pStart);
+                xml = xml.slice(0, pStart) + paginaTekening + xml.slice(pStart);
                 placed = true;
             }
         }

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { parseBdok, parseBodemrapportage, renderPdfPageToJpeg } from '../utils/bdokParser';
 import { fillAelmansTemplate, downloadBlob } from '../utils/aelmansDocFiller';
 import { fetchTopoImages } from '../utils/topoImages';
-import { zoekLocatiegegevens } from '../utils/pdokLocatie';
+import { zoekLocatiegegevens, plaatsBijCoordinaat } from '../utils/pdokLocatie';
 
 const PROVINCIES = ['Noord-Brabant', 'Limburg'];
 const UITVOERDERS = ['Synfra', 'BDOK'];
@@ -80,15 +80,47 @@ export default function AelmansForm() {
                 // noemt de gemeente niet als veld, dus die werd uit de lopende tekst
                 // geraden — en dat gaat mis zodra plaats en gemeente verschillen
                 // (Haelen ligt in gemeente Leudal). De BAG weet het zeker.
-                const adres = [data.straatnaam, data.huisnummer, data.plaatsnaam]
-                    .filter(Boolean).join(' ');
+                //
+                // Een Synfra-bodemcheck noemt op de titelregel alleen straat en
+                // huisnummer, geen plaats. Die halen we op bij het RD-middelpunt, en
+                // daarna loopt het gewoon via het adres verder — het middelpunt is
+                // het midden van het tracé en ligt vaak bij de buren, dus daar willen
+                // we het pand en het bouwjaar niet op bepalen.
+                let plaats = data.plaatsnaam;
+                if (!plaats && data.rdX != null && data.rdY != null) {
+                    setParseStatus(prev => ({ ...prev, quickscan: 'Plaats opzoeken bij de coördinaten...' }));
+                    try {
+                        const punt = await plaatsBijCoordinaat(data.rdX, data.rdY);
+                        if (punt) {
+                            plaats = punt.woonplaats;
+                            setForm(prev => ({
+                                ...prev,
+                                plaatsnaam: prev.plaatsnaam || punt.woonplaats,
+                                gemeente:   prev.gemeente || (punt.gemeente ? `Gemeente ${punt.gemeente}` : ''),
+                                provincie:  prev.provincie || punt.provincie,
+                            }));
+                        }
+                    } catch (e) {
+                        console.warn('PDOK reverse mislukt:', e);
+                    }
+                }
+
+                // Alleen op adres zoeken als er ook echt een straat én huisnummer is.
+                // Met alleen een plaatsnaam levert de Locatieserver een willekeurig
+                // adres in die plaats op — en dus een bouwjaar en een pand die nergens
+                // op slaan (bij een Bladel-quickscan zonder adres kwam er
+                // "Europalaan 1A" uit). Dan liever niets dan iets aannemelijks maar fout.
+                const adres = (data.straatnaam && data.huisnummer)
+                    ? [data.straatnaam, data.huisnummer, plaats].filter(Boolean).join(' ')
+                    : '';
                 if (adres) {
                     setParseStatus(prev => ({ ...prev, quickscan: 'Gemeente en bouwjaar opzoeken...' }));
                     try {
-                        const loc = await zoekLocatiegegevens(adres, data.plaatsnaam);
+                        const loc = await zoekLocatiegegevens(adres, plaats);
                         if (loc) {
                             setForm(prev => ({
                                 ...prev,
+                                plaatsnaam: prev.plaatsnaam || loc.woonplaats,
                                 gemeente:   loc.gemeente  ? `Gemeente ${loc.gemeente}` : prev.gemeente,
                                 provincie:  loc.provincie || prev.provincie,
                                 bouwjaar:   loc.bouwjaar  || prev.bouwjaar,

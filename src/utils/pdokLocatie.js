@@ -14,6 +14,7 @@
  */
 
 const LOCATIESERVER = 'https://api.pdok.nl/bzk/locatieserver/search/v3_1/free';
+const REVERSE       = 'https://api.pdok.nl/bzk/locatieserver/search/v3_1/reverse';
 const BAG_WFS       = 'https://service.pdok.nl/lv/bag/wfs/v2_0';
 
 /** Halve zijde van het zoekvierkant rond het adrespunt, in meters. */
@@ -44,6 +45,37 @@ export async function zoekLocatiegegevens(adresQuery, plaats) {
         pandId:       pand.pandId,
         x,
         y,
+    };
+}
+
+/**
+ * Plaats, gemeente en provincie bij een RD-coördinaat, via de omgekeerde
+ * zoekopdracht van de Locatieserver.
+ *
+ * Nodig voor de Synfra-bodemcheck: die noemt op de titelregel alleen straat en
+ * huisnummer, geen plaats — maar wél het middelpunt van het gebied in RD.
+ *
+ * Geeft bewust géén straat, huisnummer of pand terug. Dat middelpunt is het midden
+ * van het tracé en niet het adres zelf: bij de Bladel-quickscan komt er
+ * "Marktstraat 16" uit op 6 meter, terwijl de casus over nummer 14 gaat. In welke
+ * plaats en gemeente het punt ligt staat wél vast, en met die plaats erbij kan
+ * `zoekLocatiegegevens` daarna het échte adrespunt opzoeken — en daarmee het juiste
+ * pand en bouwjaar.
+ *
+ * @param {number} x  RD X in meters
+ * @param {number} y  RD Y in meters
+ */
+export async function plaatsBijCoordinaat(x, y) {
+    const url = `${REVERSE}?X=${x}&Y=${y}&rows=1&type=adres`
+        + '&fl=woonplaatsnaam,gemeentenaam,provincienaam,afstand';
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`PDOK reverse: HTTP ${resp.status}`);
+    const doc = (await resp.json())?.response?.docs?.[0];
+    if (!doc) return null;
+    return {
+        woonplaats: doc.woonplaatsnaam || '',
+        gemeente:   doc.gemeentenaam   || '',
+        provincie:  doc.provincienaam  || '',
     };
 }
 
