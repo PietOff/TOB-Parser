@@ -2522,9 +2522,22 @@ const UBI_LIJST = `\
 192009|zwepenmakerij
 `;
 
-/** Omschrijvingen vergelijkbaar maken: kleine letters, één spatie, geen slotpunt */
+/**
+ * Omschrijvingen vergelijkbaar maken: kleine letters, één spatie, geen slotpunt.
+ *
+ * Ook de spatie ná een koppelteken gaat eruit. Die zetten deze PDF's overal neer
+ * waar een woord over een regel gebroken is — "hbo- tank", "HBB- gegevens",
+ * "Noord- Brabant" — en zonder dit vond `hbo- tank (ondergronds)` de lijstregel
+ * `hbo-tank (ondergronds)` niet. Er zijn 280 omschrijvingen met een koppelteken
+ * plus spatie ("aanhangwagen- en opleggerfabriek"); die inklappen levert geen
+ * enkele botsing op, gecontroleerd over de hele lijst.
+ */
 function normaliseer(s) {
-    return String(s).toLowerCase().replace(/\s+/g, ' ').replace(/\.$/, '').trim();
+    return String(s).toLowerCase()
+        .replace(/\s+/g, ' ')
+        .replace(/-\s+/g, '-')
+        .replace(/\.$/, '')
+        .trim();
 }
 
 let index = null;
@@ -2553,6 +2566,31 @@ export function zoekUbiCode(omschrijving) {
     if (!omschrijving) return '';
     const treffer = getIndex().get(normaliseer(omschrijving));
     return treffer ? `UBI${treffer.code}` : '';
+}
+
+/**
+ * De omschrijving die bij een code hoort en vlak vóór die code in de tekst staat.
+ *
+ * De BDOK-quickscan schrijft §1.7 als "<omschrijving> (<code>)", bijvoorbeeld
+ * "hbo- tank (ondergronds) (631242)". Op haakjes knippen werkt niet, want de
+ * omschrijving bevat er zelf ook. In plaats daarvan nemen we de omschrijvingen die
+ * bij díe code horen en houden we degene over die als staart op de voorafgaande
+ * tekst past — de langste, want een kortere is dan altijd ook een staart daarvan.
+ *
+ * @param {string} tekstVoorCode  de tekst die aan "(code)" voorafgaat
+ * @param {string} code           de code uit de haakjes, zonder "UBI"
+ * @returns {string} de omschrijving uit de lijst, of '' als er geen past
+ */
+export function ubiOmschrijvingBijCode(tekstVoorCode, code) {
+    const staart = normaliseer(tekstVoorCode);
+    let beste = '';
+    for (const treffer of getIndex().values()) {
+        if (treffer.code !== String(code)) continue;
+        const sleutel = normaliseer(treffer.omschrijving);
+        if (!staart.endsWith(sleutel)) continue;
+        if (sleutel.length > normaliseer(beste).length) beste = treffer.omschrijving;
+    }
+    return beste;
 }
 
 /**

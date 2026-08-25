@@ -3,7 +3,7 @@
  * Extracts key fields from BDOK Quickscan reports using pdfjs-dist
  */
 import * as pdfjsLib from 'pdfjs-dist';
-import { zoekUbiCode, volledigeUbiOmschrijving } from './ubiCodes';
+import { zoekUbiCode, volledigeUbiOmschrijving, ubiOmschrijvingBijCode } from './ubiCodes';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
@@ -37,6 +37,42 @@ function normaliseerKlasse(raw) {
     if (/^achtergrondwaarde$/i.test(s))          return 'Landbouw/Natuur';
     if (/^landbouw\s*\/\s*natuur$/i.test(s))     return 'Landbouw/Natuur';
     return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/**
+ * Activiteiten uit §1.7 van de quickscan (HBB- en tankbestand).
+ *
+ * Anders dan de bodemrapportage noemt de quickscan de UBI-code er zélf bij, achter
+ * de omschrijving: "hbo- tank (ondergronds) (631242)". Dat is het enige houvast dat
+ * niet van de kolomindeling afhangt — de paragraaf is opgebouwd als
+ * label/waarde-paren (Soort, Type, Volume, Aanwezig, In gebruik, Datum sanering,
+ * Certificaat, Opmerkingen, Voldoende onderzocht) die in de tekststroom door elkaar
+ * lopen. Daarom zoeken we op de code en halen we de omschrijving uit de UBI-lijst.
+ *
+ * Elk record begint met het adres, gevolgd door het eerste veld ("Soort"); dat
+ * gebruiken we om de Locatie-kolom te vullen. Start- en eindjaar staan niet in deze
+ * paragraaf, dus die blijven leeg — dat is handwerk voor de adviseur.
+ */
+function leesActiviteitenMetCode(blok) {
+    // Adressen: "<straat> <nr>" vlak vóór het eerste veld van een record.
+    const adressen = [...blok.matchAll(/([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'\-\. ]{2,50}?\s\d{1,5}[a-zA-Z]?)\s+Soort\b/g)]
+        .map(m => ({ index: m.index, adres: m[1].replace(/\s+/g, ' ').trim() }));
+
+    const rijen = [];
+    for (const m of blok.matchAll(/\((\d{4,6})\)/g)) {
+        const code = m[1];
+        const omschrijving = ubiOmschrijvingBijCode(blok.slice(Math.max(0, m.index - 120), m.index), code);
+        if (!omschrijving) continue;   // niet in de UBI-lijst: dan is het geen activiteit
+        const bij = adressen.filter(a => a.index < m.index).pop();
+        rijen.push({
+            locatie:      bij ? bij.adres : '',
+            activiteit:   omschrijving,
+            ubiCode:      `UBI${code}`,
+            jaartalBegin: '',
+            jaartalEind:  '',
+        });
+    }
+    return rijen;
 }
 
 /**
@@ -295,18 +331,23 @@ export async function parseBdok(file, onProgress) {
                           /Asbestverdachte\s+onderzochte\s+activiteit/);
 
         if (hbb || tank) {
-            const gevuld = [hbb, tank].filter(b => b && !LEEG.test(b));
-            if (!gevuld.length) {
-                // Beide paragrafen melden expliciet dat er niets is.
-                result.activiteitenBekend = true;
-            } else {
-                // Er staan rijen in, maar de kolomindeling van die tabel is nog niet
-                // bekend — daar is een quickscan mét gegevens voor nodig. Liever
-                // hardop melden dan er een halve tabel van maken.
+            const blokken = [hbb, tank].filter(Boolean);
+            const onbegrepen = [];
+            let bekend = true;
+            for (const b of blokken) {
+                if (LEEG.test(b)) continue;          // paragraaf meldt zelf: niets aanwezig
+                const rijen = leesActiviteitenMetCode(b);
+                if (rijen.length) result.verdachteActiviteiten.onderzoekslocatie.push(...rijen);
+                else { bekend = false; onbegrepen.push(b); }
+            }
+            result.activiteitenBekend = bekend;
+            if (onbegrepen.length) {
+                // Er staat iets, maar er zit geen "(code)" in — dan kennen we deze
+                // opmaak nog niet. Liever hardop melden dan er een halve tabel van
+                // maken; met de ruwe tekst erbij is het uit te breiden.
                 console.warn(
-                    '[quickscan] §1.7 bevat activiteiten, maar het uitlezen daarvan is nog '
-                    + 'niet gebouwd. Ruwe tekst van de betreffende paragraaf/paragrafen:\n'
-                    + gevuld.map(b => b.slice(0, 1500)).join('\n---\n')
+                    '[quickscan] §1.7 bevat gegevens in een opmaak die nog niet gelezen wordt. '
+                    + 'Ruwe tekst:\n' + onbegrepen.map(b => b.slice(0, 1500)).join('\n---\n')
                 );
             }
         }
