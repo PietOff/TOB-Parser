@@ -181,23 +181,37 @@ export async function parseBdok(file, onProgress) {
     }
 
     // ── Grondwaterstand (GWS) from paragraph 2.1 / grondwaterstandenkaart ──
-    // BDOK grondwaterstandenkaart gives a range: "DN 2,5 - 4,5 m-mv" or "GHG 1,0 - 2,0 m-mv"
-    // Use the minimum (shallowest) value for conservative dewatering assessment.
+    // De grondwaterstandenkaart geeft de waarde achter een label (DN/GHG/GLG), in
+    // twee vormen: als bereik ("DN 2,5 - 4,5 m-mv") of als ondergrens
+    // ("DN > 4.5 m- mv"). Bij een bereik nemen we de kleinste (ondiepste) waarde,
+    // want dat is de voorzichtige aanname voor bemaling.
+    //
+    // Twee dingen waar dit eerder op stukliep, allebei in dezelfde quickscan:
+    //  - het teken. "DN > 4.5" matchte nergens op, waarna de stand leeg bleef en
+    //    §2.9 van de rapportage stilzwijgend de sjabloonzin hield ("bevindt zich op
+    //    meer dan 0,25 m-mv onder de ontgravingsdiepte", zónder de diepte erin).
+    //    Het teken blijft nu staan: de rapportage schrijft ">4,5 m-mv".
+    //  - de spatie in "m- mv". pdfjs plakt tekstfragmenten met een spatie aan
+    //    elkaar, dus hoe "m-mv" eruitkomt hangt af van de opmaak in de PDF.
+    //    Alle patronen laten daarom witruimte toe rond het streepje.
+    const mmv = String.raw`m\s*-?\s*mv`;
+    const teken = String.raw`([<>]?)\s*`;
+    const getalRe = String.raw`(\d+(?:[,\.]\d+)?)`;
     const gwsPatterns = [
-        // BDOK grondwaterstandenkaart range: "DN X - Y m-mv" / "GHG X - Y m-mv"
-        /\b(?:DN|GHG|GLG)\s*[:\s]*(\d+(?:[,\.]\d+)?)\s*[-–]\s*\d+(?:[,\.]\d+)?\s*m\s*-\s*mv/i,
-        // Single m-mv value near grondwater keywords
-        /(?:grondwater(?:stand)?|GHG|gws)[^.]*?(?:circa\s+)?(\d+(?:[,\.]\d+)?)\s*m-mv/i,
-        // Fallback: section 2.1 context
-        /(?:2\.1[^.]{0,300})(?:circa\s+)?(\d+(?:[,\.]\d+)?)\s*m[-\s]?(?:\+NAP|-mv)/is,
+        // Achter het label: "DN > 4.5 m- mv" of "DN 2,5 - 4,5 m-mv"
+        new RegExp(String.raw`\b(?:DN|GHG|GLG)\s*[:\s]*${teken}${getalRe}(?:\s*[-–]\s*\d+(?:[,\.]\d+)?)?\s*${mmv}`, 'i'),
+        // Losse waarde in de buurt van een grondwater-trefwoord
+        new RegExp(String.raw`(?:grondwater(?:stand)?|GHG|gws)[^.]*?(?:circa\s+)?${teken}${getalRe}\s*${mmv}`, 'i'),
+        // Terugval: context van paragraaf 2.1
+        new RegExp(String.raw`(?:2\.1[^.]{0,300})(?:circa\s+)?${teken}${getalRe}\s*(?:m[-\s]?\+NAP|${mmv})`, 'is'),
     ];
     for (const pat of gwsPatterns) {
         const m = fullText.match(pat);
         if (m) {
-            const val = parseFloat(m[1].replace(',', '.'));
+            const val = parseFloat(m[2].replace(',', '.'));
             // Sanity check: GWS should be between 0.1 and 15 m-mv
             if (!isNaN(val) && val >= 0.1 && val <= 15) {
-                result.grondwaterstand = val.toFixed(1);
+                result.grondwaterstand = m[1] + val.toFixed(1);
                 break;
             }
         }

@@ -259,15 +259,23 @@ export async function fillAelmansTemplate(templateFile, values) {
     }
 
     const nl = (s) => String(s).replace('.', ',');
+    /**
+     * Het getal uit een ingevulde waarde, om mee te kunnen rekenen.
+     * `parseFloat` alleen is hier niet genoeg: de invoer is Nederlands ("4,5" wordt
+     * dan 4) en een grondwaterstand komt uit de quickscan ook als ">4,5" of "< 1,0"
+     * — daar maakt parseFloat NaN van, waarna de vergelijkingen hieronder stilletjes
+     * hun standaardtak namen.
+     */
+    const getal = (s) => parseFloat(String(s ?? '').replace(',', '.').replace(/^[^\d.]+/, ''));
     const sleufNL   = sleuflengte       ? nl(sleuflengte)       : '';
     const diepteNL  = ontgravingsdiepte ? nl(ontgravingsdiepte) : '';
     const gwsNL     = grondwaterstand   ? nl(grondwaterstand)   : '';
 
     const boringDiepte = ontgravingsdiepte
-        ? nl((parseFloat(ontgravingsdiepte) + 0.2).toFixed(1))
+        ? nl((getal(ontgravingsdiepte) + 0.2).toFixed(1))
         : '1,0';
 
-    const lenF = parseFloat(sleuflengte);
+    const lenF = getal(sleuflengte);
     const aantalBoringen = !isNaN(lenF)
         ? (lenF < 5 ? '1' : lenF <= 75 ? '2' : String(Math.max(3, Math.ceil(lenF / 50))))
         : '';
@@ -397,16 +405,29 @@ export async function fillAelmansTemplate(templateFile, values) {
         // "op meer dan 0,25 m" is in het sjabloon één run, dus die vervangen volstaat.
         // (Dit liep eerder via een w:commentRangeStart die bij het opnieuw opslaan van
         // de template is verdwenen — daardoor werd de stand nooit ingevuld.)
-        const gws29  = parseFloat(grondwaterstand);
-        const diep29 = parseFloat(ontgravingsdiepte);
+        const gws29  = getal(grondwaterstand);
+        const diep29 = getal(ontgravingsdiepte);
         const grondwaterRuimOnderOntgraving =
             !isNaN(gws29) && !isNaN(diep29) ? gws29 - diep29 > 0.25 : true;
-        xml = repT(
-            xml,
+        repTv(
+            '§2.9 grondwaterstandzin',
             'op meer dan 0,25 m',
             `op ${xmlEsc(gwsNL)} m-mv, dit is op ` +
             `${grondwaterRuimOnderOntgraving ? 'meer' : 'minder'} dan 0,25 m`
         );
+        // Het sjabloon heeft tussen "0,25 m" en "-mv onder de ontgravingsdiepte" een
+        // eigen run met alleen een spatie staan, wat "0,25 m -mv" oplevert. Die spatie
+        // hoort er niet.
+        xml = xml.replace(
+            /<w:r(?:\s[^>]*)?>(?:<w:rPr>(?:(?!<\/w:r>)[\s\S])*?<\/w:rPr>)?<w:t[^>]*> <\/w:t><\/w:r>(?=(?:(?!<\/w:p>)[\s\S]){0,400}?<w:t[^>]*>-mv onder de ontgravingsdiepte)/,
+            ''
+        );
+    } else {
+        // Zonder grondwaterstand blijft §2.9 op de sjabloontekst staan, en die leest
+        // als een afgerond antwoord ("bevindt zich op meer dan 0,25 m-mv onder de
+        // ontgravingsdiepte") terwijl de gemeten diepte ontbreekt. Ook de keuze
+        // tussen de gele en de cyaan slotalinea blijft dan uit. Dat moet opvallen.
+        verwacht('grondwaterstand ingevuld (§2.9 blijft anders op de sjabloontekst)', false);
     }
 
     // ── Bemaling ──────────────────────────────────────────────────────────
@@ -716,8 +737,8 @@ export async function fillAelmansTemplate(templateFile, values) {
     //   grondwater ruim onder de ontgraving (> 0,25 m) → geel
     //   grondwater binnen 0,25 m van de ontgraving     → cyaan
     {
-        const gws83  = parseFloat(grondwaterstand);
-        const diep83 = parseFloat(ontgravingsdiepte);
+        const gws83  = getal(grondwaterstand);
+        const diep83 = getal(ontgravingsdiepte);
         if (!isNaN(gws83) && !isNaN(diep83)) {
             const idxGeel  = xml.indexOf('Grondwateronderzoek dient');
             const idxCyaan = xml.indexOf('Omdat er geen werkzaamheden');
