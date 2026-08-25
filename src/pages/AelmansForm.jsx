@@ -92,6 +92,7 @@ export default function AelmansForm() {
                                 gemeente:   loc.gemeente  ? `Gemeente ${loc.gemeente}` : prev.gemeente,
                                 provincie:  loc.provincie || prev.provincie,
                                 bouwjaar:   loc.bouwjaar  || prev.bouwjaar,
+                                _bagPandId: loc.pandId    || prev._bagPandId,
                             }));
                         }
                     } catch (e) {
@@ -216,6 +217,7 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                 verdachteActiviteiten: form._bodemData?.verdachteActiviteiten || null,
                 bouwjaar:          form.bouwjaar || '',
                 bagZoekterm:       [form.straatnaam, form.huisnummer, form.plaatsnaam].filter(Boolean).join(' '),
+                bagPandId:         form._bagPandId || '',
                 stromingsrichting:       form.stromingsrichting || '',
                 bodembeschermingsgebied: form.bodembeschermingsgebied || '',
                 tekening,          // { blob, widthPx, heightPx } or null

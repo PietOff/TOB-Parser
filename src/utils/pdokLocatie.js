@@ -33,12 +33,15 @@ export async function zoekLocatiegegevens(adresQuery, plaats) {
     const [x, y] = doc.centroide_rd
         .replace('POINT(', '').replace(')', '').split(' ').map(Number);
 
+    const pand = await zoekPand(x, y);
+
     return {
         gemeente:     doc.gemeentenaam   || '',
         provincie:    doc.provincienaam  || '',
         woonplaats:   doc.woonplaatsnaam || '',
         weergavenaam: doc.weergavenaam   || '',
-        bouwjaar:     await zoekBouwjaar(x, y),
+        bouwjaar:     pand.bouwjaar,
+        pandId:       pand.pandId,
         x,
         y,
     };
@@ -68,14 +71,18 @@ async function zoekAdres(adresQuery, plaats) {
 }
 
 /**
- * Bouwjaar van het verblijfsobject op deze RD-coördinaat.
+ * Bouwjaar én pandidentificatie van het verblijfsobject op deze RD-coördinaat.
+ *
+ * De pandidentificatie is het nummer waarmee de BAG-viewer rechtstreeks op het
+ * juiste pand opent (`?objectId=…`); §2.2 van de rapportage koppelt daarnaartoe.
  *
  * Bewust via een bbox en niet via een attribuutfilter: de PDOK-WFS negeert
  * `cql_filter` stilzwijgend en geeft dan gewoon de eerste willekeurige panden uit
  * de landelijke set terug — dat leverde bij een adres in Haelen een pand in
  * Appingedam op. Een bbox wordt wél toegepast.
  */
-async function zoekBouwjaar(x, y) {
+async function zoekPand(x, y) {
+    const leeg = { bouwjaar: '', pandId: '' };
     const b = PAND_STRAAL_M;
     const url =
         `${BAG_WFS}?service=WFS&version=2.0.0&request=GetFeature` +
@@ -85,16 +92,21 @@ async function zoekBouwjaar(x, y) {
     try {
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const features = (await resp.json())?.features || [];
-        const jaren = features
-            .map(f => parseInt(f.properties?.bouwjaar, 10))
-            .filter(j => !isNaN(j) && j > 1000 && j <= new Date().getFullYear() + 1);
-        if (!jaren.length) return '';
+        const nu = new Date().getFullYear() + 1;
+        const panden = ((await resp.json())?.features || [])
+            .map(f => ({
+                jaar:   parseInt(f.properties?.bouwjaar, 10),
+                pandId: f.properties?.pandidentificatie || '',
+            }))
+            .filter(p => !isNaN(p.jaar) && p.jaar > 1000 && p.jaar <= nu);
+        if (!panden.length) return leeg;
         // Meerdere objecten binnen het vierkant: neem het oudste, want dat bepaalt
-        // of de asbestverdachte periode (vóór 1994) in beeld komt.
-        return String(Math.min(...jaren));
+        // of de asbestverdachte periode (vóór 1994) in beeld komt. De koppeling
+        // wijst naar hetzelfde pand als het jaartal, anders spreken ze elkaar tegen.
+        const oudste = panden.reduce((a, p) => (p.jaar < a.jaar ? p : a));
+        return { bouwjaar: String(oudste.jaar), pandId: oudste.pandId };
     } catch (e) {
         console.warn('PDOK: bouwjaar ophalen mislukt:', e.message);
-        return '';
+        return leeg;
     }
 }

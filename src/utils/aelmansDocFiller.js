@@ -225,6 +225,7 @@ export async function fillAelmansTemplate(templateFile, values) {
         bodembeschermingsgebied = '',
         bouwjaar = '',
         bagZoekterm = '',
+        bagPandId = '',
         hasBodemrapportage = false,
         tekening = null,
         topoImages = null,
@@ -337,48 +338,61 @@ export async function fillAelmansTemplate(templateFile, values) {
         'In onderstaande paragraaf is een summiere samenvatting van deze onderzoeken opgenomen.'
     );
 
-    // ── §2.2 Bouwjaar bebouwing (uit de BAG) ──────────────────────────────
-    // Nieuwe zin, komt als eigen alinea vóór "Hieronder is een overzicht…".
-    // "(BAG-viewer)" wordt een koppeling naar het adres in de BAG-viewer.
+    // ── §2.2 Bouwjaar bebouwing en de koppeling naar de BAG-viewer ─────────
+    // Het sjabloon heeft deze zin zélf al, achter de Topotijdreis-alinea:
+    //   "De huidige bebouwing is in XXXX gerealiseerd (BAG-viewer). Er zijn geen
+    //    aanwijzingen voor bouw en sloop in de asbestverdachte periode."
+    // met "XXXX" als plaatshouder voor het bouwjaar, en "(BAG-viewer)" als een
+    // veldkoppeling (fldChar + instrText HYPERLINK). Alleen die twee hoeven dus
+    // ingevuld te worden.
     //
-    // De zin over de asbestverdachte periode staat er altijd bij, met "geen/wel"
-    // als keuze voor de adviseur — net als de keuzelijsten in de samenvatting.
-    // (Eerder stond hij er alleen bij pandjaar ≥ 1994, omdat "geen aanwijzingen"
-    // bij oudere bebouwing een bewering is die we niet kunnen onderbouwen; met de
-    // keuze erin doen we die bewering niet meer.)
-    if (bouwjaar) {
-        const anker = xml.indexOf('Hieronder is een overzicht');
-        if (anker === -1) {
-            console.warn('[2.2] ankerzin niet gevonden — bouwjaarzin niet ingevoegd');
-        } else {
-            const pStart = Math.max(
+    // Dit ging eerder mis omdat de zin hier werd ingevóegd als eigen alinea vóór
+    // "Hieronder is een overzicht" — die kwam dus naast de zin die het sjabloon al
+    // had, met een leeg gebleven XXXX ernaast. Die alinea gebruikte bovendien een
+    // `w:hyperlink r:id=…`, wat een relatie in document.xml.rels vereist; klopt die
+    // niet, dan meldt Word het bestand als beschadigd en gooit de koppeling weg.
+    // Een veldkoppeling heeft geen relatie nodig en kan dus niet op die manier
+    // stukgaan.
+    //
+    // De koppeling wijst naar het pand zelf (`objectId=<pandidentificatie>`, uit
+    // dezelfde BAG-bevraging als het bouwjaar). Zonder dat nummer valt hij terug op
+    // een adreszoekopdracht.
+    {
+        const bagUrl = 'https://bagviewer.kadaster.nl/lvbag/bag-viewer/?'
+            + (bagPandId
+                ? `objectId=${encodeURIComponent(bagPandId)}`
+                : `searchQuery=${encodeURIComponent(bagZoekterm || '')}`);
+
+        if (xml.includes('De huidige bebouwing is in')) {
+            if (bouwjaar) repTv('§2.2 bouwjaar', 'XXXX', xmlEsc(bouwjaar));
+            // Op het patroon toetsen en niet op "is de tekst veranderd": staat het
+            // sjabloon toevallig al op het juiste pand, dan verandert er niets en is
+            // dat gewoon goed.
+            const koppeling = /(<w:instrText[^>]*>\s*HYPERLINK\s+")[^"]*(")/;
+            verwacht('§2.2 BAG-viewer koppeling', koppeling.test(xml));
+            xml = xml.replace(koppeling, `$1${xmlEsc(bagUrl)}$2`);
+        } else if (bouwjaar) {
+            // Ouder sjabloon zonder de zin: er zelf een alinea bij zetten, met
+            // dezelfde opbouw als het nieuwe sjabloon gebruikt.
+            const anker = xml.indexOf('Hieronder is een overzicht');
+            const pStart = anker === -1 ? -1 : Math.max(
                 xml.lastIndexOf('<w:p>', anker),
                 xml.lastIndexOf('<w:p ', anker)
             );
-
-            const bagUrl = 'https://bagviewer.kadaster.nl/lvbag/bag-viewer/?searchQuery='
-                + encodeURIComponent(bagZoekterm || '');
-            let rels = await zip.file('word/_rels/document.xml.rels').async('string');
-            const relId = 'rIdBagViewer';
-            if (!rels.includes(relId)) {
-                rels = rels.replace(
-                    '</Relationships>',
-                    `<Relationship Id="${relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${xmlEsc(bagUrl)}" TargetMode="External"/></Relationships>`
-                );
-                zip.file('word/_rels/document.xml.rels', rels);
+            if (verwacht('§2.2 plek voor de bouwjaarzin', pStart !== -1)) {
+                const alinea =
+                    '<w:p><w:r><w:t xml:space="preserve">De huidige bebouwing is in '
+                    + `${xmlEsc(bouwjaar)} gerealiseerd </w:t></w:r>`
+                    + '<w:r><w:fldChar w:fldCharType="begin"/></w:r>'
+                    + `<w:r><w:instrText xml:space="preserve">HYPERLINK "${xmlEsc(bagUrl)}" \\h</w:instrText></w:r>`
+                    + '<w:r><w:fldChar w:fldCharType="separate"/></w:r>'
+                    + '<w:r><w:rPr><w:color w:val="0000FF"/><w:u w:val="single"/></w:rPr>'
+                    + '<w:t>(BAG-viewer)</w:t></w:r>'
+                    + '<w:r><w:fldChar w:fldCharType="end"/></w:r>'
+                    + '<w:r><w:t xml:space="preserve">. Er zijn geen aanwijzingen voor '
+                    + 'bouw en sloop in de asbestverdachte periode.</w:t></w:r></w:p>';
+                xml = xml.slice(0, pStart) + alinea + xml.slice(pStart);
             }
-
-            const asbestZin = ' Er zijn geen/wel aanwijzingen naar bouw en sloop in de asbestverdachte periode.';
-
-            const alinea =
-                '<w:p><w:r><w:t xml:space="preserve">De huidige bebouwing is in '
-                + `${xmlEsc(bouwjaar)} gerealiseerd (</w:t></w:r>`
-                + `<w:hyperlink r:id="${relId}" w:history="1">`
-                + '<w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr>'
-                + '<w:t>BAG-viewer</w:t></w:r></w:hyperlink>'
-                + `<w:r><w:t xml:space="preserve">).${asbestZin}</w:t></w:r></w:p>`;
-
-            if (pStart !== -1) xml = xml.slice(0, pStart) + alinea + xml.slice(pStart);
         }
     }
 
