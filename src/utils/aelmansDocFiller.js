@@ -26,7 +26,8 @@
  *  §2.6 en §2.7                               → onaangeroerd; sjabloontekst blijft
  *  "XXX" (in "circa XXX m +NAP")             → grondwaterstand
  *  Revision table                             → remove; keep "Niet van toepassing."
- *  Yellow/cyan GWO paragraph                 → remove inapplicable version
+ *  Gele/cyaan GWO-alinea                     → niet-passende variant weg; gele
+ *                                               markering blijft overal staan
  *  AMV261626.001                              → amvNummer
  *  "(tekening invoegen opdrachtgever)"        → always removed (Bijlage 1)
  *  "gemeente" (lowercase, Bijlage 3 title)   → gemeente name if bodemrapportage
@@ -172,9 +173,18 @@ export async function fillAelmansTemplate(templateFile, values) {
             const inhoud = m[2].trim();
             if (!inhoud || /^[:;\-–—.]+$/.test(inhoud)) continue;
             const abs = idx + m.index;
+            // De oude waarde kan over meerdere runs verdeeld staan — Word knipt een
+            // woord op zodra er ooit iets in bewerkt is, bijvoorbeeld "K" | "linkers".
+            // Alleen de eerste run vervangen laat de rest staan, en dan kwam er
+            // "Klinkers / Asfalt / Tegels / Onverhard" + "linkers" in de rapportage.
+            // Daarom maken we de overige runs van dezelfde alinea leeg.
+            const pEindAbs = xml.indexOf('</w:p>', abs);
+            const restEind = pEindAbs === -1 ? abs + m[0].length : pEindAbs;
             xml = xml.slice(0, abs)
                 + `<w:t${m[1]}>${xmlEsc(waarde)}</w:t>`
-                + xml.slice(abs + m[0].length);
+                + xml.slice(abs + m[0].length, restEind)
+                    .replace(/<w:t([^>]*)>[^<]*<\/w:t>/g, '<w:t$1></w:t>')
+                + xml.slice(restEind);
             return true;
         }
         // Geen invulbare run in de rij: de waardecel is leeg, of bevat alleen een
@@ -227,10 +237,9 @@ export async function fillAelmansTemplate(templateFile, values) {
     // is eruit gehaald.
     //
     // Een blok code weghalen is niet genoeg: verschillende vervangingen zoeken door
-    // het hele document ("gemeente", een jaartal, de gele markering) en lopen dan
-    // alsnog §2.6 of §2.7 binnen. Daarom knippen we beide paragrafen er hier uit en
-    // zetten ze aan het eind onveranderd terug — alleen de gele sjabloonmarkering
-    // gaat er nog af, net als in de rest van het document.
+    // het hele document (bijvoorbeeld op "gemeente") en lopen dan alsnog §2.6 of
+    // §2.7 binnen. Daarom knippen we beide paragrafen er hier uit en zetten ze aan
+    // het eind letterlijk terug.
     //
     // Grenzen: de Kop2-alinea die met "Bodemkwaliteit" begint tot en met de PFAS-kop
     // die erop volgt; de eerstvolgende Kop2 daarna (§2.8 Asbest) is het einde. Klopt
@@ -296,14 +305,17 @@ export async function fillAelmansTemplate(templateFile, values) {
     // ligt vast, en vervangen de waarde erachter.
     //
     // De opsteller is de medewerker die het rapport schrijft en komt dus uit het
-    // formulier. De collegiale toets en de contactpersoonvelden blijven
-    // Dhr. R.D.T. Houben.
+    // formulier — nooit een naam die hier vastligt, want dan staat er bij een lege
+    // invoer stilzwijgend iemand anders onder het rapport. Blijft het veld leeg, dan
+    // laten we de cel leeg en meldt de missercontrole het. De collegiale toets en de
+    // contactpersoonvelden blijven wél Dhr. R.D.T. Houben.
     const HOUBEN = 'Dhr. R.D.T. Houben';
+    verwacht('opsteller ingevuld in het formulier', !!opsteller);
     for (const [label, naam] of [
-        ['Contactpersoon Aelmans Milieu', HOUBEN],              // titelblad
-        ['Opsteller',                     opsteller || HOUBEN], // titelblad
-        ['Collegiale toets',              HOUBEN],              // titelblad
-        ['Contactpersoon Aelmans',        HOUBEN],              // samenvattingstabel
+        ['Contactpersoon Aelmans Milieu', HOUBEN],      // titelblad
+        ['Opsteller',                     opsteller],   // titelblad
+        ['Collegiale toets',              HOUBEN],      // titelblad
+        ['Contactpersoon Aelmans',        HOUBEN],      // samenvattingstabel
     ]) {
         verwacht(`naam bij "${label}"`, vulWaardeAchterLabel(label, naam));
     }
@@ -315,7 +327,7 @@ export async function fillAelmansTemplate(templateFile, values) {
     verwacht('samenvatting: Type verharding',
         vulWaardeAchterLabel('Type verharding', 'Klinkers / Asfalt / Tegels / Onverhard'));
     verwacht('samenvatting: Type materiaal i.v.m. VOS',
-        vulWaardeAchterLabel('Type materiaal i.v.m. VOS', 'Geen / Geen beperkingen'));
+        vulWaardeAchterLabel('Type materiaal i.v.m. VOS', 'Wel/geen beperkingen'));
 
     // ── §2.4 Bekende bodemonderzoeken: verwijzing naar de samenvatting ────
     xml = repT(
@@ -714,16 +726,9 @@ export async function fillAelmansTemplate(templateFile, values) {
     // ── Bijlage 1: bronvermelding ─────────────────────────────────────────────
     repTv("Bijlage 1 bronvermelding", "Bron: Google Maps", "Bron: Bodemloket.nl/Werktekening opdrachtgever");
 
-    // ── Remove yellow highlighting (template placeholder highlighting) ─────────
-    // De `\s*` is wezenlijk: Word schrijft zelfsluitende tags met een spatie
-    // (`<w:highlight w:val="yellow" />`). Zonder die spatie in het patroon raakte
-    // dit nul van de 288 markeringen in het sjabloon en kwam elke rapportage er
-    // volledig geel uit.
-    {
-        const voor = xml;
-        xml = xml.replace(/<w:highlight w:val="yellow"\s*\/>/g, '');
-        veranderde('gele markering weghalen', voor);
-    }
+    // De gele markering blijft staan. Die is geen restant van het sjabloon maar een
+    // aanwijzing voor de controleur: het zijn precies de plekken die hij zelf nog
+    // moet nalopen. (Ze werden hier eerder weggehaald.)
 
     // "(tekening invoegen opdrachtgever)" placeholder is handled in the tekening block below.
 
@@ -1000,12 +1005,9 @@ export async function fillAelmansTemplate(templateFile, values) {
         removeParaContaining('tekening invoegen opdrachtgever');
     }
 
-    // §2.6 en §2.7 onveranderd terugzetten (zie de toelichting bovenaan). Alleen de
-    // gele sjabloonmarkering gaat eraf, net als in de rest van het document.
+    // §2.6 en §2.7 onveranderd terugzetten (zie de toelichting bovenaan).
     if (bevroren2627) {
-        xml = xml.split(SENTINEL_2627).join(
-            bevroren2627.replace(/<w:highlight w:val="yellow"\s*\/>/g, '')
-        );
+        xml = xml.split(SENTINEL_2627).join(bevroren2627);
     }
 
     // Vervangingen die nergens raakten. Bijna altijd betekent dit dat het sjabloon

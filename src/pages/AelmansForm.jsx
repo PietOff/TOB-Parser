@@ -326,7 +326,7 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                         <input type="email" value={form.email} onChange={set('email')} placeholder="naam@bedrijf.nl" style={inputStyle} />
                     </Field>
                     <Field label="Opsteller">
-                        <input type="text" value={form.opsteller} onChange={set('opsteller')} placeholder="bijv. Dhr. R.D.T. Houben" style={inputStyle} />
+                        <input type="text" value={form.opsteller} onChange={set('opsteller')} placeholder="bijv. B. Bolink" style={inputStyle} />
                     </Field>
                 </div>
 
