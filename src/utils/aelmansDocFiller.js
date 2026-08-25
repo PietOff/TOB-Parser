@@ -24,10 +24,10 @@
  *  §2.5 tabel Verdachte activiteiten          → gevuld uit de bodemrapportage; de
  *                                               tabel blijft altijd staan
  *  §2.6 en §2.7                               → onaangeroerd; sjabloontekst blijft
- *  "XXX" (in "circa XXX m +NAP")             → grondwaterstand
+ *  "XXX" (kerkdorp, "circa XXX m +NAP")     → blijft staan; handwerk controleur
  *  Revision table                             → remove; keep "Niet van toepassing."
- *  Gele/cyaan GWO-alinea                     → niet-passende variant weg; gele
- *                                               markering blijft overal staan
+ *  Gele/cyaan GWO-alinea in §2.9             → blijft ongemoeid, net als de gele
+ *                                               markering in het hele document
  *  AMV261626.001                              → amvNummer
  *  "(tekening invoegen opdrachtgever)"        → always removed (Bijlage 1)
  *  "gemeente" (lowercase, Bijlage 3 title)   → gemeente name if bodemrapportage
@@ -413,15 +413,36 @@ export async function fillAelmansTemplate(templateFile, values) {
     }
 
     // ── Grondwaterstand ───────────────────────────────────────────────────
-    // §2.1 "circa XXX meter lang" — first standalone XXX run → sleuflengte
+    // §2.1 "circa XXX meter lang" → sleuflengte. Er staan meer XXX-runs in het
+    // sjabloon — even verderop in dezelfde alinea "ten westen van het kerkdorp XXX",
+    // en in §2.9 "een stijghoogte bereikt van circa XXX m +NAP". Op "de eerste XXX"
+    // mikken werkt daarom maar zolang die van de lengte er nog staat; draagt het
+    // sjabloon de lengte van zijn vorige casus al ingevuld mee, dan belandt de
+    // sleuflengte in de naam van het kerkdorp. Daarom eisen we dat er " meter lang"
+    // achteraan komt.
     if (sleufNL) {
-        xml = xml.replace(/<w:t([^>]*)>XXX<\/w:t>/, `<w:t$1>${xmlEsc(sleufNL)}</w:t>`);
+        // De lengte staat in de run vlak vóór " meter lang" — de lookahead op <w:t
+        // houdt de match bij díe run en niet bij een eerdere in dezelfde alinea.
+        // Alleen vervangen als er een plaatshouder of een getal in staat: het
+        // sjabloon draagt de lengte van zijn vorige casus mee, dus daar moet wél
+        // overheen, maar staat er iets heel anders dan is de zin anders opgebouwd en
+        // gokken we niet.
+        const lengteRun = /<w:t([^>]*)>([^<]*)<\/w:t>((?:(?!<w:t)(?!<\/w:p>)[\s\S])*?<w:t[^>]*> meter lang)/;
+        const m = lengteRun.exec(xml);
+        const bruikbaar = !!m && /^\s*(X{2,}|\d+(?:[.,]\d+)?)\s*$/.test(m[2]);
+        if (verwacht('§2.1 sleuflengte (… meter lang)', bruikbaar)) {
+            xml = xml.replace(lengteRun, `<w:t$1>${xmlEsc(sleufNL)}</w:t>$3`);
+        }
     }
+
+    // De overige XXX-plaatshouders blijven staan. "circa XXX m +NAP" vraagt om de
+    // stijghoogte in m +NAP en niet om de grondwaterstand in m-mv — dat zijn twee
+    // verschillende getallen, en de stijghoogte heeft de tool niet. Het kerkdorp
+    // weet hij ook niet. Allebei dus handwerk voor de controleur; ze eerder vullen
+    // met de grondwaterstand zette er stilzwijgend een verkeerd getal neer.
 
     if (gwsNL) {
         xml = repT(xml, 'Circa 1,0 m-mv', `Circa ${gwsNL} m-mv`);
-        // §2.9 "circa XXX m +NAP" — remaining XXX runs → grondwaterstand
-        xml = xml.replace(/<w:t([^>]*)>XXX<\/w:t>/g, `<w:t$1>${xmlEsc(gwsNL)}</w:t>`);
         // §2.9 grondwaterstandzin. Het sjabloon zegt standaard:
         //   "De grondwaterstand op de onderzoekslocatie bevindt zich op meer dan
         //    0,25 m -mv onder de ontgravingsdiepte."
@@ -451,8 +472,7 @@ export async function fillAelmansTemplate(templateFile, values) {
     } else {
         // Zonder grondwaterstand blijft §2.9 op de sjabloontekst staan, en die leest
         // als een afgerond antwoord ("bevindt zich op meer dan 0,25 m-mv onder de
-        // ontgravingsdiepte") terwijl de gemeten diepte ontbreekt. Ook de keuze
-        // tussen de gele en de cyaan slotalinea blijft dan uit. Dat moet opvallen.
+        // ontgravingsdiepte") terwijl de gemeten diepte ontbreekt. Dat moet opvallen.
         verwacht('grondwaterstand ingevuld (§2.9 blijft anders op de sjabloontekst)', false);
     }
 
@@ -747,39 +767,11 @@ export async function fillAelmansTemplate(templateFile, values) {
     // "(tekening invoegen opdrachtgever)" placeholder is handled in the tekening block below.
 
     // ── §2.9 slotalinea grondwateronderzoek ───────────────────────────────
-    // Beide varianten staan in het sjabloon in dezelfde alinea, achter elkaar:
-    // eerst de gele tekst ("Grondwateronderzoek dient ..."), daarna de cyaan tekst
-    // ("Omdat er geen werkzaamheden ..."). Die alinea in zijn geheel verwijderen
-    // haalde dus allebei de teksten weg — daarom ontbrak de slotalinea helemaal.
-    // Nu blijft de passende variant staan met zijn eigen opmaak, en gaan alleen de
-    // runs van de andere eruit.
-    //   grondwater ruim onder de ontgraving (> 0,25 m) → geel
-    //   grondwater binnen 0,25 m van de ontgraving     → cyaan
-    {
-        const gws83  = getal(grondwaterstand);
-        const diep83 = getal(ontgravingsdiepte);
-        if (!isNaN(gws83) && !isNaN(diep83)) {
-            const idxGeel  = xml.indexOf('Grondwateronderzoek dient');
-            const idxCyaan = xml.indexOf('Omdat er geen werkzaamheden');
-            const runStart = (i) =>
-                Math.max(xml.lastIndexOf('<w:r>', i), xml.lastIndexOf('<w:r ', i));
-
-            if (idxGeel === -1 || idxCyaan === -1) {
-                console.warn('[2.9] slotalinea-varianten niet gevonden — niets aangepast');
-            } else {
-                const startGeel  = runStart(idxGeel);
-                const startCyaan = runStart(idxCyaan);
-                if (gws83 - diep83 > 0.25) {
-                    // Gele tekst houden → cyaan run (één run) verwijderen
-                    const eindCyaan = xml.indexOf('</w:r>', idxCyaan) + '</w:r>'.length;
-                    xml = xml.slice(0, startCyaan) + xml.slice(eindCyaan);
-                } else if (startGeel < startCyaan) {
-                    // Cyaan tekst houden → alle gele runs ervoor verwijderen
-                    xml = xml.slice(0, startGeel) + xml.slice(startCyaan);
-                }
-            }
-        }
-    }
+    // Het sjabloon zet beide varianten achter elkaar in dezelfde alinea, met "OF"
+    // ertussen: eerst de gele tekst ("Grondwateronderzoek dient ..."), dan de cyaan
+    // ("Omdat er geen werkzaamheden ..."). Allebei blijven staan — de opdrachtgever
+    // wil deze paragraaf precies zo, en de controleur kiest zelf. De tool koos hier
+    // eerder op grond van grondwaterstand min ontgravingsdiepte; dat is eruit.
 
     // ── §2.2 Topotijdreis: label the caption cells with their year ───────────
     // The template's three caption cells all read plain "Topotijdreis" with no
