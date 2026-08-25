@@ -24,7 +24,6 @@ export default function AelmansForm() {
         ontgravingsdiepte: '',
         grondwaterstand: '',
         bemaling: '',
-        pfasBkk: '',
         bouwjaar: '',
         stromingsrichting: '',
         bodembeschermingsgebied: '',
@@ -214,16 +213,11 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                 opsteller:         form.opsteller || '',
                 amvNummer:         bdokData.amvNummer || '',
                 hasBodemrapportage: !!files.bodem,
-                bodemtype:         bdokData.bodemtype || '',
-                bodemklasseBoven:  bdokData.bodemklasseBoven || '',
-                bodemklasseOnder:  bdokData.bodemklasseOnder || '',
                 verdachteActiviteiten: form._bodemData?.verdachteActiviteiten || null,
-                pfasBkk:           form.pfasBkk || '',
                 bouwjaar:          form.bouwjaar || '',
                 bagZoekterm:       [form.straatnaam, form.huisnummer, form.plaatsnaam].filter(Boolean).join(' '),
                 stromingsrichting:       form.stromingsrichting || '',
                 bodembeschermingsgebied: form.bodembeschermingsgebied || '',
-                jaar:              new Date().getFullYear(),
                 tekening,          // { blob, widthPx, heightPx } or null
                 topoImages,        // [blob1945, blob1995, blob2025] or null
             });
@@ -415,9 +409,6 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                     </datalist>
                 </Field>
 
-                <Field label="PFAS BKK referentie (optioneel)">
-                    <input type="text" value={form.pfasBkk} onChange={set('pfasBkk')} placeholder="bijv. Bodem3000, 15-01-2025" style={inputStyle} />
-                </Field>
 
                 {/* Error */}
                 {error && (

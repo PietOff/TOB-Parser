@@ -19,14 +19,11 @@
  *  "1" (mengmonsters cell)                    → aantalMengmonsters
  *  "Synfra/BDOK" / "Synfra/BDOK."            → uitvoerder
  *  "G" + "emeente naam."                      → gemeente (split run, §1.3)
- *  "(jaartal)"                                → current year (BKK text)
- *  "van gemeente" in BKK sentence             → gemeente name
  *  "Opsteller rapportage"                     → "Opsteller"
  *  §2.4 slotzin                               → + verwijzing naar samenvatting
- *  §2.5 tabel Verdachte activiteiten          → gevuld uit de bodemrapportage,
- *                                               of verwijderd als er geen zijn
- *  "Landbouw/Natuur"                          → generieke klasse uit BDOK §2.2
- *  "(benoemen, datum)"                        → pfasBkk
+ *  §2.5 tabel Verdachte activiteiten          → gevuld uit de bodemrapportage; de
+ *                                               tabel blijft altijd staan
+ *  §2.6 en §2.7                               → onaangeroerd; sjabloontekst blijft
  *  "XXX" (in "circa XXX m +NAP")             → grondwaterstand
  *  Revision table                             → remove; keep "Niet van toepassing."
  *  Yellow/cyan GWO paragraph                 → remove inapplicable version
@@ -213,20 +210,53 @@ export async function fillAelmansTemplate(templateFile, values) {
         opsteller = '',
         uitvoerder = '',
         amvNummer = '',
-        bodemtype = '',
-        bodemklasseBoven = '',
-        bodemklasseOnder = '',
         verdachteActiviteiten = null,
-        pfasBkk = '',
         stromingsrichting = '',
         bodembeschermingsgebied = '',
         bouwjaar = '',
         bagZoekterm = '',
         hasBodemrapportage = false,
-        jaar = new Date().getFullYear(),
         tekening = null,
         topoImages = null,
     } = values;
+
+    // ── §2.6 en §2.7 blijven zoals het sjabloon ze aanlevert ──────────────
+    // De bodemkwaliteits-/bodemfunctiekaart (§2.6) en de PFAS-bodemkwaliteitskaart
+    // (§2.7) vult de adviseur zelf. Wat de tool daar eerder deed — de klasse uit de
+    // BDOK invullen, "(zie BDOK)" weghalen, de kop hernoemen, de PFAS-referentie —
+    // is eruit gehaald.
+    //
+    // Een blok code weghalen is niet genoeg: verschillende vervangingen zoeken door
+    // het hele document ("gemeente", een jaartal, de gele markering) en lopen dan
+    // alsnog §2.6 of §2.7 binnen. Daarom knippen we beide paragrafen er hier uit en
+    // zetten ze aan het eind onveranderd terug — alleen de gele sjabloonmarkering
+    // gaat er nog af, net als in de rest van het document.
+    //
+    // Grenzen: de Kop2-alinea die met "Bodemkwaliteit" begint tot en met de PFAS-kop
+    // die erop volgt; de eerstvolgende Kop2 daarna (§2.8 Asbest) is het einde. Klopt
+    // die volgorde niet, dan doen we niets en meldt de missercontrole het.
+    const SENTINEL_2627 = '<w:p><w:r><w:t>@@AELMANS_2_6_2_7@@</w:t></w:r></w:p>';
+    let bevroren2627 = null;
+    {
+        const koppen = [];
+        const kopRe = /<w:pStyle w:val="Kop2"\s*\/>/g;
+        let km;
+        while ((km = kopRe.exec(xml)) !== null) {
+            const pStart = Math.max(
+                xml.lastIndexOf('<w:p>', km.index),
+                xml.lastIndexOf('<w:p ', km.index)
+            );
+            koppen.push({ start: pStart, tekst: fragText(xml.slice(pStart, xml.indexOf('</w:p>', km.index))) });
+        }
+        const i26 = koppen.findIndex(k => /^Bodemkwaliteit/.test(k.tekst));
+        const eind = i26 !== -1 && /PFAS/.test(koppen[i26 + 1]?.tekst || '')
+            ? koppen[i26 + 2]?.start ?? -1
+            : -1;
+        if (verwacht('§2.6/§2.7 ongemoeid laten', eind !== -1)) {
+            bevroren2627 = xml.slice(koppen[i26].start, eind);
+            xml = xml.slice(0, koppen[i26].start) + SENTINEL_2627 + xml.slice(eind);
+        }
+    }
 
     const nl = (s) => String(s).replace('.', ',');
     const sleufNL   = sleuflengte       ? nl(sleuflengte)       : '';
@@ -418,16 +448,10 @@ export async function fillAelmansTemplate(templateFile, values) {
         // Bevoegd gezag cell: standalone "Gemeente" → full label
         xml = repT(xml, 'Gemeente', gemeenteLabel);
 
-        // §2.6 BKK-zin: "(jaartal)" → huidig jaar.
-        // Word zet dit als een eigen run neer ("...klassenkaart " | "(jaartal)" |
-        // " van " | "gemeente"), dus zoeken op de doorlopende zin vindt nooit iets —
-        // de run zelf moet vervangen worden.
-        xml = repT(xml, '\\(jaartal\\)', `(${jaar})`);
-
-        // "gemeente" (kleine letter) → "gemeente <plaats>". Komt twee keer voor:
-        // in de §2.6 BKK-zin en in de bijlagenlijst. Onvoorwaardelijk, want
-        // §2.6 staat er ook zonder bodemrapportage; Bijlage 3 wordt in dat geval
-        // even verderop toch in zijn geheel verwijderd.
+        // "gemeente" (kleine letter) → "gemeente <plaats>", voor de bijlagenlijst.
+        // Onvoorwaardelijk; Bijlage 3 wordt zonder bodemrapportage even verderop
+        // toch in zijn geheel verwijderd. (De §2.6-zin had hier ook zo'n run, maar
+        // die paragraaf blijft nu ongemoeid.)
         xml = repT(xml, 'gemeente', `gemeente ${xmlEsc(gemeenteCity)}`);
 
         // Titelblad van Bijlage 3: "Bodeminformatie" → "Bodeminformatie Gemeente <plaats>".
@@ -515,24 +539,22 @@ export async function fillAelmansTemplate(templateFile, values) {
     // De sjabloontabel heeft vijf kolommen (Locatie | Activiteit | Ubi code |
     // Jaartal begin | Jaartal eind) en twee groepskoppen die de datarijen splitsen
     // in "Onderzoekslocatie" en "Omgeving onderzoekslocatie (< 25 meter)".
-    // Zonder bodemrapportage blijft het sjabloon ongemoeid: dan is er niets bekend,
-    // en dat is iets anders dan "er zijn geen verdachte activiteiten".
-    if (verdachteActiviteiten) {
-        const opLocatie  = verdachteActiviteiten.onderzoekslocatie || [];
-        const inOmgeving = verdachteActiviteiten.omgeving || [];
-
-        if (!opLocatie.length && !inOmgeving.length) {
-            // Niets bekend → inleidende zin vervangen, tabel en bijschrift eruit
-            xml = repT(
-                xml,
-                'In onderstaande tabel zijn de verdachte activiteiten ter plaatse van de '
-                + 'onderzoekslocatie en directe omgeving hiervan \\(&lt;25 meter\\) weergegeven\\.',
-                'Er zijn geen verdachte activiteiten ter plaatse of nabij het tracé bekend.'
-            );
-            removeParaContaining(': Verdachte activiteiten');
-            removeTableContaining('Ubi code');
+    //
+    // De tabel blijft er in alle gevallen staan, met de inleidende zin, het
+    // bijschrift en de opmerkingenrijen ongemoeid. Alleen de datarijen wisselen:
+    //  - activiteiten bekend  → per groep de gevonden rijen
+    //  - niets gevonden       → één rij "Geen verdachte activiteiten gevonden" met
+    //                           streepjes in de overige kolommen, zonder groepskoppen
+    //  - geen bodemrapportage → lege datarijen; niets bekend is iets anders dan
+    //                           niets gevonden, en de voorbeeldrijen van het
+    //                           sjabloon ("Adres / Ondergrondse brandstoftank /
+    //                           UBI631246") zijn verzonnen data die niet in een
+    //                           rapportage thuishoren
+    {
+        const markIdx = xml.indexOf('Ubi code');
+        if (markIdx === -1) {
+            verwacht('§2.5 tabel gevonden', false);
         } else {
-            const markIdx  = xml.indexOf('Ubi code');
             const tblStart = Math.max(xml.lastIndexOf('<w:tbl>', markIdx), xml.lastIndexOf('<w:tbl ', markIdx));
             const tblEnd   = xml.indexOf('</w:tbl>', markIdx) + '</w:tbl>'.length;
             const tbl      = xml.slice(tblStart, tblEnd);
@@ -540,15 +562,36 @@ export async function fillAelmansTemplate(templateFile, values) {
 
             // Groepskoppen beslaan alle vijf kolommen; datarijen hebben vijf cellen
             const isGroep    = (r) => /<w:gridSpan w:val="5"\s*\/>/.test(r);
+            const isKop      = (r) => /Ubi code/.test(fragText(r));
+            const isData     = (r) => !isGroep(r) && !isKop(r)
+                                      && (r.match(/<w:tc>/g) || []).length === 5;
             const iOnderzoek = rows.findIndex(r => isGroep(r) && /Onderzoekslocatie/.test(fragText(r)));
             const iOmgeving  = rows.findIndex(r => isGroep(r) && /Omgeving onderzoekslocatie/.test(fragText(r)));
             const iOpmerking = rows.findIndex(r => isGroep(r) && /Opmerkingen/.test(fragText(r)));
 
             // Sjabloonrij: bij voorkeur een lege datarij, anders de voorbeeldrij
-            const dataRijen = rows.filter(r => !isGroep(r) && (r.match(/<w:tc>/g) || []).length === 5);
-            const sjabloon  = dataRijen.find(r => !fragText(r).trim()) || dataRijen[1] || dataRijen[0];
+            const dataRijen = rows.filter(isData);
+            const sjabloon  = dataRijen.find(r => !fragText(r).trim()) || dataRijen[0];
 
-            if (iOnderzoek !== -1 && iOmgeving !== -1 && iOpmerking !== -1 && sjabloon) {
+            const opLocatie  = verdachteActiviteiten?.onderzoekslocatie || [];
+            const inOmgeving = verdachteActiviteiten?.omgeving || [];
+
+            let nieuweRijen = null;
+            if (!verdachteActiviteiten) {
+                nieuweRijen = rows.map((r, i) =>
+                    isData(r) && (iOpmerking === -1 || i < iOpmerking)
+                        ? fillRow(r, ['', '', '', '', ''])
+                        : r
+                ).join('');
+            } else if (!opLocatie.length && !inOmgeving.length) {
+                if (sjabloon && iOpmerking !== -1) {
+                    nieuweRijen = [
+                        ...rows.slice(0, iOnderzoek === -1 ? 1 : iOnderzoek),
+                        fillRow(sjabloon, ['Geen verdachte activiteiten gevonden', '-', '-', '-', '-']),
+                        ...rows.slice(iOpmerking),
+                    ].join('');
+                }
+            } else if (iOnderzoek !== -1 && iOmgeving !== -1 && iOpmerking !== -1 && sjabloon) {
                 // Een groep zonder activiteiten houdt één lege rij, zodat de
                 // tabelindeling herkenbaar blijft.
                 const bouw = (lijst) => (lijst.length ? lijst : [{}]).map(a => fillRow(sjabloon, [
@@ -558,69 +601,23 @@ export async function fillAelmansTemplate(templateFile, values) {
                     a.jaartalBegin || '',
                     a.jaartalEind  || '',
                 ]));
-                const nieuweRijen = [
+                nieuweRijen = [
                     ...rows.slice(0, iOnderzoek + 1),
                     ...bouw(opLocatie),
                     rows[iOmgeving],
                     ...bouw(inOmgeving),
                     ...rows.slice(iOpmerking),
                 ].join('');
+            }
+
+            if (nieuweRijen === null) {
+                verwacht('§2.5 tabelindeling herkend', false);
+            } else {
                 const tblPrefix = tbl.slice(0, tbl.indexOf('<w:tr'));
                 xml = xml.slice(0, tblStart) + tblPrefix + nieuweRijen + '</w:tbl>' + xml.slice(tblEnd);
-            } else {
-                console.warn('[2.5] tabelindeling niet herkend — verdachte activiteiten niet ingevuld');
             }
         }
-    } else {
-        // Geen bodemrapportage geüpload. De tabel blijft staan — "niets bekend" is
-        // iets anders dan "er zijn geen verdachte activiteiten" — maar de
-        // voorbeeldrijen van het sjabloon ("Adres / Ondergrondse brandstoftank /
-        // UBI631246") moeten eruit: dat is verzonnen data in een rapportage.
-        // De adviseur ziet zo een lege tabel om zelf in te vullen.
-        const markIdx = xml.indexOf('Ubi code');
-        if (markIdx !== -1) {
-            const tblStart = Math.max(xml.lastIndexOf('<w:tbl>', markIdx), xml.lastIndexOf('<w:tbl ', markIdx));
-            const tblEnd   = xml.indexOf('</w:tbl>', markIdx) + '</w:tbl>'.length;
-            const tbl      = xml.slice(tblStart, tblEnd);
-            const rows     = tbl.match(/<w:tr(?:\s[^>]*)?>[\s\S]*?<\/w:tr>/g) || [];
-
-            const isGroep    = (r) => /<w:gridSpan w:val="5"\s*\/>/.test(r);
-            const iOpmerking = rows.findIndex(r => isGroep(r) && /Opmerkingen/.test(fragText(r)));
-            const isKop      = (r) => /Ubi code/.test(fragText(r));
-
-            const leeg = rows.map((r, i) => {
-                const isData = !isGroep(r) && !isKop(r)
-                    && (r.match(/<w:tc>/g) || []).length === 5
-                    && (iOpmerking === -1 || i < iOpmerking);
-                return isData ? fillRow(r, ['', '', '', '', '']) : r;
-            }).join('');
-
-            const tblPrefix = tbl.slice(0, tbl.indexOf('<w:tr'));
-            xml = xml.slice(0, tblStart) + tblPrefix + leeg + '</w:tbl>' + xml.slice(tblEnd);
-        }
     }
-
-    // ── §2.6 Bodemkwaliteitsklasse (uit BDOK §2.2, kolom "Generieke klasse") ─
-    // Sjabloonzin, opgesplitst over runs:
-    //   "...bodemkwaliteit van de |boven- en ondergrond| voldoet aan |de klasse ‘|
-    //    Landbouw/Natuur|’ (|z|ie BDOK)|."
-    // Zijn boven- en ondergrond dezelfde klasse, dan blijft de zin ongewijzigd.
-    // Verschillen ze, dan wordt hij per laag uitgeschreven.
-    {
-        const boven = bodemklasseBoven || bodemtype;
-        const onder = bodemklasseOnder || boven;
-        if (boven && onder !== boven) {
-            xml = repT(xml, 'boven- en ondergrond', 'bovengrond');
-            xml = xml.split('Landbouw/Natuur').join(
-                `${xmlEsc(boven)}’ en van de ondergrond aan de klasse ‘${xmlEsc(onder)}`
-            );
-        } else if (boven) {
-            xml = xml.split('Landbouw/Natuur').join(xmlEsc(boven));
-        }
-    }
-
-    // ── PFAS BKK reference ────────────────────────────────────────────────
-    if (pfasBkk) xml = xml.split('(benoemen, datum)').join(`(${xmlEsc(pfasBkk)})`);
 
     // ── AMV-projectnummer ─────────────────────────────────────────────────
     // Het sjabloon is een opgeslagen casus, dus het draagt het projectnummer van
@@ -693,19 +690,8 @@ export async function fillAelmansTemplate(templateFile, values) {
         );
     }
 
-    // ── §2.6 "(zie BDOK)" achter de klasse weghalen ───────────────────────────
-    // Verwijzing naar de bronrapportage; hoort niet in de lopende zin. Staat over
-    // vier runs verdeeld: "’ (" | "z" | "ie BDOK)" | "." → alleen "’" en "." blijven.
-    xml = xml.replace(
-        /(<w:t[^>]*>)’ \(<\/w:t>([\s\S]{0,400}?<w:t[^>]*>)z<\/w:t>([\s\S]{0,400}?<w:t[^>]*>)ie BDOK\)<\/w:t>/,
-        '$1’</w:t>$2</w:t>$3</w:t>'
-    );
-
     // ── Bijlage 1: bronvermelding ─────────────────────────────────────────────
     repTv("Bijlage 1 bronvermelding", "Bron: Google Maps", "Bron: Bodemloket.nl/Werktekening opdrachtgever");
-
-    // ── §2.6 kop (ook de regel in de inhoudsopgave) ───────────────────────────
-    repTv("§2.6 kop", "Bodemkwaliteitskaart/-functiekaart", "Bodemkwaliteits- en bodemfunctiekaart");
 
     // ── Remove yellow highlighting (template placeholder highlighting) ─────────
     // De `\s*` is wezenlijk: Word schrijft zelfsluitende tags met een spatie
@@ -991,6 +977,14 @@ export async function fillAelmansTemplate(templateFile, values) {
         removeParaContaining('tekening invoegen opdrachtgever');
     } else {
         removeParaContaining('tekening invoegen opdrachtgever');
+    }
+
+    // §2.6 en §2.7 onveranderd terugzetten (zie de toelichting bovenaan). Alleen de
+    // gele sjabloonmarkering gaat eraf, net als in de rest van het document.
+    if (bevroren2627) {
+        xml = xml.split(SENTINEL_2627).join(
+            bevroren2627.replace(/<w:highlight w:val="yellow"\s*\/>/g, '')
+        );
     }
 
     // Vervangingen die nergens raakten. Bijna altijd betekent dit dat het sjabloon
