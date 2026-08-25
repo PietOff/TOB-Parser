@@ -5,8 +5,8 @@
  * Works on any template version regardless of whether Word comments are present.
  *
  * Placeholder → replacement:
- *  "M. Buss"                                  → "Dhr. R.D.T. Houben" (all occurrences)
- *  "naam"                                     → "Dhr. R.D.T. Houben" (collegiale toets)
+ *  naam achter "Opsteller"                    → opsteller (medewerker, uit het formulier)
+ *  naam achter contactpersoon/collegiale toets → "Dhr. R.D.T. Houben"
  *  "100 meter"                                → sleuflengte
  *  " xxx meter" / "xxx "                      → sleuflengte (paragraph / table cell)
  *  "0,80 m-mv"                                → ontgravingsdiepte
@@ -161,12 +161,17 @@ export async function fillAelmansTemplate(templateFile, values) {
         const idx = xml.indexOf(`>${label}</w:t>`);
         if (idx === -1) return false;
         // Vanaf het einde van de label-run verder zoeken; de partiële run waarin
-        // het label staat kan het patroon hieronder niet meer matchen.
-        const staart = xml.slice(idx);
+        // het label staat kan het patroon hieronder niet meer matchen. Niet verder
+        // kijken dan de tabelrij van het label: in het Haelen-sjabloon was de naam
+        // achter "Contactpersoon Aelmans Milieu" als bijgehouden wijziging
+        // weggehaald (<w:delText>, dus geen <w:t>), waardoor de zoektocht doorliep
+        // naar de rij eronder. Alleen een ruwe tekenlimiet hield hem daar tegen —
+        // de rijgrens zegt wat we bedoelen en kan een label niet raken.
+        const rijEind = xml.indexOf('</w:tr>', idx);
+        const staart  = xml.slice(idx, rijEind === -1 ? idx + 4000 : rijEind);
         const re = /<w:t([^>]*)>([^<]*)<\/w:t>/g;
         let m;
         while ((m = re.exec(staart)) !== null) {
-            if (m.index > 4000) break;   // buiten dit veld geraakt
             const inhoud = m[2].trim();
             if (!inhoud || /^[:;\-–—.]+$/.test(inhoud)) continue;
             const abs = idx + m.index;
@@ -175,7 +180,16 @@ export async function fillAelmansTemplate(templateFile, values) {
                 + xml.slice(abs + m[0].length);
             return true;
         }
-        return false;
+        // Geen invulbare run in de rij: de waardecel is leeg, of bevat alleen een
+        // bijgehouden verwijdering. Zet er dan zelf een run in, aan het eind van
+        // de laatste alinea van de rij — dat is de waardecel.
+        const pEind = staart.lastIndexOf('</w:p>');
+        if (pEind === -1) return false;
+        const abs = idx + pEind;
+        xml = xml.slice(0, abs)
+            + `<w:r><w:t xml:space="preserve">${xmlEsc(waarde)}</w:t></w:r>`
+            + xml.slice(abs);
+        return true;
     };
 
     // Helper: remove the whole table containing a text marker (first match)
@@ -196,6 +210,7 @@ export async function fillAelmansTemplate(templateFile, values) {
         grondwaterstand = '',
         bemaling = '',
         gemeente = '',
+        opsteller = '',
         uitvoerder = '',
         amvNummer = '',
         bodemtype = '',
@@ -236,18 +251,23 @@ export async function fillAelmansTemplate(templateFile, values) {
     repTv("titelblad: Opsteller", "Opsteller rapportage", "Opsteller");
 
     // ── Contactpersoon / opsteller / collegiale toets ──────────────────────
-    // Altijd Dhr. R.D.T. Houben. Het sjabloon is een opgeslagen casus en draagt
-    // dus de naam van de vórige opsteller mee — Bladel had "M. Buss", Haelen
-    // "E. Heijdra". Zoeken op een vaste naam faalt daarom bij elk nieuw sjabloon
-    // (in de Haelen-rapportage bleef de verkeerde naam 3× staan). We zoeken nu op
-    // het label ernaast, want dat ligt vast, en vervangen de waarde erachter.
-    for (const label of [
-        'Contactpersoon Aelmans Milieu',  // titelblad
-        'Opsteller',                      // titelblad
-        'Collegiale toets',               // titelblad
-        'Contactpersoon Aelmans',         // samenvattingstabel
+    // Het sjabloon is een opgeslagen casus en draagt dus de naam van de vórige
+    // opsteller mee — Bladel had "M. Buss", Haelen "E. Heijdra". Zoeken op een
+    // vaste naam faalt daarom bij elk nieuw sjabloon (in de Haelen-rapportage
+    // bleef de verkeerde naam 3× staan). We zoeken op het label ernaast, want dat
+    // ligt vast, en vervangen de waarde erachter.
+    //
+    // De opsteller is de medewerker die het rapport schrijft en komt dus uit het
+    // formulier. De collegiale toets en de contactpersoonvelden blijven
+    // Dhr. R.D.T. Houben.
+    const HOUBEN = 'Dhr. R.D.T. Houben';
+    for (const [label, naam] of [
+        ['Contactpersoon Aelmans Milieu', HOUBEN],              // titelblad
+        ['Opsteller',                     opsteller || HOUBEN], // titelblad
+        ['Collegiale toets',              HOUBEN],              // titelblad
+        ['Contactpersoon Aelmans',        HOUBEN],              // samenvattingstabel
     ]) {
-        verwacht(`naam bij "${label}"`, vulWaardeAchterLabel(label, 'Dhr. R.D.T. Houben'));
+        verwacht(`naam bij "${label}"`, vulWaardeAchterLabel(label, naam));
     }
 
     // ── Samenvatting: keuzelijsten terugzetten ────────────────────────────
@@ -271,11 +291,11 @@ export async function fillAelmansTemplate(templateFile, values) {
     // Nieuwe zin, komt als eigen alinea vóór "Hieronder is een overzicht…".
     // "(BAG-viewer)" wordt een koppeling naar het adres in de BAG-viewer.
     //
-    // De zin over de asbestverdachte periode staat er alleen bij als het pand van
-    // 1994 of later is. Asbest is in 1994 verboden; bij oudere bebouwing zou
-    // "geen aanwijzingen voor bouw en sloop in de asbestverdachte periode" een
-    // bewering zijn die we niet kunnen onderbouwen, dus die laten we dan aan de
-    // adviseur.
+    // De zin over de asbestverdachte periode staat er altijd bij, met "geen/wel"
+    // als keuze voor de adviseur — net als de keuzelijsten in de samenvatting.
+    // (Eerder stond hij er alleen bij pandjaar ≥ 1994, omdat "geen aanwijzingen"
+    // bij oudere bebouwing een bewering is die we niet kunnen onderbouwen; met de
+    // keuze erin doen we die bewering niet meer.)
     if (bouwjaar) {
         const anker = xml.indexOf('Hieronder is een overzicht');
         if (anker === -1) {
@@ -298,9 +318,7 @@ export async function fillAelmansTemplate(templateFile, values) {
                 zip.file('word/_rels/document.xml.rels', rels);
             }
 
-            const asbestZin = parseInt(bouwjaar, 10) >= 1994
-                ? ' Er zijn geen aanwijzingen voor bouw en sloop in de asbestverdachte periode.'
-                : '';
+            const asbestZin = ' Er zijn geen/wel aanwijzingen naar bouw en sloop in de asbestverdachte periode.';
 
             const alinea =
                 '<w:p><w:r><w:t xml:space="preserve">De huidige bebouwing is in '

@@ -13,6 +13,7 @@ export default function AelmansForm() {
 
     const [form, setForm] = useState({
         email: '',
+        opsteller: '',
         straatnaam: '',
         huisnummer: '',
         plaatsnaam: '',
@@ -210,6 +211,7 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                 grondwaterstand:   form.grondwaterstand,
                 bemaling:          form.bemaling,
                 uitvoerder:        form.uitvoerder || 'Synfra/BDOK',
+                opsteller:         form.opsteller || '',
                 amvNummer:         bdokData.amvNummer || '',
                 hasBodemrapportage: !!files.bodem,
                 bodemtype:         bdokData.bodemtype || '',
@@ -325,9 +327,14 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                 {/* Section: Projectgegevens */}
                 <SectionHeader>Projectgegevens</SectionHeader>
 
-                <Field label="E-mailadres" required>
-                    <input type="email" value={form.email} onChange={set('email')} placeholder="naam@bedrijf.nl" style={inputStyle} />
-                </Field>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    <Field label="E-mailadres" required>
+                        <input type="email" value={form.email} onChange={set('email')} placeholder="naam@bedrijf.nl" style={inputStyle} />
+                    </Field>
+                    <Field label="Opsteller">
+                        <input type="text" value={form.opsteller} onChange={set('opsteller')} placeholder="bijv. Dhr. R.D.T. Houben" style={inputStyle} />
+                    </Field>
+                </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.75rem' }}>
                     <Field label="Straatnaam" required>
