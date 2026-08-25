@@ -369,8 +369,26 @@ export async function fillAelmansTemplate(templateFile, values) {
                 ? `objectId=${encodeURIComponent(bagPandId)}`
                 : `searchQuery=${encodeURIComponent(bagZoekterm || '')}`);
 
-        if (xml.includes('De huidige bebouwing is in')) {
-            if (bouwjaar) repTv('§2.2 bouwjaar', 'XXXX', xmlEsc(bouwjaar));
+        // Een leeg bouwjaar blokkeerde eerder de hele alinea: zonder jaartal werd er
+        // niets ingevoegd, dus ontbraken de zin én de koppeling naar de BAG-viewer.
+        // Nu komt de zin er altijd, met "XXXX" als het jaartal onbekend is — dat is
+        // zichtbaar handwerk in plaats van stilzwijgend niets. De melding hieronder
+        // zegt waaróm het jaartal ontbreekt: de BAG-bevraging heeft niets opgeleverd,
+        // meestal omdat de quickscan geen adres gaf om op te zoeken.
+        verwacht('§2.2 bouwjaar bekend (anders blijft XXXX staan)', !!bouwjaar);
+
+        // Toetsen op de zíchtbare tekst, niet op de ruwe XML: Word knipt een zin op
+        // in losse runs zodra er ooit in bewerkt is, en dan staat er bijvoorbeeld
+        // "De huidige bebouwing" | " is in" in het bestand. Een `includes()` op de
+        // XML mist dat, en dan zou de zin er een tweede keer bij gezet worden.
+        const zichtbareTekst = fragText(xml);
+        // Voor het aanvullen van de asbestzin moeten we de alinea wél terugvinden in
+        // de XML; daarvoor pakken we het langste stuk dat nog aaneengesloten staat.
+        const ankerZin = ['De huidige bebouwing is in', 'De huidige bebouwing', 'huidige bebouwing']
+            .find(a => xml.includes(a));
+
+        if (zichtbareTekst.includes('De huidige bebouwing is in')) {
+            if (bouwjaar) repTv('§2.2 bouwjaar invullen', 'XXXX', xmlEsc(bouwjaar));
             // Op het patroon toetsen en niet op "is de tekst veranderd": staat het
             // sjabloon toevallig al op het juiste pand, dan verandert er niets en is
             // dat gewoon goed.
@@ -381,8 +399,9 @@ export async function fillAelmansTemplate(templateFile, values) {
             // Niet elk sjabloon heeft de asbestzin achter de bouwjaarzin staan. Zit
             // hij niet in dezelfde alinea, dan zetten we hem er zelf achter — anders
             // ontbreekt hij stilzwijgend in de rapportage.
-            const zinIdx = xml.indexOf('De huidige bebouwing is in');
-            const alineaEind = xml.indexOf('</w:p>', zinIdx);
+            const zinIdx = ankerZin ? xml.indexOf(ankerZin) : -1;
+            const alineaEind = zinIdx === -1 ? -1 : xml.indexOf('</w:p>', zinIdx);
+            verwacht('§2.2 alinea van de bouwjaarzin gevonden', alineaEind !== -1);
             const alinea = alineaEind === -1 ? '' : xml.slice(zinIdx, alineaEind);
             if (alineaEind !== -1 && !alinea.includes('asbestverdachte periode')) {
                 xml = xml.slice(0, alineaEind)
@@ -390,9 +409,9 @@ export async function fillAelmansTemplate(templateFile, values) {
                     + 'bouw en sloop in de asbestverdachte periode.</w:t></w:r>'
                     + xml.slice(alineaEind);
             }
-        } else if (bouwjaar) {
-            // Ouder sjabloon zonder de zin: er zelf een alinea bij zetten, met
-            // dezelfde opbouw als het nieuwe sjabloon gebruikt.
+        } else {
+            // Sjabloon zonder de zin: er zelf een alinea bij zetten, met dezelfde
+            // opbouw als het nieuwe sjabloon gebruikt.
             const anker = xml.indexOf('Hieronder is een overzicht');
             const pStart = anker === -1 ? -1 : Math.max(
                 xml.lastIndexOf('<w:p>', anker),
@@ -401,7 +420,7 @@ export async function fillAelmansTemplate(templateFile, values) {
             if (verwacht('§2.2 plek voor de bouwjaarzin', pStart !== -1)) {
                 const alinea =
                     '<w:p><w:r><w:t xml:space="preserve">De huidige bebouwing is in '
-                    + `${xmlEsc(bouwjaar)} gerealiseerd </w:t></w:r>`
+                    + `${xmlEsc(bouwjaar || 'XXXX')} gerealiseerd </w:t></w:r>`
                     + '<w:r><w:fldChar w:fldCharType="begin"/></w:r>'
                     + `<w:r><w:instrText xml:space="preserve">HYPERLINK "${xmlEsc(bagUrl)}" \\h</w:instrText></w:r>`
                     + '<w:r><w:fldChar w:fldCharType="separate"/></w:r>'
