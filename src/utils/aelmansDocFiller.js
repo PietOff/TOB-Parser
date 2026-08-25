@@ -885,6 +885,29 @@ export async function fillAelmansTemplate(templateFile, values) {
             `<w:p><w:r><w:br w:type="page"/></w:r></w:p>` +
             `<w:p><w:r>${anchoredDrawingXml(tekeningRId, cxEmu, cyEmu, 9901, 'Tekening')}</w:r></w:p>`;
 
+        // Meelopende variant voor de bijlagepagina die de pijl "onderzoekslocatie",
+        // de noordpijl en de bronregel al bevat: die drie horen ónder de
+        // werktekening op dezelfde pagina te staan. Dus geen eigen paginaovergang en
+        // niet zwevend, maar inline in een eigen alinea — dan schuift de rest
+        // vanzelf eronder.
+        //
+        // Maat: de pagina is A4 met marges 33/25 mm, dus de tekstkolom is 152 mm
+        // breed. In de hoogte houden we 150 mm aan, zodat er onder de tekening
+        // ruimte overblijft voor de pijl (13 mm), de noordpijl (32 mm) en de
+        // bronregel — anders duwt de tekening ze alsnog naar de volgende pagina.
+        const inlineTekening = (() => {
+            const maxBreedte = 5_470_000; // 152 mm in EMU
+            const maxHoogte  = 5_400_000; // 150 mm in EMU
+            const verhouding = tekening.heightPx / tekening.widthPx;
+            let cx = maxBreedte;
+            let cy = Math.round(maxBreedte * verhouding);
+            if (cy > maxHoogte) {
+                cy = maxHoogte;
+                cx = Math.round(maxHoogte / verhouding);
+            }
+            return `<w:p><w:r>${inlineDrawingXml(tekeningRId, cx, cy, 9901, 'Tekening')}</w:r></w:p>`;
+        })();
+
         // The image belongs on the page headed "Bijlage 1 / Onderzoekslocatie".
         // "Bijlage 1" is auto-numbered so the raw XML only holds the title text, and the
         // "Bijlage" paragraph style is also used by the Inhoudsopgave heading — so anchor
@@ -916,13 +939,34 @@ export async function fillAelmansTemplate(templateFile, values) {
 
         let placed = false;
 
+        // 0a. Beste plek: de pijl "onderzoekslocatie" op de bijlagepagina. Die pijl
+        //     zit in een tekstvak binnen een <w:drawing>; de alinea die dat drawing
+        //     draagt is de eerste van de pagina-inhoud. Daar zetten we de
+        //     werktekening vlak vóór, zodat de pijl, de noordpijl en de bronregel
+        //     eronder komen te staan op dezelfde pagina.
+        {
+            for (let i = xml.indexOf('>onderzoekslocatie<'); i !== -1 && !placed;
+                 i = xml.indexOf('>onderzoekslocatie<', i + 1)) {
+                if (!isInTextBox(i)) continue;
+                const dStart = xml.lastIndexOf('<w:drawing>', i);
+                if (dStart === -1) continue;
+                const pStart = Math.max(
+                    xml.lastIndexOf('<w:p>', dStart),
+                    xml.lastIndexOf('<w:p ', dStart)
+                );
+                if (pStart === -1) continue;
+                xml = xml.slice(0, pStart) + inlineTekening + xml.slice(pStart);
+                placed = true;
+            }
+        }
+
         // 0. Best signal: the "(tekening invoegen opdrachtgever)" placeholder marks the
         //    appendix the drawing belongs to, so the nearest "Onderzoekslocatie" *before*
         //    it is reliably the Bijlage 1 heading. The title also appears earlier in the
         //    report body (§1), tens of thousands of characters away, and that earlier hit
         //    would otherwise win — which is exactly what put the image on the wrong page.
         {
-            const phIdx0 = xml.indexOf('tekening invoegen opdrachtgever');
+            const phIdx0 = placed ? -1 : xml.indexOf('tekening invoegen opdrachtgever');
             if (phIdx0 !== -1) {
                 let anchorEnd = -1;
                 for (let i = xml.indexOf('Onderzoekslocatie'); i !== -1 && i < phIdx0; i = xml.indexOf('Onderzoekslocatie', i + 1)) {
