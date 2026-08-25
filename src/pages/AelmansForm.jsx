@@ -173,10 +173,15 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                 setForm(prev => ({ ...prev, _bodemData: data }));
                 const va = data.verdachteActiviteiten;
                 const n  = va.onderzoekslocatie.length + va.omgeving.length;
+                // Activiteiten waarvan de UBI-code niet gevonden is meteen laten zien:
+                // die cel blijft anders leeg in §2.5 zonder dat het opvalt. De console
+                // noemt om wélke omschrijvingen het gaat.
+                const zonderCode = (data.zonderUbiCode || []).length;
                 setParseStatus(prev => ({
                     ...prev,
                     bodem: n
                         ? `✓ ${n} verdachte activiteit${n === 1 ? '' : 'en'}`
+                          + (zonderCode ? ` · ⚠ ${zonderCode} zonder UBI-code` : '')
                         : '✓ Geen verdachte activiteiten',
                 }));
             } catch (err) {
@@ -274,7 +279,12 @@ data.isGroterDan25m3 !== null && `>25m³: ${data.isGroterDan25m3 ? 'Ja' : 'Nee'}
                 opsteller:         form.opsteller || '',
                 amvNummer:         bdokData.amvNummer || '',
                 hasBodemrapportage: !!files.bodem,
-                verdachteActiviteiten: form._bodemData?.verdachteActiviteiten || null,
+                // Zonder bodemrapportage kan de quickscan zelf de bron zijn: §1.7 van
+                // de BDOK noemt de activiteiten uit het historisch bodembestand en het
+                // tankbestand. Alleen gebruiken als die paragraaf ook echt iets zégt —
+                // `null` betekent voor §2.5 "niets bekend" en houdt de tabel leeg.
+                verdachteActiviteiten: form._bodemData?.verdachteActiviteiten
+                    || (bdokData.activiteitenBekend ? bdokData.verdachteActiviteiten : null),
                 bouwjaar:          bouwjaar || '',
                 bagZoekterm:       [form.straatnaam, form.huisnummer, form.plaatsnaam].filter(Boolean).join(' '),
                 bagPandId:         bagPandId,

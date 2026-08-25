@@ -73,6 +73,9 @@ export async function parseBdok(file, onProgress) {
         bodemklasseBoven: '',     // BDOK §2.2 generieke klasse bovengrond
         bodemklasseOnder: '',     // BDOK §2.2 generieke klasse ondergrond
         typeVerharding: '',
+        // §1.7: true als de quickscan uitdrukkelijk meldt dat er geen activiteiten zijn
+        activiteitenBekend: false,
+        verdachteActiviteiten: { onderzoekslocatie: [], omgeving: [] },
         // Calculated
         boringDiepte: '',         // ontgravingsdiepte + 0,2
         aantalBoringen: '',
@@ -250,6 +253,65 @@ export async function parseBdok(file, onProgress) {
         }
     }
 
+    // ── §1.7 Bodembedreigende activiteiten (HBB en tanks) ──
+    // De quickscan heeft hier twee eigen paragrafen voor:
+    //   1.7.1 Activiteiten uit Historisch bodembestand
+    //   1.7.2 Activiteiten uit het Tankbestand
+    // Dat is dezelfde soort informatie als de bodemrapportage voor §2.5 levert, dus
+    // zonder bodemrapportage kan de tabel hiermee gevuld worden.
+    //
+    // Zijn beide paragrafen leeg, dan zégt de quickscan dat ("Binnen de selectie
+    // zijn geen digitale gegevens beschikbaar of (nog) niet ingevoerd") — en dat is
+    // iets anders dan "er is niet gekeken". Alleen in dat eerste geval mag §2.5
+    // "Geen verdachte activiteiten gevonden" schrijven, dus dat onderscheid houden
+    // we vast in `activiteitenBekend`.
+    {
+        const LEEG = /Binnen\s+de\s+selectie\s+zijn\s+geen\s+digitale\s+gegevens/i;
+
+        // Elke kop staat twee keer in de tekst: één keer in de inhoudsopgave en één
+        // keer boven de paragraaf zelf. De eerste treffer is dus de inhoudsopgave —
+        // en die bevat de "geen gegevens"-zin niet, waardoor het leek alsof er wél
+        // activiteiten stonden. Inhoudsopgaveregels lopen door in een stippellijn
+        // naar een paginanummer; daarop slaan we ze over.
+        const kopIndex = (patroon) => {
+            const re = new RegExp(patroon.source, 'gi');
+            let m;
+            while ((m = re.exec(fullText)) !== null) {
+                const na = fullText.slice(m.index + m[0].length, m.index + m[0].length + 12);
+                if (/\.{4,}/.test(na)) continue;
+                return m.index;
+            }
+            return -1;
+        };
+        const blok = (vanaf, tot) => {
+            const i = kopIndex(vanaf);
+            if (i === -1) return null;
+            const j = kopIndex(tot);
+            return j > i ? fullText.slice(i, j) : fullText.slice(i);
+        };
+        const hbb  = blok(/Activiteiten\s+uit\s+Historisch\s+bodembestand/,
+                          /Activiteiten\s+uit\s+het\s+Tankbestand/);
+        const tank = blok(/Activiteiten\s+uit\s+het\s+Tankbestand/,
+                          /Asbestverdachte\s+onderzochte\s+activiteit/);
+
+        if (hbb || tank) {
+            const gevuld = [hbb, tank].filter(b => b && !LEEG.test(b));
+            if (!gevuld.length) {
+                // Beide paragrafen melden expliciet dat er niets is.
+                result.activiteitenBekend = true;
+            } else {
+                // Er staan rijen in, maar de kolomindeling van die tabel is nog niet
+                // bekend — daar is een quickscan mét gegevens voor nodig. Liever
+                // hardop melden dan er een halve tabel van maken.
+                console.warn(
+                    '[quickscan] §1.7 bevat activiteiten, maar het uitlezen daarvan is nog '
+                    + 'niet gebouwd. Ruwe tekst van de betreffende paragraaf/paragrafen:\n'
+                    + gevuld.map(b => b.slice(0, 1500)).join('\n---\n')
+                );
+            }
+        }
+    }
+
     // ── Bodemkwaliteitsklasse — BDOK §2.2, kolom "Generieke klasse" ──
     // De tabel bevat per laag een specifieke en een generieke klasse:
     //   Bovengrond specifieke klasse gemeente | Generieke klasse | Achtergrondwaarde
@@ -408,6 +470,24 @@ export async function parseBodemrapportage(file, onProgress) {
         if (iBuf !== -1) {
             result.verdachteActiviteiten.omgeving =
                 parseActiviteiten(fullText.slice(iBuf, iEnd > iBuf ? iEnd : fullText.length));
+        }
+
+        // De rapportage noemt geen UBI-code, alleen de omschrijving; die wordt
+        // opgezocht in ubiCodes.js. Staat een omschrijving daar niet in, dan blijft
+        // de cel in §2.5 leeg zonder dat iemand het merkt. Noem ze daarom bij naam,
+        // want dan is meteen duidelijk wélke regel in de UBI-lijst ontbreekt of
+        // anders geschreven is.
+        const alle = [
+            ...result.verdachteActiviteiten.onderzoekslocatie,
+            ...result.verdachteActiviteiten.omgeving,
+        ];
+        result.zonderUbiCode = alle.filter(a => !a.ubiCode).map(a => a.activiteit);
+        if (result.zonderUbiCode.length) {
+            console.warn(
+                `[bodemrapportage] ${result.zonderUbiCode.length} activiteit(en) zonder UBI-code `
+                + `— de omschrijving staat niet in de UBI-lijst:\n  • `
+                + result.zonderUbiCode.join('\n  • ')
+            );
         }
     }
 
